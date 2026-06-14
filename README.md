@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-本仓库处于 **Planning stage**。当前内容是项目蓝图与文档，不包含可运行代码、Go module、CI 或部署物料。下一步应从 Phase 0 开始建立工程基线。
+本仓库处于 **Phase 0 工程基线**。当前已包含 Go module、基础目录骨架、配置加载、结构化日志、领域错误、测试脚手架和 CI 草案；业务能力尚未实现。
 
 ## 项目定位
 
@@ -59,27 +59,47 @@ flowchart TD
 
 完整拆解见 [plan.md](./plan.md)。
 
+## SDD 文档
+
+Phase 0 按 spec-driven development 流程补齐了规格和设计文档：
+
+- [Phase 0 Engineering Baseline Spec](./docs/specs/phase-0-engineering-baseline.md)
+- [Phase 0 Engineering Baseline Design](./docs/design/phase-0-engineering-baseline.md)
+
 ## 仓库结构
 
-当前仓库只包含规划文档：
+当前仓库已进入 Phase 0 工程基线，核心结构如下：
 
 ```text
 digital-twin/
+├── cmd/
+│   ├── cli/
+│   └── server/
+├── configs/
+├── internal/
+│   ├── config/
+│   ├── core/
+│   └── observability/
+├── pkg/
 ├── README.md
 ├── RELEASE_NOTES.md
+├── go.mod
+├── Makefile
 └── plan.md
 ```
 
-未来代码目录以 [plan.md](./plan.md) 中的目标目录结构为准。
+未来完整代码目录以 [plan.md](./plan.md) 中的目标目录结构为准。
 
 ## 推荐下一步
 
-从 Phase 0 开始实现：
+继续完成并巩固 Phase 0：
 
-1. 初始化 Go module 和目录骨架。
-2. 添加 `Makefile`、`.gitignore` 和基础测试命令。
-3. 实现配置加载、结构化日志和统一错误处理。
-4. 确保每一步都可以独立构建、测试和验证。
+1. 在本地运行 `go test ./...`、`go vet ./...` 和 `go build ./cmd/server`。
+2. 在支持 `make` 的环境运行 `make build`、`make test`、`make lint`、`make vet`。
+3. 在 Windows PowerShell 中运行 `.\scripts\dev.ps1 test`、`.\scripts\dev.ps1 build`、`.\scripts\dev.ps1 lint`。
+4. 在支持 race detector 的平台运行 `make test-race` 或 `.\scripts\dev.ps1 test-race`。
+5. 确认 CI 能解析并执行 `.github/workflows/ci.yml`。
+6. 进入 Phase 1，开始定义数据契约、核心接口和 mock。
 
 ## 开发原则
 

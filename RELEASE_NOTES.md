@@ -1,6 +1,28 @@
 # Release Notes
 
-本文件记录 `digital-twin` 仓库的文档和产品规划版本变化。当前仓库仍处于 planning stage，不包含可运行代码。
+本文件记录 `digital-twin` 仓库的文档、工程基线和后续产品版本变化。
+
+## v0.2.0 Phase 0 Engineering Baseline — 2026-06-14
+
+### Added
+
+- 新增 Go module、基础目录骨架、CLI/server 占位入口、Makefile、PowerShell 开发脚本和 CI workflow。
+- 新增 Phase 0 SDD 规格文档和设计文档，明确工程基线的验收标准、边界和设计决策。
+- 新增 `configs/app.yaml` 默认配置模板，以及 `internal/config` 配置加载包，支持固定结构 YAML 子集和环境变量覆盖。
+- 新增 `internal/observability` 可观测性底座，包括 `slog` logger、内存 metrics、Prometheus 文本导出接口和 no-op trace hook。
+- 新增 `internal/core` 领域错误、错误包装 helper 和泛型 `Result[T]` 包络。
+
+### Verified
+
+- `go test ./...` 通过。
+- `go build ./cmd/server` 通过。
+- `go vet ./...` 通过。
+- `go run ./cmd/server --config configs/app.yaml` 能输出结构化 JSON 启动日志。
+
+### Notes
+
+- 当前本机 Go 环境为 `windows/386`，不支持 race detector；`make test-race` 需要在支持 race 的平台执行。
+- 本机未安装 `make` 和 `golangci-lint`，Windows 可使用 `scripts/dev.ps1` 执行 build/test/lint/run/clean。
 
 ## v0.1.0 Planning Release — 2026-06-14
 

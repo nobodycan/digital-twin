@@ -1,0 +1,20 @@
+# Build outputs
+bin/
+dist/
+coverage.out
+*.exe
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Temporary files
+*.tmp
+*.log

@@ -1,0 +1,16 @@
+server:
+  port: 8080
+log:
+  level: info
+llm:
+  api_key: ""
+db:
+  dsn: ""
+tts:
+  provider: local
+asr:
+  provider: local
+object_storage:
+  endpoint: ""
+tenant:
+  default_id: default
