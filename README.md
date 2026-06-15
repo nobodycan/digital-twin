@@ -4,7 +4,9 @@
 
 ## 当前状态
 
-本仓库处于 **Phase 0 工程基线**。当前已包含 Go module、基础目录骨架、配置加载、结构化日志、领域错误、测试脚手架和 CI 草案；业务能力尚未实现。
+本仓库已完成 **Phase 1 内核契约与基础设施**。当前已包含 Go module、基础目录骨架、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、OpenAI-compatible fake-server tested client、本地文件存储、内存向量库、短期/长期记忆基础设施和本地 EventBus。
+
+业务层仍未进入 Phase 2：尚未实现 persona prompt、真实 intent classifier、专家 Agent、Skill 库、HTTP API、Web UI、TTS/ASR 或 Avatar 表现层。
 
 ## 项目定位
 
@@ -66,9 +68,15 @@ Phase 0 按 spec-driven development 流程补齐了规格和设计文档：
 - [Phase 0 Engineering Baseline Spec](./docs/specs/phase-0-engineering-baseline.md)
 - [Phase 0 Engineering Baseline Design](./docs/design/phase-0-engineering-baseline.md)
 
+Phase 1 已按 SDD 流程补齐规格、设计和执行计划：
+
+- [Phase 1 Core Contracts and Infrastructure Spec](./docs/specs/phase-1-core-contracts-infrastructure.md)
+- [Phase 1 Core Contracts and Infrastructure Design](./docs/design/phase-1-core-contracts-infrastructure.md)
+- [Phase 1 Core Contracts and Infrastructure Plan](./docs/plans/phase-1-core-contracts-infrastructure-plan.md)
+
 ## 仓库结构
 
-当前仓库已进入 Phase 0 工程基线，核心结构如下：
+当前仓库已完成 Phase 1，核心结构如下：
 
 ```text
 digital-twin/
@@ -79,8 +87,14 @@ digital-twin/
 ├── internal/
 │   ├── config/
 │   ├── core/
-│   └── observability/
+│   ├── llm/
+│   ├── memory/
+│   ├── runtime/
+│   ├── store/
+│   ├── observability/
+│   └── testutil/
 ├── pkg/
+│   └── types/
 ├── README.md
 ├── RELEASE_NOTES.md
 ├── go.mod
@@ -92,14 +106,12 @@ digital-twin/
 
 ## 推荐下一步
 
-继续完成并巩固 Phase 0：
+按 `AGENTS.md` 的 SDD gate 推进 Phase 2：
 
-1. 在本地运行 `go test ./...`、`go vet ./...` 和 `go build ./cmd/server`。
-2. 在支持 `make` 的环境运行 `make build`、`make test`、`make lint`、`make vet`。
-3. 在 Windows PowerShell 中运行 `.\scripts\dev.ps1 test`、`.\scripts\dev.ps1 build`、`.\scripts\dev.ps1 lint`。
-4. 在支持 race detector 的平台运行 `make test-race` 或 `.\scripts\dev.ps1 test-race`。
-5. 确认 CI 能解析并执行 `.github/workflows/ci.yml`。
-6. 进入 Phase 1，开始定义数据契约、核心接口和 mock。
+1. 基于 `plan.md` 为 Phase 2 补充 spec、design 和执行计划。
+2. 明确 persona、prompt renderer、router、Skill 和 Agent 的边界。
+3. 继续使用 TDD，小步实现 persona、router、Skill 库和专家 Agent。
+4. 每个小步完成后运行对应 package test，并在阶段收尾运行 `go test ./...`、`go vet ./...` 和 `go build ./cmd/server`。
 
 ## 开发原则
 
