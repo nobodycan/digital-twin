@@ -35,6 +35,7 @@ func TestPrometheusExporterRendersMetrics(t *testing.T) {
 }
 
 func TestNoopTracerHandlesNilContext(t *testing.T) {
+	//nolint:staticcheck // This test intentionally verifies nil context tolerance.
 	ctx, span := (NoopTracer{}).Start(nil, "test", nil)
 	if ctx == nil {
 		t.Fatal("Start returned nil context")
