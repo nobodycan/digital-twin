@@ -18,14 +18,14 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: digital-twin ask <prompt>")
+		_, _ = fmt.Fprintln(stderr, "usage: digital-twin ask <prompt>")
 		return 2
 	}
 	switch args[0] {
 	case "ask":
 		return runAsk(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		return 2
 	}
 }
@@ -33,12 +33,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 func runAsk(args []string, stdout, stderr io.Writer) int {
 	prompt := strings.TrimSpace(strings.Join(args, " "))
 	if prompt == "" {
-		fmt.Fprintln(stderr, "prompt is required")
+		_, _ = fmt.Fprintln(stderr, "prompt is required")
 		return 2
 	}
 	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{})
 	if err != nil {
-		fmt.Fprintf(stderr, "bootstrap runtime: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "bootstrap runtime: %v\n", err)
 		return 1
 	}
 	now := time.Now().UTC()
@@ -56,9 +56,9 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 		}},
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "ask: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ask: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, result.Message.Content)
+	_, _ = fmt.Fprintln(stdout, result.Message.Content)
 	return 0
 }
