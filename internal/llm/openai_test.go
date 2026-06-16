@@ -27,7 +27,7 @@ func TestOpenAIClientSendsChatRequestAndParsesResponse(t *testing.T) {
 			t.Fatalf("expected model test-model, got %#v", body["model"])
 		}
 
-		writeResponse(t, w, `{"choices":[{"message":{"role":"assistant","content":"hello"}}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+		writeResponse(t, w, "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}")
 	}))
 	defer server.Close()
 
@@ -48,9 +48,9 @@ func TestOpenAIClientSendsChatRequestAndParsesResponse(t *testing.T) {
 func TestOpenAIClientStreamsChunks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		writeResponseLine(t, w, `data: {"choices":[{"delta":{"content":"hel"}}]}`)
+		writeResponseLine(t, w, "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}")
 		writeResponseLine(t, w, "")
-		writeResponseLine(t, w, `data: {"choices":[{"delta":{"content":"lo"}}]}`)
+		writeResponseLine(t, w, "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}")
 		writeResponseLine(t, w, "")
 		writeResponseLine(t, w, `data: [DONE]`)
 	}))
