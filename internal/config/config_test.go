@@ -240,6 +240,8 @@ func clearConfigEnv(t *testing.T) {
 	}
 	for _, name := range names {
 		t.Setenv(name, "")
-		os.Unsetenv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
 	}
 }
