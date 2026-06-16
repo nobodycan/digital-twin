@@ -143,6 +143,19 @@ func TestRoleAndConfidenceValidation(t *testing.T) {
 	}
 }
 
+func TestPhase2IntentNamesAreStable(t *testing.T) {
+	tests := map[IntentName]string{
+		IntentPersonaChat: "persona.chat",
+		IntentSafetyCheck: "safety.check",
+	}
+
+	for got, want := range tests {
+		if string(got) != want {
+			t.Fatalf("intent name = %q, want %q", got, want)
+		}
+	}
+}
+
 func roundTripJSON[T any](t *testing.T, value T, out *T) {
 	t.Helper()
 

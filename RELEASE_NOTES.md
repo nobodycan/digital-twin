@@ -2,6 +2,27 @@
 
 本文件记录 `digital-twin` 仓库的文档、工程基线和后续产品版本变化。
 
+## Unreleased
+
+### Added
+
+- 新增 Phase 2 人格、路由、Skill 与 Agent 的 SDD 规格文档，明确 persona、prompt renderer、persona guard、router、Skill framework 和 expert agents 的范围。
+- 新增 Phase 2 office-hours 设计文档，记录隐藏假设、替代方案、推荐架构、失败模式、测试矩阵和小步执行顺序。
+- 新增 Phase 2 autoplan 执行计划文档，记录 CEO/Eng/DX review 摘要、任务拆解、并行策略、测试图、失败模式和决策审计。
+- 新增 `internal/persona` Persona 模型、校验、确定性 system prompt renderer、golden fixture 和 persona guard。
+- 新增 `internal/router` rule router、LLM JSON classifier router 和 hybrid router。
+- 新增 `internal/skills` 参数校验框架，以及 memory、knowledge、task、tool、persona、safety、presentation deterministic skills。
+- 新增 `internal/agents` BaseAgent、PersonaAgent、MemoryAgent、KnowledgeAgent、TaskAgent、ToolAgent 和 SafetyAgent。
+- 新增 Phase 2 intent names：`persona.chat` 与 `safety.check`。
+
+### Documented
+
+- README 新增 Phase 2 SDD 文档入口，包括 spec、design 和 plan，并将当前状态更新为 Phase 2 已完成。
+
+### Notes
+
+- Phase 2 实现仍然不包含 Phase 3 runtime/API、Web UI、真实 TTS/ASR、真实 Avatar、SQLite 或外部 provider 接入。
+
 ## v0.3.0 Phase 1 Core Contracts and Infrastructure — 2026-06-15
 
 ### Added
