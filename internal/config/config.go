@@ -20,7 +20,9 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Port int
+	Port              int
+	APIKey            string
+	RateLimitRequests int
 }
 
 type LogConfig struct {
@@ -92,6 +94,9 @@ func parseYAMLFile(path string) (map[string]string, error) {
 	for scanner.Scan() {
 		lineNo++
 		raw := scanner.Text()
+		if lineNo == 1 {
+			raw = strings.TrimPrefix(raw, "\ufeff")
+		}
 		line := stripComment(raw)
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -145,14 +150,16 @@ func applyValues(cfg *AppConfig, values map[string]string) error {
 
 func applyEnv(cfg *AppConfig) error {
 	env := map[string]string{
-		"server.port":             firstEnv("DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT"),
-		"log.level":               firstEnv("DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL"),
-		"llm.api_key":             firstEnv("DIGITAL_TWIN_LLM_API_KEY", "LLM_API_KEY"),
-		"db.dsn":                  firstEnv("DIGITAL_TWIN_DB_DSN", "DB_DSN"),
-		"tts.provider":            firstEnv("DIGITAL_TWIN_TTS_PROVIDER", "TTS_PROVIDER"),
-		"asr.provider":            firstEnv("DIGITAL_TWIN_ASR_PROVIDER", "ASR_PROVIDER"),
-		"object_storage.endpoint": firstEnv("DIGITAL_TWIN_OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_ENDPOINT"),
-		"tenant.default_id":       firstEnv("DIGITAL_TWIN_TENANT_DEFAULT_ID", "TENANT_DEFAULT_ID"),
+		"server.port":                firstEnv("DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT"),
+		"server.api_key":             firstEnv("DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY"),
+		"server.rate_limit_requests": firstEnv("DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS"),
+		"log.level":                  firstEnv("DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL"),
+		"llm.api_key":                firstEnv("DIGITAL_TWIN_LLM_API_KEY", "LLM_API_KEY"),
+		"db.dsn":                     firstEnv("DIGITAL_TWIN_DB_DSN", "DB_DSN"),
+		"tts.provider":               firstEnv("DIGITAL_TWIN_TTS_PROVIDER", "TTS_PROVIDER"),
+		"asr.provider":               firstEnv("DIGITAL_TWIN_ASR_PROVIDER", "ASR_PROVIDER"),
+		"object_storage.endpoint":    firstEnv("DIGITAL_TWIN_OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_ENDPOINT"),
+		"tenant.default_id":          firstEnv("DIGITAL_TWIN_TENANT_DEFAULT_ID", "TENANT_DEFAULT_ID"),
 	}
 
 	for key, value := range env {
@@ -174,6 +181,14 @@ func setValue(cfg *AppConfig, key, value string) error {
 			return fmt.Errorf("parse server.port: %w", err)
 		}
 		cfg.Server.Port = port
+	case "server.api_key":
+		cfg.Server.APIKey = value
+	case "server.rate_limit_requests":
+		limit, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse server.rate_limit_requests: %w", err)
+		}
+		cfg.Server.RateLimitRequests = limit
 	case "log.level":
 		cfg.Log.Level = value
 	case "llm.api_key":

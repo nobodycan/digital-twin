@@ -4,129 +4,90 @@
 
 ## 当前状态
 
-本仓库已完成 **Phase 2 人格、路由、Skill 与 Agent**。当前已包含 Go module、基础目录骨架、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、OpenAI-compatible fake-server tested client、本地文件存储、内存向量库、短期/长期记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent 和六类专家 Agent。
+本仓库已完成到 **Phase 3 编排运行时与 API 入口**。
 
-Phase 3 尚未开始：还没有生产 Orchestrator、HTTP API、SSE/WebSocket、Web UI、真实 TTS/ASR、真实 Avatar 表现层或外部工具 provider 接入。
+当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat` 和 SSE `/chat/stream`。
+
+Phase 4 尚未开始：还没有 Web UI、产品后台、真实 TTS/ASR 或真实 Avatar 表现层。
 
 ## 项目定位
 
 `digital-twin` 目标是构建一个可工程化落地的专业数字人系统，而不只是聊天机器人。它需要同时覆盖人格一致性、长期记忆、知识库问答、工具调用、运行时编排、语音/Avatar 表现层、管理后台、评测治理和安全合规。
 
-第一版建议聚焦“文本 + 语音的专家顾问数字人”：
-
-- 稳定 persona 与语气。
-- 基于知识库回答并展示引用来源。
-- 支持可查看、可删除的长期记忆。
-- 提供 Web 聊天和基础语音播报。
-- 支持后台配置 persona、知识库和工具权限。
-
 ## 核心能力
 
-- **人格**：Persona 配置、System Prompt 渲染、人格一致性守卫。
-- **记忆**：短期会话窗口、长期摘要记忆、语义召回、记忆治理。
-- **知识**：RAG 检索、引用标注、知识库版本和来源管理。
+- **人格**：Persona 配置、system prompt 渲染、人格一致性守卫。
+- **记忆**：短期会话窗口、长期摘要记忆、语义召回。
+- **知识**：RAG 检索、引用标注、知识来源管理。
 - **工具**：Skill 参数校验、工具白名单、权限控制和失败降级。
-- **编排**：Router、Agent、Skill、Orchestrator、状态机和并发调度。
-- **表现层**：TTS、ASR、字幕时间轴、Avatar 状态、打断策略。
-- **后台**：Persona 编辑、记忆管理、知识库管理、工具权限、运营看板。
-- **治理**：AI 行为评测、隐私合规、安全策略、成本统计、发布回滚。
+- **编排**：Router、Agent、Skill、Orchestrator、状态机、runtime events。
+- **入口**：CLI one-shot、HTTP JSON API、SSE runtime event stream。
+- **治理**：后续 Phase 5 会补 eval、安全、隐私、成本和发布回滚。
 
 ## 架构概览
 
 ```mermaid
 flowchart TD
-    User["用户 / 运营者"] --> Web["Web 用户端 / 管理后台"]
-    Web --> API["CLI / HTTP / SSE / gRPC"]
-    API --> Runtime["Orchestrator / 状态机 / 事件总线"]
+    User["User / Operator"] --> API["CLI / HTTP / SSE"]
+    API --> Runtime["Orchestrator / State Machine / Event Recorder"]
     Runtime --> Router["Intent Router"]
-    Router --> Agents["Persona / Memory / Knowledge / Task / Tool Agents"]
-    Agents --> Skills["Memory / Knowledge / Task / Tool / Safety / Avatar Skills"]
-    Skills --> Infra["LLM / Store / VectorStore / TTS / ASR"]
-    Runtime --> Observability["日志 / 指标 / Trace / 审计"]
-    Web --> Avatar["Avatar / 字幕 / 音频 / 表情状态"]
-    Infra --> Governance["Eval / Safety / Privacy / Cost Control"]
-    Governance --> Runtime
+    Router --> Agents["Persona / Memory / Knowledge / Task / Tool / Safety Agents"]
+    Agents --> Skills["Memory / Knowledge / Task / Tool / Safety / Presentation Skills"]
+    Skills --> Infra["LLM / Store / VectorStore / Local Fakes"]
+    Runtime --> Observability["Logs / Metrics / Runtime Events"]
 ```
 
 ## Phase 路线图
 
-| Phase | 名称 | 目标 |
+| Phase | 名称 | 状态 |
 | --- | --- | --- |
-| Phase 0 | 项目定义与工程基线 | 明确 MVP，建立 Go 工程、配置、日志、错误、测试和 CI 基础。 |
-| Phase 1 | 内核契约与基础设施 | 定义数据契约、接口、mock、Registry、LLM、存储、向量库和记忆。 |
-| Phase 2 | 人格、路由、Skill 与 Agent | 落地 persona、路由、Skill 库和专家 Agent。 |
-| Phase 3 | 编排运行时与 API 入口 | 串起 Orchestrator、状态机、容错、CLI、HTTP/SSE 和部署草案。 |
-| Phase 4 | 数字人表现层与产品后台 | 建立 TTS/ASR/Avatar 事件流、Web 用户端和运营后台。 |
-| Phase 5 | 治理、评测、安全与运营 | 建设 eval、安全、隐私、成本、发布回滚和反馈闭环。 |
-
-完整拆解见 [plan.md](./plan.md)。
+| Phase 0 | 项目定义与工程基线 | 已完成 |
+| Phase 1 | 内核契约与基础设施 | 已完成 |
+| Phase 2 | 人格、路由、Skill 与 Agent | 已完成 |
+| Phase 3 | 编排运行时与 API 入口 | 已完成 |
+| Phase 4 | 数字人表现层与产品后台 | 未开始 |
+| Phase 5 | 治理、评测、安全与运营 | 未开始 |
 
 ## SDD 文档
 
-Phase 0 按 spec-driven development 流程补齐了规格和设计文档：
+- [Phase 0 Spec](./docs/specs/phase-0-engineering-baseline.md)
+- [Phase 0 Design](./docs/design/phase-0-engineering-baseline.md)
+- [Phase 1 Spec](./docs/specs/phase-1-core-contracts-infrastructure.md)
+- [Phase 1 Design](./docs/design/phase-1-core-contracts-infrastructure.md)
+- [Phase 1 Plan](./docs/plans/phase-1-core-contracts-infrastructure-plan.md)
+- [Phase 2 Spec](./docs/specs/phase-2-persona-router-skills-agents.md)
+- [Phase 2 Design](./docs/design/phase-2-persona-router-skills-agents.md)
+- [Phase 2 Plan](./docs/plans/phase-2-persona-router-skills-agents-plan.md)
+- [Phase 3 Spec](./docs/specs/phase-3-orchestrator-runtime-api.md)
+- [Phase 3 Design](./docs/design/phase-3-orchestrator-runtime-api.md)
+- [Phase 3 Plan](./docs/plans/phase-3-orchestrator-runtime-api-plan.md)
+- [ADR 0001](./docs/adr/0001-phase-3-runtime-http-sse-local-first.md)
 
-- [Phase 0 Engineering Baseline Spec](./docs/specs/phase-0-engineering-baseline.md)
-- [Phase 0 Engineering Baseline Design](./docs/design/phase-0-engineering-baseline.md)
+## 本地运行
 
-Phase 1 已按 SDD 流程补齐规格、设计和执行计划：
-
-- [Phase 1 Core Contracts and Infrastructure Spec](./docs/specs/phase-1-core-contracts-infrastructure.md)
-- [Phase 1 Core Contracts and Infrastructure Design](./docs/design/phase-1-core-contracts-infrastructure.md)
-- [Phase 1 Core Contracts and Infrastructure Plan](./docs/plans/phase-1-core-contracts-infrastructure-plan.md)
-
-Phase 2 已按 `AGENTS.md` 的 SDD/TDD gate 完成 spec、design、plan 和实现：
-
-- [Phase 2 Persona, Router, Skills, and Agents Spec](./docs/specs/phase-2-persona-router-skills-agents.md)
-- [Phase 2 Persona, Router, Skills, and Agents Design](./docs/design/phase-2-persona-router-skills-agents.md)
-- [Phase 2 Persona, Router, Skills, and Agents Plan](./docs/plans/phase-2-persona-router-skills-agents-plan.md)
-
-## 仓库结构
-
-当前仓库已完成 Phase 2，核心结构如下：
-
-```text
-digital-twin/
-├── cmd/
-│   ├── cli/
-│   └── server/
-├── configs/
-├── internal/
-│   ├── config/
-│   ├── core/
-│   ├── llm/
-│   ├── memory/
-│   ├── persona/
-│   ├── runtime/
-│   ├── store/
-│   ├── observability/
-│   ├── router/
-│   ├── skills/
-│   ├── agents/
-│   └── testutil/
-├── pkg/
-│   └── types/
-├── README.md
-├── RELEASE_NOTES.md
-├── go.mod
-├── Makefile
-└── plan.md
+```powershell
+go run ./cmd/cli ask "hello"
 ```
 
-未来完整代码目录以 [plan.md](./plan.md) 中的目标目录结构为准。
+```powershell
+go run ./cmd/server
+```
 
-## 推荐下一步
+```powershell
+Invoke-RestMethod http://localhost:8080/health
+Invoke-RestMethod http://localhost:8080/metrics
+Invoke-RestMethod -Method Post http://localhost:8080/chat -ContentType "application/json" -Body '{"id":"conv-1","tenant_id":"tenant-1","user_id":"user-1","messages":[{"id":"msg-1","role":"user","content":"hello","created_at":"2026-06-16T12:00:00Z"}],"created_at":"2026-06-16T12:00:00Z","updated_at":"2026-06-16T12:00:00Z"}'
+```
 
-按 `AGENTS.md` 的 SDD gate 推进 Phase 3：
+## 验证
 
-1. 基于 `plan.md` 为 Phase 3 补充 spec、design 和执行计划。
-2. 串起 Orchestrator、状态机、容错、CLI、HTTP/SSE 和部署草案。
-3. 继续使用 TDD，小步实现运行时编排和入口层。
-4. 每个小步完成后运行对应 package test，并在阶段收尾运行 `go test ./...`、`go vet ./...` 和 `go build ./cmd/server`。
+```powershell
+go test ./...
+go vet ./...
+go build ./cmd/server
+go build ./cmd/cli
+```
 
-## 开发原则
+## 下一步
 
-- 小步提交：一个步骤一次实现，避免跨 Phase 混改。
-- 接口先行：先定义数据契约和 interface，再写实现。
-- Mock 优先：外部 LLM、DB、TTS、ASR 先用 fake server 或 mock。
-- 可验证交付：每次变更都必须说明验证命令和预期结果。
-- 文档同步：关键架构决策要进入 `docs/` 或 ADR。
+按 `AGENTS.md` 的 SDD gate 推进 Phase 4：数字人表现层与产品后台。

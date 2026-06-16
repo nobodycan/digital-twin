@@ -11,6 +11,8 @@ func TestLoadFromYAML(t *testing.T) {
 	path := writeConfig(t, `
 server:
   port: 9090
+  api_key: yaml-api-key
+  rate_limit_requests: 12
 log:
   level: debug
 llm:
@@ -35,6 +37,12 @@ tenant:
 	if cfg.Server.Port != 9090 {
 		t.Fatalf("Server.Port = %d, want 9090", cfg.Server.Port)
 	}
+	if cfg.Server.APIKey != "yaml-api-key" {
+		t.Fatalf("Server.APIKey = %q, want yaml-api-key", cfg.Server.APIKey)
+	}
+	if cfg.Server.RateLimitRequests != 12 {
+		t.Fatalf("Server.RateLimitRequests = %d, want 12", cfg.Server.RateLimitRequests)
+	}
 	if cfg.Log.Level != "debug" {
 		t.Fatalf("Log.Level = %q, want debug", cfg.Log.Level)
 	}
@@ -55,6 +63,18 @@ tenant:
 	}
 	if cfg.Tenant.DefaultID != "tenant-a" {
 		t.Fatalf("Tenant.DefaultID = %q, want tenant-a", cfg.Tenant.DefaultID)
+	}
+}
+
+func TestLoadAcceptsUTF8BOM(t *testing.T) {
+	path := writeConfig(t, "\ufeffserver:\n  port: 9091\n")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Port != 9091 {
+		t.Fatalf("Server.Port = %d, want 9091", cfg.Server.Port)
 	}
 }
 
@@ -79,6 +99,8 @@ tenant:
 `)
 
 	t.Setenv("SERVER_PORT", "10080")
+	t.Setenv("SERVER_API_KEY", "env-api-key")
+	t.Setenv("SERVER_RATE_LIMIT_REQUESTS", "7")
 	t.Setenv("LOG_LEVEL", "warn")
 	t.Setenv("LLM_API_KEY", "env-key")
 	t.Setenv("DB_DSN", "env-dsn")
@@ -94,6 +116,12 @@ tenant:
 
 	if cfg.Server.Port != 10080 {
 		t.Fatalf("Server.Port = %d, want 10080", cfg.Server.Port)
+	}
+	if cfg.Server.APIKey != "env-api-key" {
+		t.Fatalf("Server.APIKey = %q, want env-api-key", cfg.Server.APIKey)
+	}
+	if cfg.Server.RateLimitRequests != 7 {
+		t.Fatalf("Server.RateLimitRequests = %d, want 7", cfg.Server.RateLimitRequests)
 	}
 	if cfg.Log.Level != "warn" {
 		t.Fatalf("Log.Level = %q, want warn", cfg.Log.Level)
@@ -230,6 +258,8 @@ func clearConfigEnv(t *testing.T) {
 
 	names := []string{
 		"DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT",
+		"DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY",
+		"DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS",
 		"DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL",
 		"DIGITAL_TWIN_LLM_API_KEY", "LLM_API_KEY",
 		"DIGITAL_TWIN_DB_DSN", "DB_DSN",

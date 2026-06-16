@@ -117,7 +117,7 @@ func TestRendererProducesStableGoldenPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	want := string(wantBytes)
+	want := normalizeLineEndings(string(wantBytes))
 	if got != want {
 		t.Fatalf("SystemPrompt() mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
@@ -132,6 +132,10 @@ func TestRendererProducesStableGoldenPrompt(t *testing.T) {
 	if gotAgain != got {
 		t.Fatal("SystemPrompt() is not stable for the same input")
 	}
+}
+
+func normalizeLineEndings(value string) string {
+	return strings.ReplaceAll(value, "\r\n", "\n")
 }
 
 func TestGuardAllowsPersonaConsistentOutput(t *testing.T) {
