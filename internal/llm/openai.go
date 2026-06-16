@@ -76,7 +76,9 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 	if err != nil {
 		return core.WrapError(err, "openai stream")
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return statusError(response)
 	}
@@ -131,7 +133,9 @@ func (c *OpenAIClient) doJSON(ctx context.Context, request ChatRequest, out any)
 	if err != nil {
 		return core.WrapError(err, "openai chat")
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return statusError(response)
 	}

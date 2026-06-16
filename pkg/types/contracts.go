@@ -51,6 +51,10 @@ const (
 	IntentTaskExecution IntentName = "task.execute"
 	// IntentToolCall marks a request that should call a tool.
 	IntentToolCall IntentName = "tool.call"
+	// IntentPersonaChat marks small talk or persona fallback.
+	IntentPersonaChat IntentName = "persona.chat"
+	// IntentSafetyCheck marks a request that should be evaluated by safety logic.
+	IntentSafetyCheck IntentName = "safety.check"
 )
 
 // Message is the serializable unit of conversation.

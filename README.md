@@ -4,9 +4,9 @@
 
 ## 当前状态
 
-本仓库已完成 **Phase 1 内核契约与基础设施**。当前已包含 Go module、基础目录骨架、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、OpenAI-compatible fake-server tested client、本地文件存储、内存向量库、短期/长期记忆基础设施和本地 EventBus。
+本仓库已完成 **Phase 2 人格、路由、Skill 与 Agent**。当前已包含 Go module、基础目录骨架、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、OpenAI-compatible fake-server tested client、本地文件存储、内存向量库、短期/长期记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent 和六类专家 Agent。
 
-业务层仍未进入 Phase 2：尚未实现 persona prompt、真实 intent classifier、专家 Agent、Skill 库、HTTP API、Web UI、TTS/ASR 或 Avatar 表现层。
+Phase 3 尚未开始：还没有生产 Orchestrator、HTTP API、SSE/WebSocket、Web UI、真实 TTS/ASR、真实 Avatar 表现层或外部工具 provider 接入。
 
 ## 项目定位
 
@@ -54,7 +54,7 @@ flowchart TD
 | --- | --- | --- |
 | Phase 0 | 项目定义与工程基线 | 明确 MVP，建立 Go 工程、配置、日志、错误、测试和 CI 基础。 |
 | Phase 1 | 内核契约与基础设施 | 定义数据契约、接口、mock、Registry、LLM、存储、向量库和记忆。 |
-| Phase 2 | 人格、路由、Skill 与 Agent | 落地 persona、路由、Skill 库和五类专家 Agent。 |
+| Phase 2 | 人格、路由、Skill 与 Agent | 落地 persona、路由、Skill 库和专家 Agent。 |
 | Phase 3 | 编排运行时与 API 入口 | 串起 Orchestrator、状态机、容错、CLI、HTTP/SSE 和部署草案。 |
 | Phase 4 | 数字人表现层与产品后台 | 建立 TTS/ASR/Avatar 事件流、Web 用户端和运营后台。 |
 | Phase 5 | 治理、评测、安全与运营 | 建设 eval、安全、隐私、成本、发布回滚和反馈闭环。 |
@@ -74,9 +74,15 @@ Phase 1 已按 SDD 流程补齐规格、设计和执行计划：
 - [Phase 1 Core Contracts and Infrastructure Design](./docs/design/phase-1-core-contracts-infrastructure.md)
 - [Phase 1 Core Contracts and Infrastructure Plan](./docs/plans/phase-1-core-contracts-infrastructure-plan.md)
 
+Phase 2 已按 `AGENTS.md` 的 SDD/TDD gate 完成 spec、design、plan 和实现：
+
+- [Phase 2 Persona, Router, Skills, and Agents Spec](./docs/specs/phase-2-persona-router-skills-agents.md)
+- [Phase 2 Persona, Router, Skills, and Agents Design](./docs/design/phase-2-persona-router-skills-agents.md)
+- [Phase 2 Persona, Router, Skills, and Agents Plan](./docs/plans/phase-2-persona-router-skills-agents-plan.md)
+
 ## 仓库结构
 
-当前仓库已完成 Phase 1，核心结构如下：
+当前仓库已完成 Phase 2，核心结构如下：
 
 ```text
 digital-twin/
@@ -89,9 +95,13 @@ digital-twin/
 │   ├── core/
 │   ├── llm/
 │   ├── memory/
+│   ├── persona/
 │   ├── runtime/
 │   ├── store/
 │   ├── observability/
+│   ├── router/
+│   ├── skills/
+│   ├── agents/
 │   └── testutil/
 ├── pkg/
 │   └── types/
@@ -106,11 +116,11 @@ digital-twin/
 
 ## 推荐下一步
 
-按 `AGENTS.md` 的 SDD gate 推进 Phase 2：
+按 `AGENTS.md` 的 SDD gate 推进 Phase 3：
 
-1. 基于 `plan.md` 为 Phase 2 补充 spec、design 和执行计划。
-2. 明确 persona、prompt renderer、router、Skill 和 Agent 的边界。
-3. 继续使用 TDD，小步实现 persona、router、Skill 库和专家 Agent。
+1. 基于 `plan.md` 为 Phase 3 补充 spec、design 和执行计划。
+2. 串起 Orchestrator、状态机、容错、CLI、HTTP/SSE 和部署草案。
+3. 继续使用 TDD，小步实现运行时编排和入口层。
 4. 每个小步完成后运行对应 package test，并在阶段收尾运行 `go test ./...`、`go vet ./...` 和 `go build ./cmd/server`。
 
 ## 开发原则
