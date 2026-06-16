@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.4.0 Phase 3 Runtime API Release - 2026-06-16
+
+### Added
+
+- 新增生产 Orchestrator，串联 conversation validation、Router、AgentRegistry、Agent execution、runtime events 和 safe fallback。
+- 新增 runtime event、EventRecorder、状态机、并发 request ID、context cancellation 和 panic recovery 行为。
+- 新增本地 deterministic runtime bootstrap，用于无外部 provider 的 CLI/HTTP 本地运行。
+- 新增 `cmd/cli ask` one-shot 命令。
+- 新增 HTTP `/health`、`/metrics`、`/chat` 和 SSE `/chat/stream`。
+- 新增可选 API key auth 和 in-memory rate limiting。
+- 新增 Phase 3 spec、design、plan 和 ADR。
+
+### Documented
+
+- README 更新为 Phase 3 已完成，并补充 CLI/HTTP 本地运行示例。
+- ADR 记录 HTTP/SSE、local-first、无 SQLite 的 Phase 3 取舍。
+
+### Notes
+
+- Phase 3 仍不包含 Web UI、产品后台、真实 TTS/ASR、真实 Avatar、SQLite、gRPC 或真实外部 provider 集成。
+
 本文件记录 `digital-twin` 仓库的文档、工程基线和后续产品版本变化。
 
 ## Unreleased
