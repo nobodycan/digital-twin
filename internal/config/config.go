@@ -80,7 +80,9 @@ func parseYAMLFile(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open config file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	values := make(map[string]string)
 	var sections []string
