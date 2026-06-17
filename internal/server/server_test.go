@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nobodycan/digital-twin/internal/observability"
+	"github.com/nobodycan/digital-twin/internal/runtime"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
@@ -168,6 +169,26 @@ func TestHandlerServesChatStream(t *testing.T) {
 	}
 }
 
+func TestHandlerStreamsRecordedRuntimeEvents(t *testing.T) {
+	recorder := runtime.NewEventRecorder()
+	handler := NewHandler(Config{
+		Metrics:       observability.NewMemoryMetrics(),
+		Orchestrator:  recordingOrchestrator{recorder: recorder},
+		EventRecorder: recorder,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/chat/stream", strings.NewReader(validChatJSON()))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	body := response.Body.String()
+	for _, want := range []string{"event: request_started", "event: route_selected", `"intent":"persona.chat"`, "event: message_completed", "event: done"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestHandlerEscapesMultilineChatStreamData(t *testing.T) {
 	handler := NewHandler(Config{
 		Metrics:      observability.NewMemoryMetrics(),
@@ -203,4 +224,18 @@ func (s stubOrchestrator) Handle(_ context.Context, conversation types.Conversat
 		conversation.CreatedAt = time.Now()
 	}
 	return s.result, s.err
+}
+
+type recordingOrchestrator struct {
+	recorder *runtime.EventRecorder
+}
+
+func (r recordingOrchestrator) Handle(_ context.Context, conversation types.Conversation) (types.AgentResult, error) {
+	r.recorder.Record(runtime.NewRuntimeEvent(runtime.EventRequestStarted, "req-1", conversation, nil))
+	r.recorder.Record(runtime.NewRuntimeEvent(runtime.EventRouteSelected, "req-1", conversation, types.Metadata{"intent": "persona.chat"}))
+	return types.AgentResult{
+		AgentName:  "persona-agent",
+		Message:    types.Message{Role: types.RoleAssistant, Content: "streamed ok"},
+		Confidence: 0.8,
+	}, nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -31,7 +32,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runAsk(args []string, stdout, stderr io.Writer) int {
-	prompt := strings.TrimSpace(strings.Join(args, " "))
+	jsonOutput := false
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonOutput = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	prompt := strings.TrimSpace(strings.Join(filtered, " "))
 	if prompt == "" {
 		_, _ = fmt.Fprintln(stderr, "prompt is required")
 		return 2
@@ -58,6 +68,10 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "ask: %v\n", err)
 		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+		return 0
 	}
 	_, _ = fmt.Fprintln(stdout, result.Message.Content)
 	return 0

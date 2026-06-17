@@ -67,6 +67,7 @@ flowchart TD
 
 ```powershell
 go run ./cmd/cli ask "hello"
+go run ./cmd/cli ask --json "hello"
 ```
 
 ```powershell
@@ -77,6 +78,7 @@ go run ./cmd/server
 Invoke-RestMethod http://localhost:8080/health
 Invoke-RestMethod http://localhost:8080/metrics
 Invoke-RestMethod -Method Post http://localhost:8080/chat -ContentType "application/json" -Body '{"id":"conv-1","tenant_id":"tenant-1","user_id":"user-1","messages":[{"id":"msg-1","role":"user","content":"hello","created_at":"2026-06-16T12:00:00Z"}],"created_at":"2026-06-16T12:00:00Z","updated_at":"2026-06-16T12:00:00Z"}'
+curl.exe -N -X POST http://localhost:8080/chat/stream -H "Content-Type: application/json" --data "{\"id\":\"conv-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"messages\":[{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-16T12:00:00Z\"}],\"created_at\":\"2026-06-16T12:00:00Z\",\"updated_at\":\"2026-06-16T12:00:00Z\"}"
 ```
 
 ## 验证

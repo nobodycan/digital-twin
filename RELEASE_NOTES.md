@@ -1,5 +1,17 @@
 # Release Notes
 
+## Unreleased
+
+### Added
+
+- CLI `ask` 新增 `--json` 输出，便于脚本和测试消费完整 `AgentResult`。
+- `/chat/stream` 新增已记录 runtime events 的 SSE 输出，包括 request、routing、agent 和 completion 相关事件。
+- 新增真实本地 HTTP `/chat` 全链路测试，覆盖 `cmd/server` handler 到 local runtime 的路径。
+
+### Documented
+
+- README 补充 CLI JSON 和 SSE curl 示例。
+
 ## v0.4.0 Phase 3 Runtime API Release - 2026-06-16
 
 ### Added
