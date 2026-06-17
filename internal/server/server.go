@@ -9,12 +9,14 @@ import (
 
 	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/internal/observability"
+	"github.com/nobodycan/digital-twin/internal/runtime"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
 type Config struct {
 	Metrics           observability.Metrics
 	Orchestrator      core.Orchestrator
+	EventRecorder     *runtime.EventRecorder
 	APIKeys           []string
 	RateLimitRequests int
 }
@@ -23,6 +25,7 @@ type Handler struct {
 	mux               *http.ServeMux
 	metrics           observability.Metrics
 	orchestrator      core.Orchestrator
+	eventRecorder     *runtime.EventRecorder
 	apiKeys           map[string]struct{}
 	rateLimitRequests int
 	mu                sync.Mutex
@@ -38,6 +41,7 @@ func NewHandler(config Config) http.Handler {
 		mux:               http.NewServeMux(),
 		metrics:           metrics,
 		orchestrator:      config.Orchestrator,
+		eventRecorder:     config.EventRecorder,
 		apiKeys:           apiKeySet(config.APIKeys),
 		rateLimitRequests: config.RateLimitRequests,
 		requestCounts:     make(map[string]int),
@@ -108,6 +112,7 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
+	beforeEventCount := len(h.eventRecorder.Events())
 	result, err := h.orchestrator.Handle(r.Context(), conversation)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "orchestrator_error", "cause": err.Error()})
@@ -115,8 +120,25 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
+	for _, event := range h.recordedEventsSince(beforeEventCount, conversation.ID) {
+		writeSSEJSON(w, event.Topic, event)
+	}
 	writeSSE(w, "message_completed", result.Message.Content)
 	writeSSE(w, "done", "ok")
+}
+
+func (h *Handler) recordedEventsSince(start int, conversationID string) []runtime.RuntimeEvent {
+	events := h.eventRecorder.Events()
+	if start > len(events) {
+		start = len(events)
+	}
+	filtered := make([]runtime.RuntimeEvent, 0, len(events)-start)
+	for _, event := range events[start:] {
+		if event.ConversationID == conversationID {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -132,6 +154,15 @@ func writeSSE(w http.ResponseWriter, event, data string) {
 		_, _ = fmt.Fprintf(w, "data: %s\n", line)
 	}
 	_, _ = fmt.Fprint(w, "\n")
+}
+
+func writeSSEJSON(w http.ResponseWriter, event string, value any) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		writeSSE(w, event, `{"error":"encode_event_failed"}`)
+		return
+	}
+	writeSSE(w, event, string(body))
 }
 
 func apiKeySet(keys []string) map[string]struct{} {

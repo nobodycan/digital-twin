@@ -59,6 +59,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	return server.NewHandler(server.Config{
 		Metrics:           observability.NewMemoryMetrics(),
 		Orchestrator:      local.Orchestrator,
+		EventRecorder:     local.Recorder,
 		APIKeys:           apiKeys,
 		RateLimitRequests: cfg.Server.RateLimitRequests,
 	}), nil
