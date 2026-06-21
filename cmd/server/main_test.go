@@ -91,6 +91,65 @@ func TestBuildHandlerServesLocalChatEndToEnd(t *testing.T) {
 	}
 }
 
+func TestBuildHandlerServesExperienceStreamWithDefaultPresentationAdapter(t *testing.T) {
+	handler, err := buildHandler(config.AppConfig{})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validServerChatJSON()))
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{"event: assistant_text_delta", "event: audio_chunk", `"state":"speaking"`, "event: done"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestBuildHandlerServesStaticAppShell(t *testing.T) {
+	handler, err := buildHandler(config.AppConfig{})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/app", nil)
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "Digital Human Console") {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestBuildHandlerServesPersonaAdminDraft(t *testing.T) {
+	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", t.TempDir())
+	handler, err := buildHandler(config.AppConfig{})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	body := `{"id":"advisor","identity":"Ava","role":"professional digital advisor","tone":["calm","precise"]}`
+	request := httptest.NewRequest(http.MethodPost, "/admin/persona/drafts", strings.NewReader(body))
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"status":"draft"`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
 func validServerChatJSON() string {
 	return `{"id":"conv-e2e","tenant_id":"tenant-1","user_id":"user-1","messages":[{"id":"msg-1","role":"user","content":"hello","created_at":"2026-06-16T12:00:00Z"}],"created_at":"2026-06-16T12:00:00Z","updated_at":"2026-06-16T12:00:00Z"}`
 }

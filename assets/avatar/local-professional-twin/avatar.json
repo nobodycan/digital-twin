@@ -1,0 +1,16 @@
+{
+  "kind": "placeholder_avatar_asset",
+  "version": "0.1.0",
+  "states": {
+    "idle": "idle",
+    "listening": "listening",
+    "thinking": "thinking",
+    "speaking": "speaking",
+    "happy": "happy",
+    "apologetic": "apologetic",
+    "serious": "serious",
+    "confused": "confused",
+    "interrupted": "interrupted",
+    "error": "error"
+  }
+}

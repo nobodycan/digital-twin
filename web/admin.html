@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Operations Console</title>
+    <link rel="stylesheet" href="/web/app.css">
+  </head>
+  <body>
+    <main class="admin-shell">
+      <header class="surface-header">
+        <h1>Operations Console</h1>
+        <p class="status-line">Local-first controls for Phase 4</p>
+      </header>
+
+      <section id="persona-admin" class="admin-section" aria-label="Persona editor">
+        <h2>Persona</h2>
+        <textarea id="persona-draft" rows="8">Digital Twin, professional digital advisor</textarea>
+        <output id="persona-status">No active persona loaded</output>
+        <div class="action-row">
+          <button id="persona-save-draft" type="button">Validate</button>
+          <button id="persona-publish" type="button">Publish</button>
+          <button id="persona-rollback" type="button">Rollback</button>
+        </div>
+      </section>
+
+      <section id="memory-admin" class="admin-section" aria-label="Memory manager">
+        <h2>Memory</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="memory-table-body"><tr><td colspan="3">No memory loaded</td></tr></tbody>
+        </table>
+      </section>
+
+      <section id="knowledge-admin" class="admin-section" aria-label="Knowledge manager">
+        <h2>Knowledge</h2>
+        <input type="file" id="knowledge-upload">
+        <button id="knowledge-upload-mock" type="button">Upload mock</button>
+        <output id="knowledge-status">No knowledge uploaded</output>
+      </section>
+
+      <section id="tool-admin" class="admin-section" aria-label="Tool permissions">
+        <h2>Tools</h2>
+        <label><input id="tool-knowledge-search" type="checkbox" checked> allow knowledge.search</label>
+        <button id="tool-save-policy" type="button">Save policy</button>
+        <output id="tool-status">Policy not saved</output>
+      </section>
+
+      <section id="audit-admin" class="admin-section" aria-label="Conversation audit">
+        <h2>Audit</h2>
+        <button id="audit-refresh" type="button">Refresh</button>
+        <table>
+          <thead><tr><th>Conversation</th><th>Status</th><th>Agent</th></tr></thead>
+          <tbody id="audit-table-body"><tr><td colspan="3">No audit records</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+    <script src="/web/admin.js"></script>
+  </body>
+</html>

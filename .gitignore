@@ -19,3 +19,5 @@ Thumbs.db
 *.tmp
 *.log
 .gstack/
+data/
+cmd/server/data/

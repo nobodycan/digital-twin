@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Digital Human Console</title>
+    <link rel="stylesheet" href="/web/app.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="conversation-panel" class="conversation-panel" aria-label="Conversation">
+        <header class="surface-header">
+          <h1>Digital Human Console</h1>
+          <p class="status-line">Local mock voice and avatar stream</p>
+        </header>
+        <div id="transcript" class="transcript" aria-live="polite"></div>
+        <form id="message-form" class="composer">
+          <label for="message-input">Message</label>
+          <input id="message-input" name="message" type="text" autocomplete="off" placeholder="Ask the digital human">
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <aside id="avatar-stage" class="avatar-stage" aria-label="Avatar state">
+        <div id="avatar-face" class="avatar-face" data-state="idle">idle</div>
+        <div id="subtitle-line" class="subtitle-line"></div>
+        <div id="voice-panel" class="voice-panel">
+          <button id="mock-voice-button" type="button">Mock voice</button>
+          <span id="audio-status">audio idle</span>
+        </div>
+      </aside>
+    </main>
+    <script src="/web/app.js"></script>
+  </body>
+</html>
