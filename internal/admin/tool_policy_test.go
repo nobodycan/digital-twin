@@ -1,6 +1,11 @@
 package admin
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/nobodycan/digital-twin/internal/agents"
+)
 
 func TestToolPolicyServiceAllowsOnlyConfiguredTools(t *testing.T) {
 	service := NewToolPolicyService(NewInMemoryToolPolicyStore())
@@ -37,3 +42,31 @@ func TestFileToolPolicyStorePersistsPolicy(t *testing.T) {
 		t.Fatalf("Authorize after reopen returned error: %v", err)
 	}
 }
+
+func TestToolPolicyServiceAuthorizesAgentSkillCalls(t *testing.T) {
+	service := NewToolPolicyService(NewInMemoryToolPolicyStore())
+	if _, err := service.Save("tenant-1", ToolPolicy{
+		PersonaID:    "advisor",
+		AllowedTools: []string{"calendar"},
+	}); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	call := agents.SkillCall{
+		TenantID:  "tenant-1",
+		PersonaID: "advisor",
+		AgentName: "tool-agent",
+		SkillName: "calendar",
+		Params:    map[string]any{"action": "list"},
+	}
+	if err := service.AuthorizeSkill(context.Background(), call); err != nil {
+		t.Fatalf("AuthorizeSkill allowed tool returned error: %v", err)
+	}
+
+	call.SkillName = "http_call"
+	if err := service.AuthorizeSkill(context.Background(), call); err == nil {
+		t.Fatalf("expected AuthorizeSkill to reject denied tool")
+	}
+}
+
+var _ agents.SkillAuthorizer = ToolPolicyService{}

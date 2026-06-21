@@ -1,8 +1,11 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"sync"
+
+	"github.com/nobodycan/digital-twin/internal/agents"
 )
 
 var ErrToolDenied = errors.New("tool denied by policy")
@@ -53,6 +56,13 @@ func (s ToolPolicyService) Authorize(tenantID, personaID, toolName string) error
 		}
 	}
 	return ErrToolDenied
+}
+
+func (s ToolPolicyService) AuthorizeSkill(ctx context.Context, call agents.SkillCall) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.Authorize(call.TenantID, call.PersonaID, call.SkillName)
 }
 
 type InMemoryToolPolicyStore struct {
