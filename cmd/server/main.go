@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/app"
+	"github.com/nobodycan/digital-twin/internal/avatar"
 	"github.com/nobodycan/digital-twin/internal/config"
 	"github.com/nobodycan/digital-twin/internal/observability"
+	"github.com/nobodycan/digital-twin/internal/presentation"
 	"github.com/nobodycan/digital-twin/internal/server"
+	"github.com/nobodycan/digital-twin/internal/voice"
 	"log/slog"
 )
 
@@ -56,10 +61,39 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	if cfg.Server.APIKey != "" {
 		apiKeys = []string{cfg.Server.APIKey}
 	}
+	avatarMachine, err := avatar.NewStateMachine(avatar.Manifest{
+		Supported: []avatar.State{
+			avatar.StateIdle,
+			avatar.StateListening,
+			avatar.StateThinking,
+			avatar.StateSpeaking,
+			avatar.StateError,
+			avatar.StateInterrupted,
+		},
+		FallbackState: avatar.StateIdle,
+	})
+	if err != nil {
+		return nil, err
+	}
+	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(defaultAdminDataDir()))
+	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(defaultAdminDataDir()))
+	knowledgeAdmin := admin.NewKnowledgeService(admin.NewFileKnowledgeStore(defaultAdminDataDir()))
+	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(defaultAdminDataDir()))
+	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(defaultAdminDataDir()))
 	return server.NewHandler(server.Config{
-		Metrics:           observability.NewMemoryMetrics(),
-		Orchestrator:      local.Orchestrator,
-		EventRecorder:     local.Recorder,
+		Metrics:       observability.NewMemoryMetrics(),
+		Orchestrator:  local.Orchestrator,
+		EventRecorder: local.Recorder,
+		PresentationAdapter: presentation.Adapter{
+			TTS:    voice.MockTTSClient{},
+			Avatar: avatarMachine,
+		},
+		PersonaAdmin:      &personaAdmin,
+		MemoryAdmin:       &memoryAdmin,
+		KnowledgeAdmin:    &knowledgeAdmin,
+		ToolPolicyAdmin:   &toolPolicyAdmin,
+		AuditAdmin:        &auditAdmin,
+		StaticDir:         defaultStaticDir(),
 		APIKeys:           apiKeys,
 		RateLimitRequests: cfg.Server.RateLimitRequests,
 	}), nil
@@ -70,6 +104,22 @@ func defaultConfigPath() string {
 		return path
 	}
 	return "configs/app.yaml"
+}
+
+func defaultStaticDir() string {
+	for _, path := range []string{"web", filepath.Join("..", "..", "web")} {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path
+		}
+	}
+	return "web"
+}
+
+func defaultAdminDataDir() string {
+	if path := os.Getenv("DIGITAL_TWIN_ADMIN_DATA"); path != "" {
+		return path
+	}
+	return filepath.Join("data", "admin")
 }
 
 func parseLogLevel(level string) slog.Level {

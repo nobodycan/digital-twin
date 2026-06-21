@@ -4,13 +4,23 @@
 
 ### Added
 
+- 新增 Phase 4 数字人表现层：`PresentationEvent`、字幕时间轴、mock TTS/ASR、Avatar manifest、Avatar 状态机、打断控制和 `/experience/stream`。
+- 新增 Web 用户端 `/app`，支持文本输入、SSE presentation stream 渲染、字幕、Avatar 状态、mock audio 状态和 mock voice flow。
+- 新增本地优先产品后台 `/admin`，支持 Persona draft/publish/rollback、记忆禁用、知识上传/切块/引用测试、工具策略保存/授权检查和会话审计。
+- 新增本地 admin services 与 store：persona、memory、knowledge、tool policy 和 audit。
+- 新增 Phase 4 SDD spec、design 和 plan 文档。
 - CLI `ask` 新增 `--json` 输出，便于脚本和测试消费完整 `AgentResult`。
 - `/chat/stream` 新增已记录 runtime events 的 SSE 输出，包括 request、routing、agent 和 completion 相关事件。
 - 新增真实本地 HTTP `/chat` 全链路测试，覆盖 `cmd/server` handler 到 local runtime 的路径。
 
 ### Documented
 
+- README 更新为 Phase 4 已完成，并补充 `/app`、`/admin` 和 `/experience/stream` 的本地使用说明。
 - README 补充 CLI JSON 和 SSE curl 示例。
+
+### Notes
+
+- Phase 4 仍为 mock/local-first；不包含真实 TTS/ASR provider、真实 3D/Live2D/视频 Avatar、SQLite、生产认证或完整 Phase 5 治理体系。
 
 ## v0.4.0 Phase 3 Runtime API Release - 2026-06-16
 

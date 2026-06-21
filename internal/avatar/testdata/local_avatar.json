@@ -1,0 +1,29 @@
+{
+  "id": "local-professional-twin",
+  "display_name": "Local Professional Twin",
+  "version": "0.1.0",
+  "type": "2d",
+  "asset_uri": "assets/avatar/local-professional-twin/avatar.json",
+  "asset_hash": "sha256:local-fixture",
+  "license": {
+    "name": "local-fixture",
+    "attribution": "digital-twin"
+  },
+  "supported_states": [
+    "idle",
+    "listening",
+    "thinking",
+    "speaking",
+    "happy",
+    "apologetic",
+    "serious",
+    "confused",
+    "interrupted",
+    "error"
+  ],
+  "fallback_state": "idle",
+  "capabilities": {
+    "expressions": true,
+    "visemes": true
+  }
+}
