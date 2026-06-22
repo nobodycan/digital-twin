@@ -9,14 +9,18 @@ import (
 	"github.com/nobodycan/digital-twin/internal/skills"
 )
 
-type LocalRuntimeConfig struct{}
+type LocalRuntimeConfig struct {
+	TenantID        string
+	PersonaID       string
+	SkillAuthorizer agents.SkillAuthorizer
+}
 
 type LocalRuntime struct {
 	Orchestrator runtime.Orchestrator
 	Recorder     *runtime.EventRecorder
 }
 
-func NewLocalRuntime(LocalRuntimeConfig) (LocalRuntime, error) {
+func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 	skillRegistry := core.NewSkillRegistry()
 	defaultPersona := persona.Persona{
 		ID:            "default",
@@ -59,12 +63,12 @@ func NewLocalRuntime(LocalRuntimeConfig) (LocalRuntime, error) {
 
 	agentRegistry := core.NewAgentRegistry()
 	for _, agent := range []core.Agent{
-		agents.NewPersonaAgent(skillRegistry),
-		agents.NewMemoryAgent(skillRegistry),
-		agents.NewKnowledgeAgent(skillRegistry),
-		agents.NewTaskAgent(skillRegistry),
-		agents.NewToolAgent(skillRegistry),
-		agents.NewSafetyAgent(skillRegistry),
+		governPersonaAgent(agents.NewPersonaAgent(skillRegistry), config),
+		governMemoryAgent(agents.NewMemoryAgent(skillRegistry), config),
+		governKnowledgeAgent(agents.NewKnowledgeAgent(skillRegistry), config),
+		governTaskAgent(agents.NewTaskAgent(skillRegistry), config),
+		governToolAgent(agents.NewToolAgent(skillRegistry), config),
+		governSafetyAgent(agents.NewSafetyAgent(skillRegistry), config),
 	} {
 		if err := agentRegistry.Register(agent); err != nil {
 			return LocalRuntime{}, err
@@ -78,4 +82,40 @@ func NewLocalRuntime(LocalRuntimeConfig) (LocalRuntime, error) {
 		Recorder: recorder,
 	})
 	return LocalRuntime{Orchestrator: orchestrator, Recorder: recorder}, nil
+}
+
+func applyGovernance(base *agents.BaseAgent, config LocalRuntimeConfig) {
+	base.TenantID = config.TenantID
+	base.PersonaID = config.PersonaID
+	base.SkillAuthorizer = config.SkillAuthorizer
+}
+
+func governPersonaAgent(agent agents.PersonaAgent, config LocalRuntimeConfig) agents.PersonaAgent {
+	applyGovernance(&agent.BaseAgent, config)
+	return agent
+}
+
+func governMemoryAgent(agent agents.MemoryAgent, config LocalRuntimeConfig) agents.MemoryAgent {
+	applyGovernance(&agent.BaseAgent, config)
+	return agent
+}
+
+func governKnowledgeAgent(agent agents.KnowledgeAgent, config LocalRuntimeConfig) agents.KnowledgeAgent {
+	applyGovernance(&agent.BaseAgent, config)
+	return agent
+}
+
+func governTaskAgent(agent agents.TaskAgent, config LocalRuntimeConfig) agents.TaskAgent {
+	applyGovernance(&agent.BaseAgent, config)
+	return agent
+}
+
+func governToolAgent(agent agents.ToolAgent, config LocalRuntimeConfig) agents.ToolAgent {
+	applyGovernance(&agent.BaseAgent, config)
+	return agent
+}
+
+func governSafetyAgent(agent agents.SafetyAgent, config LocalRuntimeConfig) agents.SafetyAgent {
+	applyGovernance(&agent.BaseAgent, config)
+	return agent
 }

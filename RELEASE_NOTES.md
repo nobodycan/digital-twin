@@ -4,6 +4,10 @@
 
 ### Added
 
+- 新增 Phase 5 SDD spec、design 和 plan 文档，明确 Launch Gate MVP、runtime governance wiring、确定性 eval、release gate、rollback、feedback 和本地存储边界。
+- 新增 `internal/evals` eval fixture schema、parser、seed cases、确定性 evaluator 和 suite runner 基础。
+- 新增 `internal/governance` runtime governance metadata、tenant-scoped decision store、release gate、rollback records 和 feedback triage 基础。
+- 新增工具执行前治理 hook：`BaseAgent.RunSkill` 可接入 `SkillAuthorizer`，`ToolPolicyService` 可复用 admin 工具策略作为运行时 skill authorizer。
 - 新增 Phase 4 数字人表现层：`PresentationEvent`、字幕时间轴、mock TTS/ASR、Avatar manifest、Avatar 状态机、打断控制和 `/experience/stream`。
 - 新增 Web 用户端 `/app`，支持文本输入、SSE presentation stream 渲染、字幕、Avatar 状态、mock audio 状态和 mock voice flow。
 - 新增本地优先产品后台 `/admin`，支持 Persona draft/publish/rollback、记忆禁用、知识上传/切块/引用测试、工具策略保存/授权检查和会话审计。
@@ -15,12 +19,13 @@
 
 ### Documented
 
+- README 更新为 Phase 5A 进行中，并补充 Phase 5 SDD 文档入口与本地治理能力说明。
 - README 更新为 Phase 4 已完成，并补充 `/app`、`/admin` 和 `/experience/stream` 的本地使用说明。
 - README 补充 CLI JSON 和 SSE curl 示例。
 
 ### Notes
 
-- Phase 4 仍为 mock/local-first；不包含真实 TTS/ASR provider、真实 3D/Live2D/视频 Avatar、SQLite、生产认证或完整 Phase 5 治理体系。
+- Phase 5A 仍为 mock/local-first；不包含外部 eval 平台、云端内容审核、生产认证、SQLite、真实 provider、合规认证或完整治理 dashboard。
 
 ## v0.4.0 Phase 3 Runtime API Release - 2026-06-16
 
