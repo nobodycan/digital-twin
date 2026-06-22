@@ -132,73 +132,73 @@ flowchart TD
 
 ### Eval Foundation
 
-- [ ] P5-01: Add eval fixture schema and seed cases.
+- [x] P5-01: Add eval fixture schema and seed cases.
   - Tests first: valid fixture loads; malformed fixture reports file, field, and fix; unknown category fails.
   - Output: golden and adversarial fixtures for persona, RAG, tools, memory, safety, tenant isolation, and cost.
-- [ ] P5-02: Add `internal/evals` contracts and parser.
+- [x] P5-02: Add `internal/evals` contracts and parser.
   - Tests first: case/result/evaluator JSON round trips, optional vs required suites, deterministic ordering.
   - Output: `Case`, `ExpectedBehavior`, `CheckResult`, `SuiteResult`, `Evaluator`, and parser.
-- [ ] P5-03: Add governed runtime metadata model.
+- [x] P5-03: Add governed runtime metadata model.
   - Tests first: eval context requires tenant, persona version, tool-policy version, knowledge version, memory-policy version, and model/cost version.
   - Output: reusable metadata passed into evaluators and reports.
-- [ ] P5-04: Define tenant-scoped local governance store conventions.
+- [x] P5-04: Define tenant-scoped local governance store conventions.
   - Tests first: tenant A records cannot be listed/read by tenant B; file writes use temp file plus rename where applicable.
   - Output: in-memory and local-file store helpers for Phase 5 records.
 
 ### Runtime Governance
 
-- [ ] P5-05: Add tool pre-execution governance hook.
+- [x] P5-05: Add tool pre-execution governance hook.
   - Tests first: denied tool never invokes underlying skill; allowed tool invokes exactly once; malformed parameters are denied with reason code.
   - Output: shared policy path for runtime tool execution and admin authorization semantics.
-- [ ] P5-06: Add governed runtime adapter for eval.
+- [x] P5-06: Add governed runtime adapter for eval.
   - Tests first: adapter resolves active persona/tool/knowledge/memory policy versions from operator-controlled stores or explicit eval fixtures.
   - Output: eval runner exercises the governed path rather than hidden bootstrap defaults.
 
 ### Deterministic Evaluators
 
-- [ ] P5-07: Add persona evaluator.
+- [x] P5-07: Add persona evaluator.
   - Tests first: misleading identity, forbidden claims, missing AI disclosure, and off-persona tone fail.
   - Output: deterministic persona boundary checks.
-- [ ] P5-08: Add RAG/citation evaluator.
+- [x] P5-08: Add RAG/citation evaluator.
   - Tests first: fabricated source, missing citation, unsupported claim, and stale chunk reference fail.
   - Output: citation evidence checks against known fixture chunks.
-- [ ] P5-09: Add tool evaluator.
+- [x] P5-09: Add tool evaluator.
   - Tests first: denied tool, unauthorized HTTP target, private/local address, and bad schema fail.
   - Output: tool-use evidence with safe parameter summaries.
-- [ ] P5-10: Add memory privacy evaluator and memory write policy.
+- [x] P5-10: Add memory privacy evaluator and memory write policy.
   - Tests first: passwords, API keys, financial identifiers, third-party private data, and unconfirmed inferences are denied and not recalled.
   - Output: `MemoryWritePolicy` and evaluator evidence.
-- [ ] P5-11: Add safety and prompt-injection evaluator.
+- [x] P5-11: Add safety and prompt-injection evaluator.
   - Tests first: malicious user prompt, malicious knowledge chunk, credential request, destructive request, and high-risk advice produce expected action.
   - Output: central policy decision with action, reason, evidence, and audit-safe explanation.
-- [ ] P5-12: Add tenant isolation evaluator.
+- [x] P5-12: Add tenant isolation evaluator.
   - Tests first: cross-tenant memory, knowledge, audit, feedback, and release records are inaccessible.
   - Output: tenant isolation suite covering all new Phase 5 stores and touched existing stores.
-- [ ] P5-13: Add cost/performance evaluator.
+- [x] P5-13: Add cost/performance evaluator.
   - Tests first: local latency captured; estimated usage is labeled as estimate; budget threshold failure is reported clearly.
   - Output: deterministic cost/performance evidence without fake precision.
 
 ### Runner, Gates, and Operations
 
-- [ ] P5-14: Add eval runner and reporters.
+- [x] P5-14: Add eval runner and reporters.
   - Tests first: runner executes required suites, skips optional suites only with reason, writes JSON and Markdown summaries, exits fail on required failure.
   - Output: local command or importable runner with reports.
-- [ ] P5-15: Add release candidate and gate service.
+- [x] P5-15: Add release candidate and gate service.
   - Tests first: passing required suites permit publish decision; failing suites block; skipped required suites block unless explicitly waived by policy.
   - Output: release candidate model and gate decision records.
-- [ ] P5-16: Add rollback records.
+- [x] P5-16: Add rollback records.
   - Tests first: rollback records previous and target version IDs; missing target fails without changing active version.
   - Output: auditable rollback decision model.
-- [ ] P5-17: Add feedback records and triage workflow.
+- [x] P5-17: Add feedback records and triage workflow.
   - Tests first: feedback create/triage/link flows work; invalid conversation linkage is rejected or marked orphaned explicitly.
   - Output: feedback model with statuses `new`, `triaged`, `eval-added`, `knowledge-fix-needed`, `persona-fix-needed`, `dismissed`, `resolved`.
-- [ ] P5-18: Integrate audit-visible governance decisions.
+- [x] P5-18: Integrate audit-visible governance decisions.
   - Tests first: eval, policy, release, rollback, and feedback decisions emit queryable records with tenant and actor metadata.
   - Output: consistent decision trail without overloading conversation messages.
-- [ ] P5-19: Add optional admin/API or CLI adapters for Phase 5 records.
+- [x] P5-19: Add optional admin/API or CLI adapters for Phase 5 records.
   - Tests first: adapter returns release/eval/feedback records without exposing cross-tenant data.
   - Output: thin adapter only after service contracts pass.
-- [ ] P5-20: Update README and release notes.
+- [x] P5-20: Update README and release notes.
   - Tests first: `rg` checks for implemented Phase 5 names, local-first disclaimers, and no false production compliance claims.
   - Output: docs match actual shipped behavior.
 
@@ -289,13 +289,13 @@ For optional HTTP/admin adapters, write handler/service tests first. Browser QA 
 
 ## DX Implementation Checklist
 
-- [ ] README includes the Phase 5 local eval command once implemented.
-- [ ] README explains that Phase 5 is local-first governance, not compliance certification.
-- [ ] Eval fixture errors name file, field, and expected shape.
-- [ ] Generated reports include suite status, failed case IDs, skipped reasons, and version metadata.
-- [ ] Local data directories for eval reports, release records, rollback records, and feedback records are documented.
-- [ ] Release notes describe only implemented Phase 5 behavior.
-- [ ] No documentation claims production auth, SOC 2, GDPR compliance, real billing, or cloud moderation.
+- [x] README includes the Phase 5 local eval command once implemented.
+- [x] README explains that Phase 5 is local-first governance, not compliance certification.
+- [x] Eval fixture errors name file, field, and expected shape.
+- [x] Generated reports include suite status, failed case IDs, skipped reasons, and version metadata.
+- [x] Local data directories for eval reports, release records, rollback records, and feedback records are documented.
+- [x] Release notes describe only implemented Phase 5 behavior.
+- [x] No documentation claims production auth, SOC 2, GDPR compliance, real billing, or cloud moderation.
 
 ## Not in Scope
 

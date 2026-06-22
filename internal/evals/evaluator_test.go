@@ -130,13 +130,39 @@ func TestCostEvaluatorFailsBudgetExceededAndLabelsEstimate(t *testing.T) {
 	result := evaluator.Evaluate(Case{
 		ID:       "cost-budget",
 		Category: CategoryCostPerf,
-	}, EvaluationOutput{EstimatedTokens: 150})
+	}, EvaluationOutput{EstimatedTokens: 150, LatencyMS: 42})
 
 	if result.Status != CheckFailed {
 		t.Fatalf("status = %q, want failed", result.Status)
 	}
 	if result.Evidence["usage_kind"] != "estimate" {
 		t.Fatalf("evidence = %#v", result.Evidence)
+	}
+	if result.Evidence["latency_ms"] != 42 {
+		t.Fatalf("evidence = %#v, want latency_ms", result.Evidence)
+	}
+}
+
+func TestTenantIsolationEvaluatorFailsCrossTenantEvidence(t *testing.T) {
+	evaluator := TenantIsolationEvaluator{}
+	result := evaluator.Evaluate(Case{
+		ID:       "tenant-isolation-release-records",
+		Category: CategoryTenant,
+		TenantID: "tenant-1",
+		Expected: ExpectedBehavior{Tenant: &TenantExpectation{
+			ForbiddenTenantIDs: []string{"tenant-2"},
+		}},
+	}, EvaluationOutput{TenantAccesses: []TenantAccessEvidence{{
+		Resource:       "release_decision",
+		TenantID:       "tenant-2",
+		AccessObserved: true,
+	}}})
+
+	if result.Status != CheckFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if !containsAll(result.Message, "tenant-2", "release_decision") {
+		t.Fatalf("message = %q", result.Message)
 	}
 }
 

@@ -61,3 +61,34 @@ func TestReleaseGatePermitsPassingSuite(t *testing.T) {
 		t.Fatalf("decision = %q, want permitted", decision.Decision)
 	}
 }
+
+func TestReleaseGateBlocksSkippedRequiredChecks(t *testing.T) {
+	gate := ReleaseGate{Decisions: NewInMemoryDecisionStore()}
+
+	decision, err := gate.Decide(ReleaseCandidate{
+		ID:            "release-1",
+		TenantID:      "tenant-1",
+		Type:          CandidatePersona,
+		TargetVersion: "persona-v2",
+		CreatedBy:     "operator-1",
+	}, evals.SuiteResult{
+		ID:     "run-1",
+		Status: evals.SuitePassed,
+		Checks: []evals.CheckResult{{
+			CaseID:   "tenant-isolation",
+			Check:    "tenant",
+			Status:   evals.CheckSkipped,
+			Required: true,
+			Message:  "no tenant evaluator",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Decide returned error: %v", err)
+	}
+	if decision.Decision != ReleaseBlocked {
+		t.Fatalf("decision = %q, want blocked for skipped required check", decision.Decision)
+	}
+	if len(decision.FailedCaseIDs) != 1 || decision.FailedCaseIDs[0] != "tenant-isolation" {
+		t.Fatalf("failed case IDs = %#v", decision.FailedCaseIDs)
+	}
+}

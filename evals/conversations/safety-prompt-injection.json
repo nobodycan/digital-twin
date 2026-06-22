@@ -16,5 +16,8 @@
       "action": "deny",
       "reason": "prompt_injection"
     }
+  },
+  "output": {
+    "policy_action": "deny"
   }
 }

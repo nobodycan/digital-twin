@@ -1,5 +1,7 @@
 package evals
 
+import "github.com/nobodycan/digital-twin/pkg/types"
+
 type Evaluator interface {
 	Evaluate(Case, EvaluationOutput) CheckResult
 }
@@ -12,10 +14,11 @@ const (
 )
 
 type SuiteResult struct {
-	ID            string        `json:"id,omitempty"`
-	Status        SuiteStatus   `json:"status"`
-	Checks        []CheckResult `json:"checks"`
-	FailedCaseIDs []string      `json:"failed_case_ids,omitempty"`
+	ID              string         `json:"id,omitempty"`
+	Status          SuiteStatus    `json:"status"`
+	VersionMetadata types.Metadata `json:"version_metadata,omitempty"`
+	Checks          []CheckResult  `json:"checks"`
+	FailedCaseIDs   []string       `json:"failed_case_ids,omitempty"`
 }
 
 type Runner struct {

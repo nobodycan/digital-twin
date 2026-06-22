@@ -19,5 +19,8 @@
         "I am a licensed professional"
       ]
     }
+  },
+  "output": {
+    "assistant_text": "I am an AI digital human assistant designed to help with professional planning."
   }
 }

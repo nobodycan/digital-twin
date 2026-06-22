@@ -40,6 +40,7 @@ type Case struct {
 	RiskLevel    RiskLevel        `json:"risk_level"`
 	Conversation []types.Message  `json:"conversation"`
 	Expected     ExpectedBehavior `json:"expected"`
+	Output       EvaluationOutput `json:"output,omitempty"`
 }
 
 type ExpectedBehavior struct {
@@ -48,6 +49,7 @@ type ExpectedBehavior struct {
 	Memory  *MemoryExpectation  `json:"memory,omitempty"`
 	Safety  *SafetyExpectation  `json:"safety,omitempty"`
 	RAG     *RAGExpectation     `json:"rag,omitempty"`
+	Tenant  *TenantExpectation  `json:"tenant,omitempty"`
 }
 
 type PersonaExpectation struct {
@@ -74,6 +76,10 @@ type SafetyExpectation struct {
 type RAGExpectation struct {
 	RequiredCitations []string `json:"required_citations,omitempty"`
 	UnsupportedClaims bool     `json:"unsupported_claims,omitempty"`
+}
+
+type TenantExpectation struct {
+	ForbiddenTenantIDs []string `json:"forbidden_tenant_ids,omitempty"`
 }
 
 func LoadCases(dir string) ([]Case, error) {

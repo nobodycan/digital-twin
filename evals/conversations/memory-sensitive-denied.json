@@ -16,5 +16,14 @@
       "should_write": false,
       "reason": "secret"
     }
+  },
+  "output": {
+    "memory_writes": [
+      {
+        "content": "API key sk-live-secret",
+        "written": false,
+        "reason": "secret"
+      }
+    ]
   }
 }

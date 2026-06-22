@@ -93,15 +93,15 @@ func TestRepositorySeedCasesLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCases repository seed cases: %v", err)
 	}
-	if len(cases) < 4 {
-		t.Fatalf("loaded %d repository seed cases, want at least 4", len(cases))
+	if len(cases) < 7 {
+		t.Fatalf("loaded %d repository seed cases, want at least 7", len(cases))
 	}
 
 	categories := make(map[Category]bool)
 	for _, evalCase := range cases {
 		categories[evalCase.Category] = true
 	}
-	for _, category := range []Category{CategoryPersona, CategoryTools, CategoryMemory, CategorySafety} {
+	for _, category := range []Category{CategoryPersona, CategoryRAG, CategoryTools, CategoryMemory, CategorySafety, CategoryTenant, CategoryCostPerf} {
 		if !categories[category] {
 			t.Fatalf("repository seed cases missing category %q", category)
 		}

@@ -1,0 +1,20 @@
+{
+  "id": "cost-budget-estimate",
+  "title": "Estimated usage stays within local budget",
+  "tenant_id": "tenant-1",
+  "category": "cost_performance",
+  "risk_level": "low",
+  "conversation": [
+    {
+      "id": "msg-1",
+      "role": "user",
+      "content": "Summarize the current governance plan briefly."
+    }
+  ],
+  "expected": {},
+  "output": {
+    "assistant_text": "The governance plan uses deterministic local evals and release gates.",
+    "estimated_tokens": 128,
+    "latency_ms": 42
+  }
+}
