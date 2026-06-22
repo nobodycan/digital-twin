@@ -60,7 +60,12 @@ func (g ReleaseGate) Decide(candidate ReleaseCandidate, suite evals.SuiteResult)
 		FailedCaseIDs: append([]string(nil), suite.FailedCaseIDs...),
 		CreatedAt:     time.Now().UTC(),
 	}
-	if suite.Status == evals.SuiteFailed {
+	for _, check := range suite.Checks {
+		if check.Required && check.Status == evals.CheckSkipped && !containsString(decision.FailedCaseIDs, check.CaseID) {
+			decision.FailedCaseIDs = append(decision.FailedCaseIDs, check.CaseID)
+		}
+	}
+	if suite.Status == evals.SuiteFailed || len(decision.FailedCaseIDs) > 0 {
 		decision.Decision = ReleaseBlocked
 	}
 	if g.Decisions != nil {
@@ -84,6 +89,15 @@ func (g ReleaseGate) Decide(candidate ReleaseCandidate, suite evals.SuiteResult)
 		}
 	}
 	return decision, nil
+}
+
+func containsString(values []string, value string) bool {
+	for _, existing := range values {
+		if existing == value {
+			return true
+		}
+	}
+	return false
 }
 
 func validateReleaseCandidate(candidate ReleaseCandidate) error {

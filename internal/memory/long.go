@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/governance"
 	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/internal/store"
 	"github.com/nobodycan/digital-twin/pkg/types"
@@ -11,8 +12,9 @@ import (
 
 // LongTermMemory stores summaries in a vector store and recalls them semantically.
 type LongTermMemory struct {
-	client  llm.Client
-	vectors store.VectorStore
+	client      llm.Client
+	vectors     store.VectorStore
+	WritePolicy governance.MemoryWritePolicy
 }
 
 // NewLongTermMemory creates a long-term memory implementation.
@@ -25,6 +27,9 @@ func (m *LongTermMemory) Remember(ctx context.Context, conversation types.Conver
 	summary, err := m.client.Summarize(ctx, conversation)
 	if err != nil {
 		return core.WrapError(err, "summarize memory")
+	}
+	if decision := m.WritePolicy.Decide(summary); decision.Action == governance.PolicyDeny {
+		return governance.MemoryDeniedError(decision)
 	}
 	vector, err := m.client.Embed(ctx, summary)
 	if err != nil {

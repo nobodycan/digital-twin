@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/nobodycan/digital-twin/internal/governance"
 	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/internal/store"
 	"github.com/nobodycan/digital-twin/pkg/types"
@@ -45,6 +46,26 @@ func TestLongTermMemoryDoesNotWritePartialMemoryWhenSummarizeFails(t *testing.T)
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected no partial writes, got %#v", results)
+	}
+}
+
+func TestLongTermMemoryAppliesWritePolicyBeforePersistingSensitiveSummary(t *testing.T) {
+	client := &memoryLLM{summary: "Ada API key is sk-live-secret", vector: []float64{1, 0}}
+	vectorStore := store.NewInMemoryVectorStore(2)
+	memory := NewLongTermMemory(client, vectorStore)
+	memory.WritePolicy = governance.MemoryWritePolicy{}
+
+	err := memory.Remember(t.Context(), types.Conversation{ID: "conv-1", TenantID: "tenant-1", UserID: "user-1"})
+	if !errors.Is(err, governance.ErrMemoryWriteDenied) {
+		t.Fatalf("remember error = %v, want memory write denied", err)
+	}
+
+	records, recallErr := memory.Recall(t.Context(), "tenant-1", "user-1", "api key", 1)
+	if recallErr != nil {
+		t.Fatalf("recall: %v", recallErr)
+	}
+	if len(records) != 0 {
+		t.Fatalf("sensitive memory was recalled: %#v", records)
 	}
 }
 

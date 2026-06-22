@@ -19,5 +19,15 @@
         "reason": "private_or_not_allowlisted"
       }
     ]
+  },
+  "output": {
+    "tool_calls": [
+      {
+        "name": "http_call",
+        "allowed": false,
+        "executed": false,
+        "reason": "private_or_not_allowlisted"
+      }
+    ]
   }
 }

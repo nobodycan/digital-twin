@@ -19,17 +19,20 @@ type CheckResult struct {
 	CaseID   string         `json:"case_id"`
 	Check    string         `json:"check"`
 	Status   CheckStatus    `json:"status"`
+	Required bool           `json:"required,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Evidence types.Metadata `json:"evidence,omitempty"`
 }
 
 type EvaluationOutput struct {
-	AssistantText   string                `json:"assistant_text,omitempty"`
-	Citations       []string              `json:"citations,omitempty"`
-	ToolCalls       []ToolCallEvidence    `json:"tool_calls,omitempty"`
-	MemoryWrites    []MemoryWriteEvidence `json:"memory_writes,omitempty"`
-	PolicyAction    string                `json:"policy_action,omitempty"`
-	EstimatedTokens int                   `json:"estimated_tokens,omitempty"`
+	AssistantText   string                 `json:"assistant_text,omitempty"`
+	Citations       []string               `json:"citations,omitempty"`
+	ToolCalls       []ToolCallEvidence     `json:"tool_calls,omitempty"`
+	MemoryWrites    []MemoryWriteEvidence  `json:"memory_writes,omitempty"`
+	TenantAccesses  []TenantAccessEvidence `json:"tenant_accesses,omitempty"`
+	PolicyAction    string                 `json:"policy_action,omitempty"`
+	EstimatedTokens int                    `json:"estimated_tokens,omitempty"`
+	LatencyMS       int                    `json:"latency_ms,omitempty"`
 }
 
 type ToolCallEvidence struct {
@@ -43,6 +46,12 @@ type MemoryWriteEvidence struct {
 	Content string `json:"content,omitempty"`
 	Written bool   `json:"written"`
 	Reason  string `json:"reason,omitempty"`
+}
+
+type TenantAccessEvidence struct {
+	Resource       string `json:"resource"`
+	TenantID       string `json:"tenant_id"`
+	AccessObserved bool   `json:"access_observed"`
 }
 
 type PersonaEvaluator struct{}
@@ -171,6 +180,7 @@ func (e CostEvaluator) Evaluate(evalCase Case, output EvaluationOutput) CheckRes
 	evidence := types.Metadata{
 		"usage_kind":       "estimate",
 		"estimated_tokens": output.EstimatedTokens,
+		"latency_ms":       output.LatencyMS,
 	}
 	if e.MaxEstimatedTokens > 0 && output.EstimatedTokens > e.MaxEstimatedTokens {
 		evidence["max_estimated_tokens"] = e.MaxEstimatedTokens
@@ -183,6 +193,26 @@ func (e CostEvaluator) Evaluate(evalCase Case, output EvaluationOutput) CheckRes
 		}
 	}
 	return CheckResult{CaseID: evalCase.ID, Check: "cost_performance", Status: CheckPassed, Evidence: evidence}
+}
+
+type TenantIsolationEvaluator struct{}
+
+func (TenantIsolationEvaluator) Evaluate(evalCase Case, output EvaluationOutput) CheckResult {
+	expect := evalCase.Expected.Tenant
+	if expect == nil {
+		return skipped(evalCase.ID, "tenant", "no tenant expectation")
+	}
+	forbidden := make(map[string]bool, len(expect.ForbiddenTenantIDs))
+	for _, tenantID := range expect.ForbiddenTenantIDs {
+		forbidden[tenantID] = true
+	}
+	var failures []string
+	for _, access := range output.TenantAccesses {
+		if access.AccessObserved && forbidden[access.TenantID] {
+			failures = append(failures, fmt.Sprintf("cross-tenant access observed for %s on %s", access.TenantID, access.Resource))
+		}
+	}
+	return resultFromFailures(evalCase.ID, "tenant", failures)
 }
 
 func resultFromFailures(caseID, check string, failures []string) CheckResult {

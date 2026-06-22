@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-本仓库已完成到 **Phase 4 数字人表现层与产品后台**，并已开始 **Phase 5A 本地治理与评测基础**。
+本仓库已完成到 **Phase 5 本地治理、评测、安全与运营基础**。
 
-当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、release gate、rollback/feedback 记录和工具执行前治理 hook。
+当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、本地 eval CLI、governed runtime adapter、memory write policy、release gate、rollback/feedback 记录、governance decision audit exporter、decision records CLI 和工具执行前治理 hook。
 
-Phase 5A 仍采用 mock/local-first：已具备可测试的治理基础，但仍不包含真实 TTS/ASR provider、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核或合规认证。
+Phase 5 仍采用 mock/local-first：已具备可测试的本地治理闭环，但仍不包含真实 TTS/ASR provider、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核、合规认证或完整治理 dashboard。
 
 ## 项目定位
 
@@ -24,7 +24,7 @@ Phase 5A 仍采用 mock/local-first：已具备可测试的治理基础，但仍
 - **入口**：CLI one-shot、HTTP JSON API、SSE runtime event stream、Web `/app` 和 `/admin`。
 - **表现层**：PresentationEvent、字幕时间轴、mock TTS/ASR、Avatar manifest、Avatar 状态机、打断控制。
 - **后台**：Persona 发布/回滚、记忆禁用、知识上传/切块/引用测试、工具策略、会话审计。
-- **治理**：本地 eval fixture/parser、确定性 evaluator、治理上下文版本元数据、工具执行前 authorizer、release gate、rollback 记录和 feedback triage 基础。
+- **治理**：本地 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、治理上下文版本元数据、governed runtime adapter、工具执行前 authorizer、memory write policy、release gate、rollback 记录、feedback triage、decision audit exporter 和本地 decision records CLI。
 
 ## 架构概览
 
@@ -53,7 +53,7 @@ flowchart TD
 | Phase 2 | 人格、路由、Skill 与 Agent | 已完成 |
 | Phase 3 | 编排运行时与 API 入口 | 已完成 |
 | Phase 4 | 数字人表现层与产品后台 | 已完成 |
-| Phase 5 | 治理、评测、安全与运营 | 进行中：Phase 5A 本地治理基础 |
+| Phase 5 | 治理、评测、安全与运营 | 已完成：本地治理闭环基础 |
 
 ## SDD 文档
 
@@ -100,6 +100,15 @@ Web surfaces:
 - User digital-human console: `http://localhost:8080/app`
 - Local operations console: `http://localhost:8080/admin`
 
+Local governance:
+
+```powershell
+go run ./cmd/cli eval --cases .\evals\conversations --reports .\evals\reports --run-id phase5-local
+go run ./cmd/cli decisions --store .\data --tenant tenant-1
+```
+
+Generated eval reports are written under `evals/reports/` and ignored by git. Local governance decision records use `data/tenants/<tenant-id>/governance/decisions/`; rollback and release decisions are stored as governance decisions, while feedback records currently use the in-memory feedback store unless an adapter supplies persistence.
+
 ## 验证
 
 ```powershell
@@ -107,8 +116,9 @@ go test ./...
 go vet ./...
 go build ./cmd/server
 go build ./cmd/cli
+go run ./cmd/cli eval --cases .\evals\conversations --reports .\evals\reports --run-id phase5-local
 ```
 
 ## 下一步
 
-继续按 `AGENTS.md` 的 SDD/TDD gate 推进 Phase 5：补齐 governed runtime adapter、更多 evaluator、CLI/report 输出、HTTP/admin adapters 和安全审查。
+下一步按 `AGENTS.md` 进入 Phase 5 的 review、QA、security 和 ship stages；产品能力层面可继续扩展真实 provider、生产认证/RBAC、外部 eval 平台和完整治理 dashboard。

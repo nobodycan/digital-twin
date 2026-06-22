@@ -21,3 +21,4 @@ Thumbs.db
 .gstack/
 data/
 cmd/server/data/
+evals/reports/
