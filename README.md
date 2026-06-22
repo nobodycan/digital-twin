@@ -122,3 +122,33 @@ go run ./cmd/cli eval --cases .\evals\conversations --reports .\evals\reports --
 ## 下一步
 
 下一步按 `AGENTS.md` 进入 Phase 5 的 review、QA、security 和 ship stages；产品能力层面可继续扩展真实 provider、生产认证/RBAC、外部 eval 平台和完整治理 dashboard。
+
+## Phase 6A Provider and Deployment Readiness
+
+Phase 6A adds a production-shaped local runtime boundary while keeping the project local-file-storage-first. It includes production-like config validation, secret redaction, an HTTP-shaped TTS adapter tested only against fake servers, `/ready` readiness checks, request ID headers, provider/readiness metrics, Docker Compose packaging, and a Go smoke command.
+
+Included:
+
+- Config profiles and provider fields for local/mock and HTTP TTS providers.
+- Startup config summaries and readiness errors that redact configured secrets.
+- `/health` for liveness and `/ready` for config/data/release-gate readiness.
+- `cmd/smoke` checks for `/health`, `/ready`, `/chat`, `/chat/stream`, `/app`, `/admin`, and `/metrics`.
+- `deploy/Dockerfile`, `deploy/docker-compose.yml`, `deploy/.env.example`, and `deploy/README.md`.
+
+Excluded:
+
+- No SQLite, Postgres, cloud database, or migration framework.
+- No real provider calls in CI and no paid provider account requirement.
+- No OAuth, SSO, production RBAC, Kubernetes platform, compliance certification, or external eval platform.
+
+Production-shaped local verification:
+
+```powershell
+go test ./...
+go vet ./...
+go build ./cmd/server
+go build ./cmd/cli
+go build ./cmd/smoke
+.\scripts\verify_deploy.ps1
+go run ./cmd/smoke -base-url http://localhost:8080
+```

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,6 +28,7 @@ type Config struct {
 	EventRecorder       *runtime.EventRecorder
 	PresentationAdapter presentation.Adapter
 	ASR                 voice.ASRClient
+	Readiness           ReadinessConfig
 	PersonaAdmin        *admin.PersonaService
 	MemoryAdmin         *admin.MemoryService
 	KnowledgeAdmin      *admin.KnowledgeService
@@ -36,6 +39,14 @@ type Config struct {
 	RateLimitRequests   int
 }
 
+type ReadinessConfig struct {
+	DataDir           string
+	ConfigSummary     string
+	ConfigError       error
+	ReleaseGateStatus string
+	Redact            func(string) string
+}
+
 type Handler struct {
 	mux                 *http.ServeMux
 	metrics             observability.Metrics
@@ -43,6 +54,7 @@ type Handler struct {
 	eventRecorder       *runtime.EventRecorder
 	presentationAdapter presentation.Adapter
 	asr                 voice.ASRClient
+	readiness           ReadinessConfig
 	personaAdmin        *admin.PersonaService
 	memoryAdmin         *admin.MemoryService
 	knowledgeAdmin      *admin.KnowledgeService
@@ -67,6 +79,7 @@ func NewHandler(config Config) http.Handler {
 		eventRecorder:       config.EventRecorder,
 		presentationAdapter: config.PresentationAdapter,
 		asr:                 config.ASR,
+		readiness:           config.Readiness,
 		personaAdmin:        config.PersonaAdmin,
 		memoryAdmin:         config.MemoryAdmin,
 		knowledgeAdmin:      config.KnowledgeAdmin,
@@ -78,6 +91,7 @@ func NewHandler(config Config) http.Handler {
 		requestCounts:       make(map[string]int),
 	}
 	handler.mux.HandleFunc("GET /health", handler.handleHealth)
+	handler.mux.HandleFunc("GET /ready", handler.handleReady)
 	handler.mux.HandleFunc("GET /metrics", handler.handleMetrics)
 	handler.mux.HandleFunc("GET /favicon.ico", handler.handleFavicon)
 	handler.mux.HandleFunc("GET /app", handler.handleStaticHTML("app.html"))
@@ -104,6 +118,8 @@ func NewHandler(config Config) http.Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	requestID := requestIDFrom(r)
+	w.Header().Set("X-Request-ID", requestID)
 	if protectedRoute(r.URL.Path) {
 		key, ok := h.authorizedKey(r)
 		if !ok {
@@ -123,6 +139,49 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
+	h.metrics.IncCounter("requests_total", map[string]string{"route": "/ready"})
+	checks := map[string]string{
+		"config":       "ok",
+		"data_dir":     "ok",
+		"release_gate": h.readiness.releaseGateStatus(),
+	}
+	details := map[string]string{}
+	ready := true
+
+	if h.readiness.ConfigError != nil {
+		ready = false
+		checks["config"] = "failed"
+		details["config"] = h.readiness.redact(h.readiness.ConfigError.Error())
+	}
+	if err := h.readiness.checkDataDir(); err != nil {
+		ready = false
+		checks["data_dir"] = "failed"
+		details["data_dir"] = err.Error()
+	}
+	if checks["release_gate"] == "failed" {
+		ready = false
+	}
+	if ready {
+		h.metrics.SetGauge("readiness_status", 1, nil)
+	} else {
+		h.metrics.SetGauge("readiness_status", 0, nil)
+	}
+
+	status := http.StatusOK
+	overall := "ok"
+	if !ready {
+		status = http.StatusServiceUnavailable
+		overall = "failed"
+	}
+	writeJSON(w, status, map[string]any{
+		"status":         overall,
+		"checks":         checks,
+		"details":        details,
+		"config_summary": h.readiness.ConfigSummary,
+	})
+}
+
 func (h *Handler) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	body, contentType, err := (observability.PrometheusExporter{}).Export(h.metrics.Snapshot())
 	if err != nil {
@@ -132,6 +191,39 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+func (r ReadinessConfig) releaseGateStatus() string {
+	if strings.TrimSpace(r.ReleaseGateStatus) == "" {
+		return "skipped"
+	}
+	return r.ReleaseGateStatus
+}
+
+func (r ReadinessConfig) redact(text string) string {
+	if r.Redact == nil {
+		return text
+	}
+	return r.Redact(text)
+}
+
+func (r ReadinessConfig) checkDataDir() error {
+	if strings.TrimSpace(r.DataDir) == "" {
+		return nil
+	}
+	info, err := os.Stat(r.DataDir)
+	if err != nil {
+		return fmt.Errorf("data dir unavailable")
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("data dir is not a directory")
+	}
+	path := filepath.Join(r.DataDir, ".readiness")
+	if err := os.WriteFile(path, []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0o600); err != nil {
+		return fmt.Errorf("data dir is not writable")
+	}
+	_ = os.Remove(path)
+	return nil
 }
 
 func (h *Handler) handleFavicon(w http.ResponseWriter, _ *http.Request) {
@@ -630,4 +722,15 @@ func (h *Handler) allow(key string) bool {
 	defer h.mu.Unlock()
 	h.requestCounts[key]++
 	return h.requestCounts[key] <= h.rateLimitRequests
+}
+
+func requestIDFrom(r *http.Request) string {
+	if requestID := strings.TrimSpace(r.Header.Get("X-Request-ID")); requestID != "" {
+		return requestID
+	}
+	var bytes [8]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return fmt.Sprintf("req-%d", time.Now().UnixNano())
+	}
+	return "req-" + hex.EncodeToString(bytes[:])
 }

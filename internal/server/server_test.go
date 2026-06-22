@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +33,135 @@ func TestHandlerServesHealth(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), `"status":"ok"`) {
 		t.Fatalf("body = %q, want status ok", response.Body.String())
+	}
+}
+
+func TestHandlerServesReadinessWhenDependenciesAreReady(t *testing.T) {
+	metrics := observability.NewMemoryMetrics()
+	handler := NewHandler(Config{
+		Metrics: metrics,
+		Readiness: ReadinessConfig{
+			DataDir:           t.TempDir(),
+			ConfigSummary:     "environment=local tts.provider=mock",
+			ReleaseGateStatus: "skipped",
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"status":"ok"`, `"data_dir":"ok"`, `"release_gate":"skipped"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+	if metrics.Snapshot().Gauges[`readiness_status`] != 1 {
+		t.Fatalf("readiness_status gauge = %v, want 1", metrics.Snapshot().Gauges)
+	}
+}
+
+func TestHandlerReadinessFailsWithoutWritableLocalDataDir(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(filePath, []byte("file"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Readiness: ReadinessConfig{
+			DataDir:           filePath,
+			ReleaseGateStatus: "skipped",
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"data_dir":"failed"`) {
+		t.Fatalf("body = %s, want data_dir failed", response.Body.String())
+	}
+}
+
+func TestHandlerReadinessRedactsConfigErrors(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Readiness: ReadinessConfig{
+			DataDir:           t.TempDir(),
+			ConfigError:       errors.New("provider rejected key tts-secret"),
+			ReleaseGateStatus: "skipped",
+			Redact: func(text string) string {
+				return strings.ReplaceAll(text, "tts-secret", "<redacted>")
+			},
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if strings.Contains(body, "tts-secret") {
+		t.Fatalf("readiness leaked secret: %s", body)
+	}
+	if !strings.Contains(body, `redacted`) || !strings.Contains(body, `"config":"failed"`) {
+		t.Fatalf("body = %s, want redacted config failure", body)
+	}
+}
+
+func TestHandlerReadinessFailsWhenReleaseGateFailed(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Readiness: ReadinessConfig{
+			DataDir:           t.TempDir(),
+			ReleaseGateStatus: "failed",
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"release_gate":"failed"`) {
+		t.Fatalf("body = %s, want release_gate failed", response.Body.String())
+	}
+}
+
+func TestHandlerAddsRequestIDHeader(t *testing.T) {
+	handler := NewHandler(Config{Metrics: observability.NewMemoryMetrics()})
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Header().Get("X-Request-ID") == "" {
+		t.Fatalf("X-Request-ID header is empty")
+	}
+}
+
+func TestHandlerPreservesIncomingRequestID(t *testing.T) {
+	handler := NewHandler(Config{Metrics: observability.NewMemoryMetrics()})
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	request.Header.Set("X-Request-ID", "req-client")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Header().Get("X-Request-ID") != "req-client" {
+		t.Fatalf("X-Request-ID = %q, want req-client", response.Header().Get("X-Request-ID"))
 	}
 }
 
