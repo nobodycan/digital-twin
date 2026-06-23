@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,6 +41,29 @@ func TestParseLogLevel(t *testing.T) {
 	}
 }
 
+func TestStartupSummaryDoesNotLeakSecrets(t *testing.T) {
+	cfg := config.AppConfig{
+		Environment: "production",
+		Server:      config.ServerConfig{Port: 8080, APIKey: "server-secret"},
+		Log:         config.LogConfig{Level: "info"},
+		LLM:         config.LLMConfig{APIKey: "llm-secret"},
+		TTS:         config.ProviderConfig{Provider: "http", BaseURL: "https://tts.example.test", APIKey: "tts-secret"},
+		ASR:         config.ProviderConfig{Provider: "local", APIKey: "asr-secret"},
+		Tenant:      config.TenantConfig{DefaultID: "tenant-a"},
+	}
+
+	summary := startupSummary(cfg)
+
+	for _, secret := range []string{"server-secret", "llm-secret", "tts-secret", "asr-secret"} {
+		if strings.Contains(summary, secret) {
+			t.Fatalf("startupSummary() leaked %q in %q", secret, summary)
+		}
+	}
+	if !strings.Contains(summary, "environment=production") || !strings.Contains(summary, "tts.api_key=<redacted>") {
+		t.Fatalf("startupSummary() = %q, want safe config summary", summary)
+	}
+}
+
 func TestBuildHandlerServesHealth(t *testing.T) {
 	handler, err := buildHandler(config.AppConfig{})
 	if err != nil {
@@ -51,6 +76,33 @@ func TestBuildHandlerServesHealth(t *testing.T) {
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
+	}
+}
+
+func TestBuildHandlerReadinessChecksAdminDataDir(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "admin-data-file")
+	if err := os.WriteFile(filePath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write admin data file: %v", err)
+	}
+	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", filePath)
+	handler, err := buildHandler(config.AppConfig{})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestBuildHandlerRejectsUnsupportedTTSProvider(t *testing.T) {
+	_, err := buildHandler(config.AppConfig{TTS: config.ProviderConfig{Provider: "unsupported"}})
+	if err == nil || !strings.Contains(err.Error(), "unsupported tts provider") {
+		t.Fatalf("buildHandler() error = %v, want unsupported tts provider", err)
 	}
 }
 
@@ -109,6 +161,42 @@ func TestBuildHandlerServesExperienceStreamWithDefaultPresentationAdapter(t *tes
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestBuildHandlerExposesHTTPProviderMetrics(t *testing.T) {
+	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"provider": "http",
+			"chunks": []map[string]any{{
+				"index":     0,
+				"mime_type": "audio/mpeg",
+				"data":      []byte("audio"),
+			}},
+		})
+	}))
+	defer ttsServer.Close()
+	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", t.TempDir())
+	handler, err := buildHandler(config.AppConfig{TTS: config.ProviderConfig{Provider: "http", BaseURL: ttsServer.URL, APIKey: "tts-secret"}})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+
+	experience := httptest.NewRecorder()
+	handler.ServeHTTP(experience, httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validServerChatJSON())))
+	if experience.Code != http.StatusOK {
+		t.Fatalf("experience status = %d, body = %s", experience.Code, experience.Body.String())
+	}
+
+	metrics := httptest.NewRecorder()
+	handler.ServeHTTP(metrics, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := metrics.Body.String()
+	if !strings.Contains(body, `voice_provider_latency_ms`) {
+		t.Fatalf("metrics body missing provider latency:\n%s", body)
+	}
+	if strings.Contains(body, "tts-secret") {
+		t.Fatalf("metrics leaked TTS secret:\n%s", body)
 	}
 }
 

@@ -1,0 +1,25 @@
+services:
+  digital-twin:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - .env.example
+    environment:
+      DIGITAL_TWIN_CONFIG: /app/configs/app.yaml
+      DIGITAL_TWIN_ADMIN_DATA: /data/admin
+      DIGITAL_TWIN_ENVIRONMENT: production
+      DIGITAL_TWIN_TTS_PROVIDER: local
+      DIGITAL_TWIN_ASR_PROVIDER: local
+    ports:
+      - "8080:8080"
+    volumes:
+      - digital_twin_admin_data:/data/admin
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  digital_twin_admin_data:

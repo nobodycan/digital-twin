@@ -3,12 +3,14 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
 type AppConfig struct {
+	Environment   string
 	Server        ServerConfig
 	Log           LogConfig
 	LLM           LLMConfig
@@ -39,6 +41,8 @@ type DBConfig struct {
 
 type ProviderConfig struct {
 	Provider string
+	BaseURL  string
+	APIKey   string
 }
 
 type ObjectStorageConfig struct {
@@ -56,6 +60,7 @@ func Load(path string) (AppConfig, error) {
 	}
 
 	cfg := AppConfig{
+		Environment:   "local",
 		Server:        ServerConfig{Port: 8080},
 		Log:           LogConfig{Level: "info"},
 		TTS:           ProviderConfig{Provider: "local"},
@@ -150,6 +155,7 @@ func applyValues(cfg *AppConfig, values map[string]string) error {
 
 func applyEnv(cfg *AppConfig) error {
 	env := map[string]string{
+		"environment":                firstEnv("DIGITAL_TWIN_ENVIRONMENT", "DIGITAL_TWIN_ENV"),
 		"server.port":                firstEnv("DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT"),
 		"server.api_key":             firstEnv("DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY"),
 		"server.rate_limit_requests": firstEnv("DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS"),
@@ -157,7 +163,11 @@ func applyEnv(cfg *AppConfig) error {
 		"llm.api_key":                firstEnv("DIGITAL_TWIN_LLM_API_KEY", "LLM_API_KEY"),
 		"db.dsn":                     firstEnv("DIGITAL_TWIN_DB_DSN", "DB_DSN"),
 		"tts.provider":               firstEnv("DIGITAL_TWIN_TTS_PROVIDER", "TTS_PROVIDER"),
+		"tts.base_url":               firstEnv("DIGITAL_TWIN_TTS_BASE_URL", "TTS_BASE_URL"),
+		"tts.api_key":                firstEnv("DIGITAL_TWIN_TTS_API_KEY", "TTS_API_KEY"),
 		"asr.provider":               firstEnv("DIGITAL_TWIN_ASR_PROVIDER", "ASR_PROVIDER"),
+		"asr.base_url":               firstEnv("DIGITAL_TWIN_ASR_BASE_URL", "ASR_BASE_URL"),
+		"asr.api_key":                firstEnv("DIGITAL_TWIN_ASR_API_KEY", "ASR_API_KEY"),
 		"object_storage.endpoint":    firstEnv("DIGITAL_TWIN_OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_ENDPOINT"),
 		"tenant.default_id":          firstEnv("DIGITAL_TWIN_TENANT_DEFAULT_ID", "TENANT_DEFAULT_ID"),
 	}
@@ -175,6 +185,8 @@ func applyEnv(cfg *AppConfig) error {
 
 func setValue(cfg *AppConfig, key, value string) error {
 	switch key {
+	case "environment":
+		cfg.Environment = value
 	case "server.port":
 		port, err := strconv.Atoi(value)
 		if err != nil {
@@ -197,8 +209,16 @@ func setValue(cfg *AppConfig, key, value string) error {
 		cfg.DB.DSN = value
 	case "tts.provider":
 		cfg.TTS.Provider = value
+	case "tts.base_url":
+		cfg.TTS.BaseURL = value
+	case "tts.api_key":
+		cfg.TTS.APIKey = value
 	case "asr.provider":
 		cfg.ASR.Provider = value
+	case "asr.base_url":
+		cfg.ASR.BaseURL = value
+	case "asr.api_key":
+		cfg.ASR.APIKey = value
 	case "object_storage.endpoint":
 		cfg.ObjectStorage.Endpoint = value
 	case "tenant.default_id":
@@ -213,7 +233,101 @@ func validate(cfg AppConfig) error {
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535")
 	}
+	if err := validateProvider("tts", cfg.Environment, cfg.TTS); err != nil {
+		return err
+	}
+	if err := validateProvider("asr", cfg.Environment, cfg.ASR); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateProvider(name, environment string, provider ProviderConfig) error {
+	if strings.TrimSpace(provider.Provider) == "" {
+		return fmt.Errorf("%s.provider is required", name)
+	}
+	if !isProductionLike(environment) || provider.Provider != "http" {
+		return nil
+	}
+	if strings.TrimSpace(provider.BaseURL) == "" {
+		return fmt.Errorf("%s.base_url is required for http provider in %s", name, environment)
+	}
+	if strings.TrimSpace(provider.APIKey) == "" {
+		return fmt.Errorf("%s.api_key is required for http provider in %s", name, environment)
+	}
+	return nil
+}
+
+func (cfg AppConfig) SafeSummary() string {
+	fields := []string{
+		"environment=" + cfg.Environment,
+		"server.port=" + strconv.Itoa(cfg.Server.Port),
+		"log.level=" + cfg.Log.Level,
+		"tenant.default_id=" + cfg.Tenant.DefaultID,
+		"tts.provider=" + cfg.TTS.Provider,
+		"tts.base_url=" + safeURLSummary(cfg.TTS.BaseURL),
+		"tts.api_key=" + redactedMarker(cfg.TTS.APIKey),
+		"asr.provider=" + cfg.ASR.Provider,
+		"asr.base_url=" + safeURLSummary(cfg.ASR.BaseURL),
+		"asr.api_key=" + redactedMarker(cfg.ASR.APIKey),
+		"server.api_key=" + redactedMarker(cfg.Server.APIKey),
+		"llm.api_key=" + redactedMarker(cfg.LLM.APIKey),
+	}
+	return strings.Join(fields, " ")
+}
+
+func (cfg AppConfig) RedactSecrets(text string) string {
+	redacted := text
+	for _, secret := range cfg.secretValues() {
+		redacted = strings.ReplaceAll(redacted, secret, "<redacted>")
+	}
+	return redacted
+}
+
+func (cfg AppConfig) secretValues() []string {
+	candidates := []string{
+		cfg.Server.APIKey,
+		cfg.LLM.APIKey,
+		cfg.TTS.APIKey,
+		cfg.ASR.APIKey,
+	}
+	secrets := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) != "" {
+			secrets = append(secrets, candidate)
+		}
+	}
+	return secrets
+}
+
+func redactedMarker(secret string) string {
+	if strings.TrimSpace(secret) == "" {
+		return ""
+	}
+	return "<redacted>"
+}
+
+func safeURLSummary(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "<redacted-url>"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func isProductionLike(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "production", "prod", "staging", "stage":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstEnv(names ...string) string {

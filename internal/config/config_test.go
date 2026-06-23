@@ -170,6 +170,175 @@ tenant:
 	}
 }
 
+func TestLoadProductionLikeProviderConfig(t *testing.T) {
+	path := writeConfig(t, `
+environment: production
+server:
+  port: 9090
+tts:
+  provider: http
+  base_url: https://tts.example.test/v1/speech
+  api_key: yaml-tts-key
+asr:
+  provider: local
+tenant:
+  default_id: tenant-prod
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Environment != "production" {
+		t.Fatalf("Environment = %q, want production", cfg.Environment)
+	}
+	if cfg.TTS.Provider != "http" {
+		t.Fatalf("TTS.Provider = %q, want http", cfg.TTS.Provider)
+	}
+	if cfg.TTS.BaseURL != "https://tts.example.test/v1/speech" {
+		t.Fatalf("TTS.BaseURL = %q", cfg.TTS.BaseURL)
+	}
+	if cfg.TTS.APIKey != "yaml-tts-key" {
+		t.Fatalf("TTS.APIKey = %q, want yaml-tts-key", cfg.TTS.APIKey)
+	}
+}
+
+func TestLoadAppliesProviderEnvironmentOverrides(t *testing.T) {
+	path := writeConfig(t, `
+environment: local
+tts:
+  provider: local
+  base_url: http://yaml-tts
+  api_key: yaml-tts-key
+`)
+
+	t.Setenv("DIGITAL_TWIN_ENVIRONMENT", "production")
+	t.Setenv("DIGITAL_TWIN_TTS_PROVIDER", "http")
+	t.Setenv("DIGITAL_TWIN_TTS_BASE_URL", "https://env-tts.example.test")
+	t.Setenv("DIGITAL_TWIN_TTS_API_KEY", "env-tts-key")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Environment != "production" {
+		t.Fatalf("Environment = %q, want production", cfg.Environment)
+	}
+	if cfg.TTS.Provider != "http" {
+		t.Fatalf("TTS.Provider = %q, want http", cfg.TTS.Provider)
+	}
+	if cfg.TTS.BaseURL != "https://env-tts.example.test" {
+		t.Fatalf("TTS.BaseURL = %q", cfg.TTS.BaseURL)
+	}
+	if cfg.TTS.APIKey != "env-tts-key" {
+		t.Fatalf("TTS.APIKey = %q, want env-tts-key", cfg.TTS.APIKey)
+	}
+}
+
+func TestLoadRejectsProductionHTTPProviderWithoutSecretLeak(t *testing.T) {
+	path := writeConfig(t, `
+environment: production
+tts:
+  provider: http
+  base_url: https://tts.example.test
+  api_key: super-secret-tts-key
+asr:
+  provider: http
+  api_key: super-secret-asr-key
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatalf("Load() error = nil, want missing provider setting")
+	}
+
+	message := err.Error()
+	if !strings.Contains(message, "asr.base_url is required") {
+		t.Fatalf("Load() error = %q, want missing asr.base_url", message)
+	}
+	if strings.Contains(message, "super-secret-tts-key") || strings.Contains(message, "super-secret-asr-key") {
+		t.Fatalf("Load() error leaked secret: %q", message)
+	}
+}
+
+func TestSafeSummaryRedactsSecrets(t *testing.T) {
+	cfg := AppConfig{
+		Environment: "production",
+		Server: ServerConfig{
+			Port:   8080,
+			APIKey: "server-secret",
+		},
+		Log: LogConfig{Level: "info"},
+		LLM: LLMConfig{APIKey: "llm-secret"},
+		TTS: ProviderConfig{
+			Provider: "http",
+			BaseURL:  "https://tts.example.test",
+			APIKey:   "tts-secret",
+		},
+		ASR: ProviderConfig{
+			Provider: "local",
+			APIKey:   "asr-secret",
+		},
+		Tenant: TenantConfig{DefaultID: "tenant-a"},
+	}
+
+	summary := cfg.SafeSummary()
+
+	for _, secret := range []string{"server-secret", "llm-secret", "tts-secret", "asr-secret"} {
+		if strings.Contains(summary, secret) {
+			t.Fatalf("SafeSummary() leaked %q in %q", secret, summary)
+		}
+	}
+	for _, want := range []string{"environment=production", "server.port=8080", "tts.provider=http", "tts.api_key=<redacted>"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("SafeSummary() = %q, want %q", summary, want)
+		}
+	}
+}
+
+func TestSafeSummaryRedactsProviderURLCredentials(t *testing.T) {
+	cfg := AppConfig{
+		TTS: ProviderConfig{
+			Provider: "http",
+			BaseURL:  "https://user:pass@tts.example.test/speech?api_key=url-secret&voice=pro",
+		},
+	}
+
+	summary := cfg.SafeSummary()
+
+	for _, secret := range []string{"user:pass", "url-secret", "voice=pro"} {
+		if strings.Contains(summary, secret) {
+			t.Fatalf("SafeSummary() leaked URL credential %q in %q", secret, summary)
+		}
+	}
+	if !strings.Contains(summary, "tts.base_url=https://tts.example.test/speech") {
+		t.Fatalf("SafeSummary() = %q, want sanitized provider URL", summary)
+	}
+}
+
+func TestRedactSecretsMasksKnownSecretValues(t *testing.T) {
+	cfg := AppConfig{
+		Server: ServerConfig{APIKey: "server-secret"},
+		LLM:    LLMConfig{APIKey: "llm-secret"},
+		TTS:    ProviderConfig{APIKey: "tts-secret"},
+		ASR:    ProviderConfig{APIKey: "asr-secret"},
+	}
+
+	text := "Authorization: Bearer server-secret llm=llm-secret tts=tts-secret asr=asr-secret"
+	redacted := cfg.RedactSecrets(text)
+
+	for _, secret := range []string{"server-secret", "llm-secret", "tts-secret", "asr-secret"} {
+		if strings.Contains(redacted, secret) {
+			t.Fatalf("RedactSecrets() leaked %q in %q", secret, redacted)
+		}
+	}
+	if strings.Count(redacted, "<redacted>") != 4 {
+		t.Fatalf("RedactSecrets() = %q, want four redactions", redacted)
+	}
+}
+
 func TestLoadRejectsUnknownConfigKey(t *testing.T) {
 	path := writeConfig(t, `
 server:
@@ -261,10 +430,15 @@ func clearConfigEnv(t *testing.T) {
 		"DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY",
 		"DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS",
 		"DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL",
+		"DIGITAL_TWIN_ENVIRONMENT", "DIGITAL_TWIN_ENV",
 		"DIGITAL_TWIN_LLM_API_KEY", "LLM_API_KEY",
 		"DIGITAL_TWIN_DB_DSN", "DB_DSN",
 		"DIGITAL_TWIN_TTS_PROVIDER", "TTS_PROVIDER",
+		"DIGITAL_TWIN_TTS_BASE_URL", "TTS_BASE_URL",
+		"DIGITAL_TWIN_TTS_API_KEY", "TTS_API_KEY",
 		"DIGITAL_TWIN_ASR_PROVIDER", "ASR_PROVIDER",
+		"DIGITAL_TWIN_ASR_BASE_URL", "ASR_BASE_URL",
+		"DIGITAL_TWIN_ASR_API_KEY", "ASR_API_KEY",
 		"DIGITAL_TWIN_OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_ENDPOINT",
 		"DIGITAL_TWIN_TENANT_DEFAULT_ID", "TENANT_DEFAULT_ID",
 	}

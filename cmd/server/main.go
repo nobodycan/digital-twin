@@ -39,6 +39,7 @@ func main() {
 		slog.String("tenant_default_id", cfg.Tenant.DefaultID),
 		slog.String("tts_provider", cfg.TTS.Provider),
 		slog.String("asr_provider", cfg.ASR.Provider),
+		slog.String("config_summary", startupSummary(cfg)),
 	)
 	handler, err := buildHandler(cfg)
 	if err != nil {
@@ -52,6 +53,10 @@ func main() {
 	}
 }
 
+func startupSummary(cfg config.AppConfig) string {
+	return cfg.SafeSummary()
+}
+
 func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{})
 	if err != nil {
@@ -61,6 +66,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	if cfg.Server.APIKey != "" {
 		apiKeys = []string{cfg.Server.APIKey}
 	}
+	metrics := observability.NewMemoryMetrics()
 	avatarMachine, err := avatar.NewStateMachine(avatar.Manifest{
 		Supported: []avatar.State{
 			avatar.StateIdle,
@@ -75,18 +81,29 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(defaultAdminDataDir()))
-	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(defaultAdminDataDir()))
-	knowledgeAdmin := admin.NewKnowledgeService(admin.NewFileKnowledgeStore(defaultAdminDataDir()))
-	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(defaultAdminDataDir()))
-	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(defaultAdminDataDir()))
+	ttsClient, err := voice.NewTTSClientWithMetrics(cfg.TTS, metrics)
+	if err != nil {
+		return nil, err
+	}
+	adminDataDir := defaultAdminDataDir()
+	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(adminDataDir))
+	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(adminDataDir))
+	knowledgeAdmin := admin.NewKnowledgeService(admin.NewFileKnowledgeStore(adminDataDir))
+	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
+	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{
-		Metrics:       observability.NewMemoryMetrics(),
+		Metrics:       metrics,
 		Orchestrator:  local.Orchestrator,
 		EventRecorder: local.Recorder,
 		PresentationAdapter: presentation.Adapter{
-			TTS:    voice.MockTTSClient{},
+			TTS:    ttsClient,
 			Avatar: avatarMachine,
+		},
+		Readiness: server.ReadinessConfig{
+			DataDir:           adminDataDir,
+			ConfigSummary:     cfg.SafeSummary(),
+			ReleaseGateStatus: "skipped",
+			Redact:            cfg.RedactSecrets,
 		},
 		PersonaAdmin:      &personaAdmin,
 		MemoryAdmin:       &memoryAdmin,

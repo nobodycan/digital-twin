@@ -1,4 +1,21 @@
 # Release Notes
+## Unreleased - Phase 6A Update
+
+### Added
+
+- Added Phase 6A provider and deployment readiness: production-shaped config profiles, provider validation, secret redaction, `/ready`, request ID headers, provider/readiness metrics, local Docker Compose packaging, and `cmd/smoke`.
+- Added HTTP-shaped TTS provider adapter with fake-server tests only; CI and local tests do not call real paid providers.
+- Added deployment artifacts: `deploy/Dockerfile`, `deploy/docker-compose.yml`, `deploy/.env.example`, `deploy/README.md`, and `scripts/verify_deploy.ps1`.
+- Added Go smoke verification for `/health`, `/ready`, `/chat`, `/chat/stream`, `/app`, `/admin`, and `/metrics`.
+
+### Documented
+
+- README documents Phase 6A usage, verification commands, and explicit exclusions: no SQLite, no real provider requirement in CI, no compliance certification, and no production RBAC/OAuth/Kubernetes scope.
+- Deployment runbook documents Docker Compose startup, local data volume backup/restore, provider env shape, and Docker-unavailable fallback commands.
+
+### Notes
+
+- Phase 6A is production-shaped local readiness, not an enterprise production claim. It keeps local file storage and still excludes SQLite/Postgres, compliance certification, cloud operations, OAuth/RBAC, and real provider calls in automated tests.
 
 ## Unreleased
 
