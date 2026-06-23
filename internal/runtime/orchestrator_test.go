@@ -322,7 +322,7 @@ func TestOrchestratorRejectsInvalidConversationBeforeRouting(t *testing.T) {
 			if !errors.Is(err, core.ErrInvalidInput) {
 				t.Fatalf("Handle() error = %v, want ErrInvalidInput", err)
 			}
-			if router.called {
+			if router.WasCalled() {
 				t.Fatal("router was called for invalid conversation")
 			}
 		})
@@ -347,14 +347,23 @@ func validRuntimeConversation(content string) types.Conversation {
 }
 
 type fakeRuntimeRouter struct {
+	mu     sync.Mutex
 	intent types.Intent
 	err    error
 	called bool
 }
 
 func (r *fakeRuntimeRouter) Route(context.Context, types.Conversation) (types.Intent, error) {
+	r.mu.Lock()
 	r.called = true
+	r.mu.Unlock()
 	return r.intent, r.err
+}
+
+func (r *fakeRuntimeRouter) WasCalled() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.called
 }
 
 type fakeRuntimeAgent struct {
