@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/nobodycan/digital-twin/internal/agents"
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/internal/persona"
 	"github.com/nobodycan/digital-twin/internal/router"
 	"github.com/nobodycan/digital-twin/internal/runtime"
@@ -10,9 +11,13 @@ import (
 )
 
 type LocalRuntimeConfig struct {
-	TenantID        string
-	PersonaID       string
-	SkillAuthorizer agents.SkillAuthorizer
+	TenantID                 string
+	PersonaID                string
+	SkillAuthorizer          agents.SkillAuthorizer
+	PersonaLLM               llm.Client
+	PersonaLLMProvider       string
+	PersonaLLMModel          string
+	PersonaLLMFallbackPolicy string
 }
 
 type LocalRuntime struct {
@@ -31,6 +36,7 @@ func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 		AllowedClaims: []string{"can help with planning and knowledge work"},
 		Locale:        "en-US",
 	}
+	renderer := persona.Renderer{}
 	guard := persona.Guard{Persona: defaultPersona}
 	for _, skill := range []core.Skill{
 		skills.NewMemStoreSkill(nil),
@@ -63,7 +69,14 @@ func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 
 	agentRegistry := core.NewAgentRegistry()
 	for _, agent := range []core.Agent{
-		governPersonaAgent(agents.NewPersonaAgent(skillRegistry), config),
+		governPersonaAgent(agents.NewPersonaAgent(skillRegistry, agents.PersonaAgentConfig{
+			Client:         config.PersonaLLM,
+			Provider:       config.PersonaLLMProvider,
+			Model:          config.PersonaLLMModel,
+			FallbackPolicy: config.PersonaLLMFallbackPolicy,
+			Persona:        defaultPersona,
+			Renderer:       renderer,
+		}), config),
 		governMemoryAgent(agents.NewMemoryAgent(skillRegistry), config),
 		governKnowledgeAgent(agents.NewKnowledgeAgent(skillRegistry), config),
 		governTaskAgent(agents.NewTaskAgent(skillRegistry), config),

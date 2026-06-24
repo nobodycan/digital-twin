@@ -1,4 +1,20 @@
 # Release Notes
+## Unreleased - Phase 7A Persona LLM Update
+
+### Added
+
+- Added Phase 7A LLM persona groundwork: expanded `llm` config fields, local/mock LLM factory, OpenAI-compatible persona client selection, and server wiring for configured persona generation.
+- Added `PersonaAgent` LLM injection, rendered system-prompt path, local transparency answer for model-identity questions, provider fallback, and post-generation persona guard fallback.
+- Added runtime and server tests covering configured persona LLM replies, fallback behavior, and local deterministic CLI/server behavior.
+
+### Documented
+
+- README now describes the new local/mock persona behavior and the `DIGITAL_TWIN_LLM_*` environment variables for OpenAI-compatible local testing.
+
+### Notes
+
+- Phase 7A remains local-first: CI still uses fake clients or fake HTTP servers only, and token streaming / router-wide LLM behavior are still deferred.
+
 ## Unreleased - Phase 6A Update
 
 ### Added

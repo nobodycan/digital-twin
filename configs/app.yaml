@@ -5,6 +5,11 @@ server:
 log:
   level: info
 llm:
+  provider: local
+  base_url: ""
+  model: ""
+  timeout_ms: 0
+  fallback_policy: fallback_to_local
   api_key: ""
 db:
   dsn: ""

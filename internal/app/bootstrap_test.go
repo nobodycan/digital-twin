@@ -7,6 +7,8 @@ import (
 
 	"github.com/nobodycan/digital-twin/internal/agents"
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/llm"
+	"github.com/nobodycan/digital-twin/internal/testutil"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
@@ -75,6 +77,42 @@ func TestNewLocalRuntimeWiresSkillAuthorizerIntoAgents(t *testing.T) {
 	}
 	if result.Metadata["error"] != "agent_failed" {
 		t.Fatalf("result metadata = %#v, want agent_failed fallback", result.Metadata)
+	}
+}
+
+func TestNewLocalRuntimeUsesConfiguredPersonaLLM(t *testing.T) {
+	local, err := NewLocalRuntime(LocalRuntimeConfig{
+		PersonaLLM: &testutil.FakeLLM{
+			ChatResponse: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "I think this is an LLM runtime reply."}},
+		},
+		PersonaLLMProvider: "openai-compatible",
+		PersonaLLMModel:    "gpt-runtime",
+	})
+	if err != nil {
+		t.Fatalf("NewLocalRuntime() error = %v", err)
+	}
+
+	result, err := local.Orchestrator.Handle(t.Context(), types.Conversation{
+		ID:       "conv-1",
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Messages: []types.Message{{
+			ID:        "msg-1",
+			Role:      types.RoleUser,
+			Content:   "hello",
+			CreatedAt: time.Now().UTC(),
+		}},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.Message.Content != "I think this is an LLM runtime reply." {
+		t.Fatalf("Message.Content = %q, want injected LLM runtime reply", result.Message.Content)
+	}
+	if result.Metadata["llm_model"] != "gpt-runtime" {
+		t.Fatalf("llm_model = %v, want gpt-runtime", result.Metadata["llm_model"])
 	}
 }
 

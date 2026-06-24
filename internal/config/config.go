@@ -32,7 +32,12 @@ type LogConfig struct {
 }
 
 type LLMConfig struct {
-	APIKey string
+	Provider       string
+	BaseURL        string
+	Model          string
+	TimeoutMS      int
+	FallbackPolicy string
+	APIKey         string
 }
 
 type DBConfig struct {
@@ -63,6 +68,7 @@ func Load(path string) (AppConfig, error) {
 		Environment:   "local",
 		Server:        ServerConfig{Port: 8080},
 		Log:           LogConfig{Level: "info"},
+		LLM:           LLMConfig{Provider: "local", FallbackPolicy: "fallback_to_local"},
 		TTS:           ProviderConfig{Provider: "local"},
 		ASR:           ProviderConfig{Provider: "local"},
 		Tenant:        TenantConfig{DefaultID: "default"},
@@ -160,6 +166,11 @@ func applyEnv(cfg *AppConfig) error {
 		"server.api_key":             firstEnv("DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY"),
 		"server.rate_limit_requests": firstEnv("DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS"),
 		"log.level":                  firstEnv("DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL"),
+		"llm.provider":               firstEnv("DIGITAL_TWIN_LLM_PROVIDER", "LLM_PROVIDER"),
+		"llm.base_url":               firstEnv("DIGITAL_TWIN_LLM_BASE_URL", "LLM_BASE_URL"),
+		"llm.model":                  firstEnv("DIGITAL_TWIN_LLM_MODEL", "LLM_MODEL"),
+		"llm.timeout_ms":             firstEnv("DIGITAL_TWIN_LLM_TIMEOUT_MS", "LLM_TIMEOUT_MS"),
+		"llm.fallback_policy":        firstEnv("DIGITAL_TWIN_LLM_FALLBACK_POLICY", "LLM_FALLBACK_POLICY"),
 		"llm.api_key":                firstEnv("DIGITAL_TWIN_LLM_API_KEY", "LLM_API_KEY"),
 		"db.dsn":                     firstEnv("DIGITAL_TWIN_DB_DSN", "DB_DSN"),
 		"tts.provider":               firstEnv("DIGITAL_TWIN_TTS_PROVIDER", "TTS_PROVIDER"),
@@ -203,6 +214,20 @@ func setValue(cfg *AppConfig, key, value string) error {
 		cfg.Server.RateLimitRequests = limit
 	case "log.level":
 		cfg.Log.Level = value
+	case "llm.provider":
+		cfg.LLM.Provider = value
+	case "llm.base_url":
+		cfg.LLM.BaseURL = value
+	case "llm.model":
+		cfg.LLM.Model = value
+	case "llm.timeout_ms":
+		timeoutMS, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse llm.timeout_ms: %w", err)
+		}
+		cfg.LLM.TimeoutMS = timeoutMS
+	case "llm.fallback_policy":
+		cfg.LLM.FallbackPolicy = value
 	case "llm.api_key":
 		cfg.LLM.APIKey = value
 	case "db.dsn":
@@ -233,6 +258,9 @@ func validate(cfg AppConfig) error {
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535")
 	}
+	if err := validateLLM(cfg.Environment, cfg.LLM); err != nil {
+		return err
+	}
 	if err := validateProvider("tts", cfg.Environment, cfg.TTS); err != nil {
 		return err
 	}
@@ -258,12 +286,53 @@ func validateProvider(name, environment string, provider ProviderConfig) error {
 	return nil
 }
 
+func validateLLM(environment string, llm LLMConfig) error {
+	if strings.TrimSpace(llm.Provider) == "" {
+		return fmt.Errorf("llm.provider is required")
+	}
+	switch llm.Provider {
+	case "local", "mock", "openai-compatible":
+	default:
+		return fmt.Errorf("llm.provider must be one of local, mock, openai-compatible")
+	}
+	if llm.TimeoutMS < 0 {
+		return fmt.Errorf("llm.timeout_ms must be greater than or equal to 0")
+	}
+	if strings.TrimSpace(llm.FallbackPolicy) == "" {
+		return fmt.Errorf("llm.fallback_policy is required")
+	}
+	switch llm.FallbackPolicy {
+	case "fallback_to_local", "fail_closed":
+	default:
+		return fmt.Errorf("llm.fallback_policy must be one of fallback_to_local, fail_closed")
+	}
+	if !isProductionLike(environment) || llm.Provider != "openai-compatible" {
+		return nil
+	}
+	if strings.TrimSpace(llm.BaseURL) == "" {
+		return fmt.Errorf("llm.base_url is required for openai-compatible provider in %s", environment)
+	}
+	if strings.TrimSpace(llm.Model) == "" {
+		return fmt.Errorf("llm.model is required for openai-compatible provider in %s", environment)
+	}
+	if strings.TrimSpace(llm.APIKey) == "" {
+		return fmt.Errorf("llm.api_key is required for openai-compatible provider in %s", environment)
+	}
+	return nil
+}
+
 func (cfg AppConfig) SafeSummary() string {
 	fields := []string{
 		"environment=" + cfg.Environment,
 		"server.port=" + strconv.Itoa(cfg.Server.Port),
 		"log.level=" + cfg.Log.Level,
 		"tenant.default_id=" + cfg.Tenant.DefaultID,
+		"llm.provider=" + cfg.LLM.Provider,
+		"llm.base_url=" + safeURLSummary(cfg.LLM.BaseURL),
+		"llm.model=" + cfg.LLM.Model,
+		"llm.timeout_ms=" + strconv.Itoa(cfg.LLM.TimeoutMS),
+		"llm.fallback_policy=" + cfg.LLM.FallbackPolicy,
+		"llm.api_key=" + redactedMarker(cfg.LLM.APIKey),
 		"tts.provider=" + cfg.TTS.Provider,
 		"tts.base_url=" + safeURLSummary(cfg.TTS.BaseURL),
 		"tts.api_key=" + redactedMarker(cfg.TTS.APIKey),
@@ -271,7 +340,6 @@ func (cfg AppConfig) SafeSummary() string {
 		"asr.base_url=" + safeURLSummary(cfg.ASR.BaseURL),
 		"asr.api_key=" + redactedMarker(cfg.ASR.APIKey),
 		"server.api_key=" + redactedMarker(cfg.Server.APIKey),
-		"llm.api_key=" + redactedMarker(cfg.LLM.APIKey),
 	}
 	return strings.Join(fields, " ")
 }

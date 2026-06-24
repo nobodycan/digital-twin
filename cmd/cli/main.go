@@ -13,6 +13,7 @@ import (
 	"github.com/nobodycan/digital-twin/internal/app"
 	"github.com/nobodycan/digital-twin/internal/evals"
 	"github.com/nobodycan/digital-twin/internal/governance"
+	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
@@ -74,7 +75,10 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "prompt is required")
 		return 2
 	}
-	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{})
+	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{
+		PersonaLLM:         llm.LocalClient{},
+		PersonaLLMProvider: "local",
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "bootstrap runtime: %v\n", err)
 		return 1

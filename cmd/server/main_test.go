@@ -79,23 +79,39 @@ func TestBuildHandlerServesHealth(t *testing.T) {
 	}
 }
 
-func TestBuildHandlerReadinessChecksAdminDataDir(t *testing.T) {
+func TestBuildHandlerRejectsInvalidAdminDataDir(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "admin-data-file")
 	if err := os.WriteFile(filePath, []byte("not a directory"), 0o600); err != nil {
 		t.Fatalf("write admin data file: %v", err)
 	}
 	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", filePath)
+	_, err := buildHandler(config.AppConfig{})
+	if err == nil || !strings.Contains(err.Error(), "create admin data dir") {
+		t.Fatalf("buildHandler() error = %v, want create admin data dir", err)
+	}
+}
+
+func TestBuildHandlerCreatesMissingAdminDataDirForReadiness(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "admin-data")
+	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", dataDir)
 	handler, err := buildHandler(config.AppConfig{})
 	if err != nil {
 		t.Fatalf("buildHandler() error = %v", err)
 	}
+	info, err := os.Stat(dataDir)
+	if err != nil {
+		t.Fatalf("stat admin data dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("admin data path is not a directory")
+	}
+
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
-
 	handler.ServeHTTP(response, request)
 
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -140,6 +156,56 @@ func TestBuildHandlerServesLocalChatEndToEnd(t *testing.T) {
 	}
 	if result.AgentName != "persona-agent" || result.Message.Role != types.RoleAssistant {
 		t.Fatalf("result = %#v, want local persona response", result)
+	}
+}
+
+func TestBuildHandlerServesConfiguredLLMChatEndToEnd(t *testing.T) {
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "I think this response came from the configured LLM.",
+				},
+			}},
+			"usage": map[string]any{
+				"prompt_tokens":     3,
+				"completion_tokens": 4,
+				"total_tokens":      7,
+			},
+		})
+	}))
+	defer llmServer.Close()
+
+	handler, err := buildHandler(config.AppConfig{
+		LLM: config.LLMConfig{
+			Provider:       "openai-compatible",
+			BaseURL:        llmServer.URL,
+			Model:          "gpt-server",
+			FallbackPolicy: "fallback_to_local",
+			APIKey:         "llm-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(validServerChatJSON()))
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result types.AgentResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Message.Content != "I think this response came from the configured LLM." {
+		t.Fatalf("result message = %q, want configured llm response", result.Message.Content)
+	}
+	if result.Metadata["llm_model"] != "gpt-server" {
+		t.Fatalf("llm_model = %v, want gpt-server", result.Metadata["llm_model"])
 	}
 }
 

@@ -19,8 +19,40 @@ func TestRunAskPrintsAssistantResponse(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "professional persona") {
+	if !strings.Contains(strings.ToLower(stdout.String()), "local deterministic mode") {
 		t.Fatalf("stdout = %q, want assistant response", stdout.String())
+	}
+}
+
+func TestRunAskUsesLocalDeterministicLLMByDefault(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"ask", "你是谁"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "professional persona") {
+		t.Fatalf("stdout = %q, want local deterministic llm response", stdout.String())
+	}
+	if !strings.Contains(strings.ToLower(stdout.String()), "local deterministic mode") {
+		t.Fatalf("stdout = %q, want local deterministic response", stdout.String())
+	}
+}
+
+func TestRunAskExplainsLocalModeForModelQuestion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"ask", "你背后是什么模型"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "professional persona") {
+		t.Fatalf("stdout = %q, want transparent local-mode response", stdout.String())
+	}
+	if !strings.Contains(strings.ToLower(stdout.String()), "local deterministic mode") {
+		t.Fatalf("stdout = %q, want local deterministic explanation", stdout.String())
 	}
 }
 
