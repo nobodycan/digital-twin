@@ -26,6 +26,17 @@ func TestOpenAIClientSendsChatRequestAndParsesResponse(t *testing.T) {
 		if body["model"] != "test-model" {
 			t.Fatalf("expected model test-model, got %#v", body["model"])
 		}
+		messages, ok := body["messages"].([]any)
+		if !ok || len(messages) != 1 {
+			t.Fatalf("messages = %#v, want one message", body["messages"])
+		}
+		message, ok := messages[0].(map[string]any)
+		if !ok || message["role"] != "user" || message["content"] != "hi" {
+			t.Fatalf("message = %#v, want user hi", messages[0])
+		}
+		if stream, exists := body["stream"]; exists && stream != false {
+			t.Fatalf("stream = %#v, want false or omitted", stream)
+		}
 
 		writeResponse(t, w, "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}")
 	}))

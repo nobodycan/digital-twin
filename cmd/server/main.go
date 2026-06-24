@@ -13,6 +13,7 @@ import (
 	"github.com/nobodycan/digital-twin/internal/app"
 	"github.com/nobodycan/digital-twin/internal/avatar"
 	"github.com/nobodycan/digital-twin/internal/config"
+	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/internal/observability"
 	"github.com/nobodycan/digital-twin/internal/presentation"
 	"github.com/nobodycan/digital-twin/internal/server"
@@ -58,7 +59,16 @@ func startupSummary(cfg config.AppConfig) string {
 }
 
 func buildHandler(cfg config.AppConfig) (http.Handler, error) {
-	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{})
+	personaLLM, err := llm.NewClientFromConfig(cfg.LLM)
+	if err != nil {
+		return nil, err
+	}
+	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{
+		PersonaLLM:               personaLLM,
+		PersonaLLMProvider:       cfg.LLM.Provider,
+		PersonaLLMModel:          cfg.LLM.Model,
+		PersonaLLMFallbackPolicy: cfg.LLM.FallbackPolicy,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +96,9 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		return nil, err
 	}
 	adminDataDir := defaultAdminDataDir()
+	if err := os.MkdirAll(adminDataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create admin data dir: %w", err)
+	}
 	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(adminDataDir))
 	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(adminDataDir))
 	knowledgeAdmin := admin.NewKnowledgeService(admin.NewFileKnowledgeStore(adminDataDir))

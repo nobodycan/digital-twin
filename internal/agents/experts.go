@@ -2,16 +2,46 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/llm"
+	"github.com/nobodycan/digital-twin/internal/persona"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
-type PersonaAgent struct{ BaseAgent }
+type PersonaAgent struct {
+	BaseAgent
+	client         llm.Client
+	provider       string
+	model          string
+	fallbackPolicy string
+	persona        persona.Persona
+	renderer       persona.Renderer
+}
 
-func NewPersonaAgent(skills *core.SkillRegistry) PersonaAgent {
-	return PersonaAgent{BaseAgent: BaseAgent{NameValue: "persona-agent", Skills: skills}}
+type PersonaAgentConfig struct {
+	Client         llm.Client
+	Provider       string
+	Model          string
+	FallbackPolicy string
+	Persona        persona.Persona
+	Renderer       persona.Renderer
+}
+
+func NewPersonaAgent(skills *core.SkillRegistry, config ...PersonaAgentConfig) PersonaAgent {
+	agent := PersonaAgent{BaseAgent: BaseAgent{NameValue: "persona-agent", Skills: skills}}
+	if len(config) > 0 {
+		agent.client = config[0].Client
+		agent.provider = config[0].Provider
+		agent.model = config[0].Model
+		agent.fallbackPolicy = config[0].FallbackPolicy
+		agent.persona = config[0].Persona
+		agent.renderer = config[0].Renderer
+	}
+	return agent
 }
 
 func (a PersonaAgent) CanHandle(intent types.Intent) bool {
@@ -19,10 +49,42 @@ func (a PersonaAgent) CanHandle(intent types.Intent) bool {
 }
 
 func (a PersonaAgent) Run(ctx context.Context, conversation types.Conversation, intent types.Intent) (types.AgentResult, error) {
-	if _, err := a.RunSkill(ctx, "persona_check", map[string]any{"content": lastUserContent(conversation), "confidence": float64(intent.Confidence)}); err != nil {
+	userContent := lastUserContent(conversation)
+	if _, err := a.RunSkill(ctx, "persona_check", map[string]any{"content": userContent, "confidence": float64(intent.Confidence)}); err != nil {
 		return types.AgentResult{}, err
 	}
-	return a.Result("I'm here and keeping the same professional persona.", confidenceOrDefault(intent), types.Metadata{"intent": intent.Name}), nil
+	if asksModelIdentity(userContent) {
+		return a.modelIdentityResult(intent), nil
+	}
+	if a.client != nil {
+		messages, err := a.chatMessages(conversation)
+		if err != nil {
+			return types.AgentResult{}, err
+		}
+		response, err := a.client.Chat(ctx, llm.ChatRequest{Messages: messages})
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || a.fallbackPolicy == "fail_closed" {
+				return types.AgentResult{}, err
+			}
+			return a.fallbackResult(intent, "I hit a provider issue, so I'm falling back to a local safe reply for now.", "", "provider_error"), nil
+		}
+		if strings.TrimSpace(response.Message.Content) == "" {
+			return a.fallbackResult(intent, "The configured model returned no usable text, so I'm using a local safe reply.", "", "empty_response"), nil
+		}
+		if decision := a.guardDecision(response.Message.Content, float64(confidenceOrDefault(intent))); !decision.Allowed {
+			return a.fallbackResult(intent, decision.SafeFallback, decision.Reason, "guard_rejected"), nil
+		}
+		generationMode := "llm"
+		if a.provider == "" || a.provider == "local" || a.provider == "mock" {
+			generationMode = "local"
+		}
+		return a.generatedResult(intent, response.Message.Content, generationMode, response.Usage), nil
+	}
+	return a.Result(
+		"I'm here and keeping the same professional persona.",
+		confidenceOrDefault(intent),
+		types.Metadata{"intent": intent.Name, "generation_mode": "local"},
+	), nil
 }
 
 type MemoryAgent struct{ BaseAgent }
@@ -127,4 +189,92 @@ func lastUserContent(conversation types.Conversation) string {
 		}
 	}
 	return ""
+}
+
+func (a PersonaAgent) chatMessages(conversation types.Conversation) ([]types.Message, error) {
+	messages := make([]types.Message, 0, len(conversation.Messages)+1)
+	for _, message := range conversation.Messages {
+		if message.Role == types.RoleSystem {
+			continue
+		}
+		messages = append(messages, message)
+	}
+	if a.persona.Identity == "" {
+		return messages, nil
+	}
+	prompt, err := a.renderer.SystemPrompt(a.persona, persona.RenderContext{})
+	if err != nil {
+		return nil, err
+	}
+	return append([]types.Message{{Role: types.RoleSystem, Content: prompt}}, messages...), nil
+}
+
+func asksModelIdentity(content string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(content))
+	return strings.Contains(normalized, "what model") ||
+		strings.Contains(normalized, "which model") ||
+		strings.Contains(content, "什么模型") ||
+		strings.Contains(content, "背后是什么模型")
+}
+
+func (a PersonaAgent) modelIdentityResult(intent types.Intent) types.AgentResult {
+	if a.client == nil || a.provider == "" || a.provider == "local" || a.provider == "mock" {
+		return a.Result(
+			"I'm running in local deterministic mode right now, so there isn't a configured external model behind this session.",
+			confidenceOrDefault(intent),
+			types.Metadata{"intent": intent.Name, "llm_provider": "local", "generation_mode": "local"},
+		)
+	}
+	return a.Result(
+		fmt.Sprintf("This session is configured to use provider %s with model %s.", a.provider, a.model),
+		confidenceOrDefault(intent),
+		types.Metadata{
+			"intent":          intent.Name,
+			"llm_provider":    a.provider,
+			"llm_model":       a.model,
+			"generation_mode": "transparency",
+		},
+	)
+}
+
+func (a PersonaAgent) generatedResult(intent types.Intent, content string, generationMode string, usage llm.Usage) types.AgentResult {
+	metadata := types.Metadata{
+		"intent":          intent.Name,
+		"llm_provider":    a.provider,
+		"llm_model":       a.model,
+		"generation_mode": generationMode,
+	}
+	if usage.PromptTokens > 0 {
+		metadata["prompt_tokens"] = usage.PromptTokens
+	}
+	if usage.CompletionTokens > 0 {
+		metadata["completion_tokens"] = usage.CompletionTokens
+	}
+	if usage.TotalTokens > 0 {
+		metadata["total_tokens"] = usage.TotalTokens
+	}
+	return a.Result(content, confidenceOrDefault(intent), metadata)
+}
+
+func (a PersonaAgent) fallbackResult(intent types.Intent, content, reason, category string) types.AgentResult {
+	metadata := types.Metadata{
+		"intent":          intent.Name,
+		"llm_provider":    a.provider,
+		"llm_model":       a.model,
+		"generation_mode": "fallback",
+	}
+	if reason != "" {
+		metadata["guard_reason"] = reason
+	}
+	if category != "" {
+		metadata["fallback_category"] = category
+	}
+	return a.Result(content, confidenceOrDefault(intent), metadata)
+}
+
+func (a PersonaAgent) guardDecision(content string, confidence float64) persona.GuardDecision {
+	if a.persona.Identity == "" {
+		return persona.GuardDecision{Allowed: true, Reason: "ok"}
+	}
+	return persona.Guard{Persona: a.persona}.Check(content, confidence)
 }

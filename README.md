@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-本仓库已完成到 **Phase 5 本地治理、评测、安全与运营基础**。
+本仓库已完成到 **Phase 6A 本地生产形态 readiness**，并已开始进入 **Phase 7A LLM-driven persona** 的实现。
 
-当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、本地 eval CLI、governed runtime adapter、memory write policy、release gate、rollback/feedback 记录、governance decision audit exporter、decision records CLI 和工具执行前治理 hook。
+当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、本地 eval CLI、governed runtime adapter、memory write policy、release gate、rollback/feedback 记录、governance decision audit exporter、decision records CLI、工具执行前治理 hook，以及 Phase 7A 的 LLM provider config、local/mock persona LLM factory、LLM-backed `PersonaAgent`、provider fallback 和 model transparency path。
 
-Phase 5 仍采用 mock/local-first：已具备可测试的本地治理闭环，但仍不包含真实 TTS/ASR provider、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核、合规认证或完整治理 dashboard。
+Phase 7A 仍采用 local-first：默认仍可在无 secrets 的情况下运行，CI 仍只使用 fake client/fake server，不包含真实多 provider agent planning、RAG answer generation、token streaming、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核、合规认证或完整治理 dashboard。
 
 ## 项目定位
 
@@ -80,10 +80,22 @@ flowchart TD
 
 ```powershell
 go run ./cmd/cli ask "hello"
+go run ./cmd/cli ask "你背后是什么模型"
 go run ./cmd/cli ask --json "hello"
 ```
 
 ```powershell
+go run ./cmd/server
+```
+
+配置 OpenAI-compatible persona provider:
+
+```powershell
+$env:DIGITAL_TWIN_LLM_PROVIDER="openai-compatible"
+$env:DIGITAL_TWIN_LLM_BASE_URL="http://localhost:9999/v1"
+$env:DIGITAL_TWIN_LLM_MODEL="gpt-test"
+$env:DIGITAL_TWIN_LLM_API_KEY="test-key"
+$env:DIGITAL_TWIN_LLM_FALLBACK_POLICY="fallback_to_local"
 go run ./cmd/server
 ```
 
