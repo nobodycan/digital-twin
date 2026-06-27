@@ -90,7 +90,6 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamEventBytes)
-	doneEmitted := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -101,7 +100,6 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if payload == "[DONE]" {
-			doneEmitted = true
 			return onChunk(ChatChunk{Done: true})
 		}
 		var chunk openAIStreamResponse
@@ -124,10 +122,8 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if !doneEmitted {
-		if err := onChunk(ChatChunk{Done: true}); err != nil {
-			return err
-		}
+	if err := onChunk(ChatChunk{Done: true}); err != nil {
+		return err
 	}
 	return nil
 }
