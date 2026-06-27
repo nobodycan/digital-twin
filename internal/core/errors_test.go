@@ -37,6 +37,8 @@ func TestDomainErrorPredicates(t *testing.T) {
 		ok   func(error) bool
 	}{
 		{name: "agent not found", err: ErrAgentNotFound, ok: IsAgentNotFound},
+		{name: "conversation not found", err: ErrConversationNotFound, ok: IsConversationNotFound},
+		{name: "conflict", err: ErrConflict, ok: IsConflict},
 		{name: "llm timeout", err: ErrLLMTimeout, ok: IsLLMTimeout},
 		{name: "invalid config", err: ErrInvalidConfig, ok: IsInvalidConfig},
 		{name: "invalid input", err: ErrInvalidInput, ok: IsInvalidInput},

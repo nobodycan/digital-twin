@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nobodycan/digital-twin/internal/conversation"
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/store"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
@@ -329,6 +331,170 @@ func TestOrchestratorRejectsInvalidConversationBeforeRouting(t *testing.T) {
 	}
 }
 
+func TestOrchestratorStreamEmitsOrderedRuntimeEvents(t *testing.T) {
+	agents := core.NewAgentRegistry()
+	if err := agents.Register(fakeStreamingRuntimeAgent{
+		name:    "persona-agent",
+		handles: types.IntentPersonaChat,
+		stream: func(ctx context.Context, conversation types.Conversation, intent types.Intent, sink core.AssistantDeltaSink) (types.AgentResult, error) {
+			if err := sink.EmitAssistantDelta(ctx, "Hello there."); err != nil {
+				return types.AgentResult{}, err
+			}
+			return types.AgentResult{
+				AgentName: "persona-agent",
+				Message: types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Hello there."},
+			}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+
+	orchestrator := NewOrchestrator(OrchestratorConfig{
+		Router:       &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
+		Agents:       agents,
+		Recorder:     NewEventRecorder(),
+		RequestID:    func() string { return "req-stream-1" },
+		Coordinator:  conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store.NewInMemoryStore()}),
+	})
+
+	sink := &recordingRuntimeStreamSink{}
+	result, err := orchestrator.Stream(t.Context(), validTurnRequest("turn-1", "attempt-1", "hello"), sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if result.Message.Content != "Hello there." {
+		t.Fatalf("result content = %q, want streamed reply", result.Message.Content)
+	}
+	want := []types.StreamEventName{
+		types.StreamEventRequestStarted,
+		types.StreamEventRouteSelected,
+		types.StreamEventAgentSelected,
+		types.StreamEventAssistantDelta,
+		types.StreamEventMessageCompleted,
+		types.StreamEventDone,
+	}
+	if len(sink.events) != len(want) {
+		t.Fatalf("events len = %d, want %d", len(sink.events), len(want))
+	}
+	for i, name := range want {
+		if sink.events[i].Name != name {
+			t.Fatalf("events[%d].Name = %q, want %q", i, sink.events[i].Name, name)
+		}
+		if sink.events[i].Sequence != uint64(i+1) {
+			t.Fatalf("events[%d].Sequence = %d, want %d", i, sink.events[i].Sequence, i+1)
+		}
+	}
+	if sink.events[3].Payload["content"] != "Hello there." {
+		t.Fatalf("delta payload = %#v, want content", sink.events[3].Payload)
+	}
+}
+
+func TestOrchestratorStreamSupportsLegacyAgentsWithoutDeltaEvents(t *testing.T) {
+	agents := core.NewAgentRegistry()
+	if err := agents.Register(fakeRuntimeAgent{
+		name:    "persona-agent",
+		handles: types.IntentPersonaChat,
+		result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Complete reply"},
+		},
+	}); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+
+	orchestrator := NewOrchestrator(OrchestratorConfig{
+		Router:      &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
+		Agents:      agents,
+		Recorder:    NewEventRecorder(),
+		RequestID:   func() string { return "req-stream-2" },
+		Coordinator: conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store.NewInMemoryStore()}),
+	})
+
+	sink := &recordingRuntimeStreamSink{}
+	result, err := orchestrator.Stream(t.Context(), validTurnRequest("turn-1", "attempt-1", "hello"), sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if result.Message.Content != "Complete reply" {
+		t.Fatalf("result content = %q, want complete reply", result.Message.Content)
+	}
+	if hasStreamEvent(sink.events, types.StreamEventAssistantDelta) {
+		t.Fatalf("events = %#v, want no assistant_text_delta for legacy agent", sink.events)
+	}
+	if !hasStreamEvent(sink.events, types.StreamEventMessageCompleted) || !hasStreamEvent(sink.events, types.StreamEventDone) {
+		t.Fatalf("events = %#v, want terminal events", sink.events)
+	}
+}
+
+func TestOrchestratorStreamReplaysCompletedTurnWithoutCallingAgent(t *testing.T) {
+	store := store.NewInMemoryStore()
+	coordinator := conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store})
+	firstAgents := core.NewAgentRegistry()
+	streamingAgent := fakeStreamingRuntimeAgent{
+		name:    "persona-agent",
+		handles: types.IntentPersonaChat,
+		stream: func(ctx context.Context, conversation types.Conversation, intent types.Intent, sink core.AssistantDeltaSink) (types.AgentResult, error) {
+			if err := sink.EmitAssistantDelta(ctx, "Hello there."); err != nil {
+				return types.AgentResult{}, err
+			}
+			return types.AgentResult{
+				AgentName: "persona-agent",
+				Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Hello there."},
+			}, nil
+		},
+	}
+	if err := firstAgents.Register(streamingAgent); err != nil {
+		t.Fatalf("register first agent: %v", err)
+	}
+	first := NewOrchestrator(OrchestratorConfig{
+		Router:      &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
+		Agents:      firstAgents,
+		Recorder:    NewEventRecorder(),
+		RequestID:   func() string { return "req-stream-first" },
+		Coordinator: coordinator,
+	})
+	if _, err := first.Stream(t.Context(), validTurnRequest("turn-1", "attempt-1", "hello"), &recordingRuntimeStreamSink{}); err != nil {
+		t.Fatalf("first Stream() error = %v", err)
+	}
+
+	replayAgents := core.NewAgentRegistry()
+	replayAgent := fakeStreamingRuntimeAgent{
+		name:    "persona-agent",
+		handles: types.IntentPersonaChat,
+		stream: func(context.Context, types.Conversation, types.Intent, core.AssistantDeltaSink) (types.AgentResult, error) {
+			return types.AgentResult{}, errors.New("should not be called")
+		},
+	}
+	if err := replayAgents.Register(replayAgent); err != nil {
+		t.Fatalf("register replay agent: %v", err)
+	}
+	replay := NewOrchestrator(OrchestratorConfig{
+		Router:      &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
+		Agents:      replayAgents,
+		Recorder:    NewEventRecorder(),
+		RequestID:   func() string { return "req-stream-replay" },
+		Coordinator: coordinator,
+	})
+
+	sink := &recordingRuntimeStreamSink{}
+	result, err := replay.Stream(t.Context(), validTurnRequest("turn-1", "attempt-2", "hello"), sink)
+	if err != nil {
+		t.Fatalf("replay Stream() error = %v", err)
+	}
+	if result.Message.Content != "Hello there." {
+		t.Fatalf("replay result content = %q, want stored reply", result.Message.Content)
+	}
+	if hasStreamEvent(sink.events, types.StreamEventAssistantDelta) {
+		t.Fatalf("events = %#v, want no delta on replay", sink.events)
+	}
+	if sink.events[len(sink.events)-2].Name != types.StreamEventMessageCompleted {
+		t.Fatalf("events = %#v, want message_completed before done", sink.events)
+	}
+	if sink.events[len(sink.events)-2].Metadata["replayed"] != true {
+		t.Fatalf("message_completed metadata = %#v, want replayed=true", sink.events[len(sink.events)-2].Metadata)
+	}
+}
+
 func validRuntimeConversation(content string) types.Conversation {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	return types.Conversation{
@@ -385,6 +551,61 @@ func (a fakeRuntimeAgent) Run(context.Context, types.Conversation, types.Intent)
 		panic(a.panic)
 	}
 	return a.result, a.err
+}
+
+type fakeStreamingRuntimeAgent struct {
+	name    string
+	handles types.IntentName
+	stream  func(context.Context, types.Conversation, types.Intent, core.AssistantDeltaSink) (types.AgentResult, error)
+}
+
+func (a fakeStreamingRuntimeAgent) Name() string { return a.name }
+
+func (a fakeStreamingRuntimeAgent) CanHandle(intent types.Intent) bool {
+	return intent.Name == a.handles
+}
+
+func (a fakeStreamingRuntimeAgent) Run(ctx context.Context, conversation types.Conversation, intent types.Intent) (types.AgentResult, error) {
+	return a.stream(ctx, conversation, intent, nil)
+}
+
+func (a fakeStreamingRuntimeAgent) Stream(ctx context.Context, conversation types.Conversation, intent types.Intent, sink core.AssistantDeltaSink) (types.AgentResult, error) {
+	return a.stream(ctx, conversation, intent, sink)
+}
+
+type recordingRuntimeStreamSink struct {
+	events []types.StreamEvent
+}
+
+func (s *recordingRuntimeStreamSink) Emit(_ context.Context, event types.StreamEvent) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func hasStreamEvent(events []types.StreamEvent, name types.StreamEventName) bool {
+	for _, event := range events {
+		if event.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func validTurnRequest(turnID, attemptID, content string) types.TurnRequest {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	return types.TurnRequest{
+		ConversationID: "conv-stream",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		TurnID:         turnID,
+		AttemptID:      attemptID,
+		Message: types.Message{
+			ID:        "msg-" + turnID,
+			Role:      types.RoleUser,
+			Content:   content,
+			CreatedAt: now,
+		},
+	}
 }
 
 func hasRecordedTopic(events []RuntimeEvent, topic string) bool {

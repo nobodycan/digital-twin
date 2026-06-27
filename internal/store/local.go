@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,6 +59,9 @@ func (s *LocalStore) GetConversation(ctx context.Context, tenantID, userID, conv
 	path := s.conversationPath(tenantID, userID, conversationID)
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return types.Conversation{}, core.WrapError(core.ErrConversationNotFound, "conversation missing")
+		}
 		return types.Conversation{}, core.WrapError(core.ErrStoreFailure, "read conversation")
 	}
 
@@ -104,16 +108,27 @@ func validateConversationIDs(values ...string) error {
 }
 
 func writeJSONAtomic(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return core.WrapError(core.ErrStoreFailure, "create store directory")
 	}
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return core.WrapError(core.ErrStoreFailure, "encode conversation")
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return core.WrapError(core.ErrStoreFailure, "create temp conversation")
+	}
+	tmp := tmpFile.Name()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmp)
 		return core.WrapError(core.ErrStoreFailure, "write conversation")
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return core.WrapError(core.ErrStoreFailure, "close conversation")
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
@@ -153,7 +168,7 @@ func (s *InMemoryStore) GetConversation(_ context.Context, tenantID, userID, con
 	defer s.mu.Unlock()
 	conversation, ok := s.conversations[storeKey(tenantID, userID, conversationID)]
 	if !ok {
-		return types.Conversation{}, core.WrapError(core.ErrStoreFailure, "conversation missing")
+		return types.Conversation{}, core.WrapError(core.ErrConversationNotFound, "conversation missing")
 	}
 	return conversation, nil
 }

@@ -1,4 +1,23 @@
 # Release Notes
+## Unreleased - Phase 8 Real Conversation Loop Update
+
+### Added
+
+- Added Phase 8 conversation streaming groundwork: `types.TurnRequest`, turn/attempt persistence, replay-safe server history, and runtime-owned assistant message identity.
+- Added real incremental `/chat/stream` behavior with assistant delta events, completed/done terminal events, retry semantics, and server tests for restart, replay, cancellation, and concurrent request ID behavior.
+- Added a runtime-to-presentation streaming adapter so `/experience/stream` can consume runtime deltas and emit incremental presentation events instead of waiting for a final-only response.
+- Added `scripts/smoke-conversation.ps1` and updated `cmd/smoke` coverage so local verification exercises multi-turn streaming, replay, and persisted conversation history.
+
+### Documented
+
+- README now documents the Phase 8 `TurnRequest` request body for `/chat/stream`, the compatibility shape of `/experience/stream`, the new smoke script, and the current project status as Phase 8 in progress.
+- Added Phase 8 spec, design, and plan links to the repository SDD index.
+
+### Notes
+
+- Phase 8 still keeps `/chat` as the non-streaming compatibility path.
+- The implementation remains local-first: no streaming TTS provider, no stream resume across processes, and no RAG/tool streaming in this slice.
+
 ## Unreleased - Phase 7A Persona LLM Update
 
 ### Added

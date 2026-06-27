@@ -412,6 +412,151 @@ func TestPersonaAgentFallsBackWhenGuardRejectsGeneratedOutput(t *testing.T) {
 	}
 }
 
+func TestPersonaAgentStreamUsesConfiguredLLMAndEmitsAcceptedSegments(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{
+		stream: func(_ context.Context, request llm.ChatRequest, onChunk func(llm.ChatChunk) error) error {
+			if err := onChunk(llm.ChatChunk{Content: "Hello there."}); err != nil {
+				return err
+			}
+			return onChunk(llm.ChatChunk{Done: true})
+		},
+	}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client: client,
+		Persona: persona.Persona{
+			ID:            "advisor",
+			Identity:      "Ava",
+			Role:          "professional digital advisor",
+			Tone:          []string{"calm", "precise"},
+			AllowedClaims: []string{"can explain planning tradeoffs"},
+			Locale:        "en-US",
+		},
+	})
+
+	sink := &recordingDeltaSink{}
+	result, err := agent.Stream(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}, sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if len(client.streamRequests) != 1 {
+		t.Fatalf("stream requests = %d, want 1", len(client.streamRequests))
+	}
+	if got := client.streamRequests[0].Messages[0].Role; got != types.RoleSystem {
+		t.Fatalf("first role = %q, want system", got)
+	}
+	if sink.Text() != "Hello there." {
+		t.Fatalf("sink text = %q, want streamed segment", sink.Text())
+	}
+	if result.Message.Content != "Hello there." {
+		t.Fatalf("result content = %q, want full streamed text", result.Message.Content)
+	}
+}
+
+func TestPersonaAgentStreamExplainsConfiguredModelWithoutCallingProvider(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "openai-compatible",
+		Model:    "gpt-test",
+	})
+
+	sink := &recordingDeltaSink{}
+	result, err := agent.Stream(context.Background(), agentConversation("what model are you"), types.Intent{Name: types.IntentPersonaChat, Query: "what model are you", Confidence: 0.9}, sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if len(client.streamRequests) != 0 {
+		t.Fatalf("stream requests = %d, want 0", len(client.streamRequests))
+	}
+	if sink.Text() != "" {
+		t.Fatalf("sink text = %q, want no streamed delta", sink.Text())
+	}
+	if !strings.Contains(result.Message.Content, "openai-compatible") || !strings.Contains(result.Message.Content, "gpt-test") {
+		t.Fatalf("result content = %q, want provider transparency", result.Message.Content)
+	}
+}
+
+func TestPersonaAgentStreamFallsBackWhenProviderFailsBeforeVisibleOutput(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{
+		stream: func(context.Context, llm.ChatRequest, func(llm.ChatChunk) error) error {
+			return errors.New("provider down")
+		},
+	}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "openai-compatible",
+		Model:    "gpt-test",
+	})
+
+	sink := &recordingDeltaSink{}
+	result, err := agent.Stream(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}, sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v, want safe fallback result", err)
+	}
+	if sink.Text() != "" {
+		t.Fatalf("sink text = %q, want no visible output", sink.Text())
+	}
+	if result.Metadata["generation_mode"] != "fallback" {
+		t.Fatalf("generation_mode = %v, want fallback", result.Metadata["generation_mode"])
+	}
+}
+
+func TestPersonaAgentStreamReturnsErrorWhenProviderFailsAfterVisibleOutput(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	providerErr := errors.New("provider down")
+	client := &recordingLLM{
+		stream: func(_ context.Context, _ llm.ChatRequest, onChunk func(llm.ChatChunk) error) error {
+			if err := onChunk(llm.ChatChunk{Content: "Hello there."}); err != nil {
+				return err
+			}
+			return providerErr
+		},
+	}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "openai-compatible",
+		Model:    "gpt-test",
+	})
+
+	sink := &recordingDeltaSink{}
+	_, err := agent.Stream(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}, sink)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("Stream() error = %v, want provider error", err)
+	}
+	if sink.Text() != "Hello there." {
+		t.Fatalf("sink text = %q, want accepted prefix only", sink.Text())
+	}
+}
+
+func TestPersonaAgentStreamFallsBackWhenProviderEmitsNoVisibleText(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{
+		stream: func(_ context.Context, _ llm.ChatRequest, onChunk func(llm.ChatChunk) error) error {
+			return onChunk(llm.ChatChunk{Done: true})
+		},
+	}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "openai-compatible",
+		Model:    "gpt-test",
+	})
+
+	sink := &recordingDeltaSink{}
+	result, err := agent.Stream(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}, sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if sink.Text() != "" {
+		t.Fatalf("sink text = %q, want no visible output", sink.Text())
+	}
+	if result.Metadata["fallback_category"] != "empty_response" {
+		t.Fatalf("fallback_category = %v, want empty_response", result.Metadata["fallback_category"])
+	}
+}
+
 func skillRegistryWithDefaults(t *testing.T, err error) *core.SkillRegistry {
 	t.Helper()
 	registry := core.NewSkillRegistry()
@@ -445,9 +590,11 @@ func agentConversation(text string) types.Conversation {
 }
 
 type recordingLLM struct {
-	requests []llm.ChatRequest
-	response llm.ChatResponse
-	err      error
+	requests       []llm.ChatRequest
+	streamRequests []llm.ChatRequest
+	response       llm.ChatResponse
+	err            error
+	stream         func(context.Context, llm.ChatRequest, func(llm.ChatChunk) error) error
 }
 
 func (r *recordingLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
@@ -455,7 +602,11 @@ func (r *recordingLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.Cha
 	return r.response, r.err
 }
 
-func (r *recordingLLM) Stream(_ context.Context, _ llm.ChatRequest, _ func(llm.ChatChunk) error) error {
+func (r *recordingLLM) Stream(ctx context.Context, request llm.ChatRequest, onChunk func(llm.ChatChunk) error) error {
+	r.streamRequests = append(r.streamRequests, request)
+	if r.stream != nil {
+		return r.stream(ctx, request, onChunk)
+	}
 	return r.err
 }
 
@@ -465,4 +616,17 @@ func (r *recordingLLM) Embed(context.Context, string) ([]float64, error) {
 
 func (r *recordingLLM) Summarize(context.Context, types.Conversation) (string, error) {
 	return "", nil
+}
+
+type recordingDeltaSink struct {
+	segments []string
+}
+
+func (s *recordingDeltaSink) EmitAssistantDelta(_ context.Context, text string) error {
+	s.segments = append(s.segments, text)
+	return nil
+}
+
+func (s *recordingDeltaSink) Text() string {
+	return strings.Join(s.segments, "")
 }
