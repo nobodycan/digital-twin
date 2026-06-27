@@ -6,6 +6,163 @@ import (
 	"time"
 )
 
+func TestPhase8TurnContractsRoundTripJSONAndValidation(t *testing.T) {
+	createdAt := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	request := TurnRequest{
+		ConversationID: "conv-1",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		TurnID:         "turn-1",
+		AttemptID:      "attempt-1",
+		Message: Message{
+			ID:        "msg-1",
+			Role:      RoleUser,
+			Content:   "Tell me what we discussed yesterday.",
+			CreatedAt: createdAt,
+		},
+		Metadata: Metadata{"source": "test"},
+	}
+
+	if err := request.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	var decodedRequest TurnRequest
+	roundTripJSON(t, request, &decodedRequest)
+	if decodedRequest.TurnID != request.TurnID || decodedRequest.AttemptID != request.AttemptID {
+		t.Fatalf("turn request round trip = %#v", decodedRequest)
+	}
+
+	record := TurnRecord{
+		ID:                 "turn-1",
+		UserMessageID:      "msg-1",
+		AssistantMessageID: "msg-2",
+		Status:             TurnCompleted,
+		Attempts: []TurnAttempt{{
+			ID:          "attempt-1",
+			Status:      AttemptCompleted,
+			RequestID:   "req-1",
+			StartedAt:   createdAt,
+			CompletedAt: createdAt.Add(2 * time.Second),
+		}},
+		Result: &AgentResult{
+			AgentName: "persona-agent",
+			Message: Message{
+				ID:        "msg-2",
+				Role:      RoleAssistant,
+				Content:   "We discussed Phase 8 streaming behavior.",
+				CreatedAt: createdAt.Add(2 * time.Second),
+			},
+			Confidence: Confidence(0.9),
+		},
+	}
+
+	if err := record.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	var decodedRecord TurnRecord
+	roundTripJSON(t, record, &decodedRecord)
+	if decodedRecord.Status != TurnCompleted || len(decodedRecord.Attempts) != 1 {
+		t.Fatalf("turn record round trip = %#v", decodedRecord)
+	}
+
+	event := StreamEvent{
+		Name:           StreamEventMessageCompleted,
+		RequestID:      "req-1",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		AttemptID:      "attempt-1",
+		Sequence:       4,
+		Timestamp:      createdAt.Add(2 * time.Second),
+		Payload:        Metadata{"agent": "persona-agent"},
+		Metadata:       Metadata{"replayed": false},
+	}
+
+	if err := event.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	var decodedEvent StreamEvent
+	roundTripJSON(t, event, &decodedEvent)
+	if decodedEvent.Name != StreamEventMessageCompleted || decodedEvent.Sequence != 4 {
+		t.Fatalf("stream event round trip = %#v", decodedEvent)
+	}
+}
+
+func TestPhase8TurnRequestRejectsInvalidInputs(t *testing.T) {
+	base := TurnRequest{
+		ConversationID: "conv-1",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		TurnID:         "turn-1",
+		AttemptID:      "attempt-1",
+		Message: Message{
+			ID:      "msg-1",
+			Role:    RoleUser,
+			Content: "hello",
+		},
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*TurnRequest)
+	}{
+		{name: "missing conversation id", mutate: func(req *TurnRequest) { req.ConversationID = "" }},
+		{name: "unsafe turn id", mutate: func(req *TurnRequest) { req.TurnID = "../escape" }},
+		{name: "unsafe attempt id", mutate: func(req *TurnRequest) { req.AttemptID = "attempt/1" }},
+		{name: "assistant role", mutate: func(req *TurnRequest) { req.Message.Role = RoleAssistant }},
+		{name: "blank content", mutate: func(req *TurnRequest) { req.Message.Content = "   " }},
+		{name: "missing message id", mutate: func(req *TurnRequest) { req.Message.ID = "" }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := base
+			tt.mutate(&req)
+			if err := req.Validate(); err == nil {
+				t.Fatal("Validate() error = nil, want invalid input")
+			}
+		})
+	}
+}
+
+func TestPhase8TurnAndAttemptStatusesAreStable(t *testing.T) {
+	if string(TurnOpen) != "open" || string(TurnCompleted) != "completed" || string(TurnFailed) != "failed" || string(TurnCanceled) != "canceled" {
+		t.Fatalf("unexpected turn status values")
+	}
+	if string(AttemptGenerating) != "generating" ||
+		string(AttemptCompleted) != "completed" ||
+		string(AttemptFailed) != "failed" ||
+		string(AttemptCanceled) != "canceled" ||
+		string(AttemptAbandoned) != "abandoned" ||
+		string(AttemptReplayed) != "replayed" {
+		t.Fatalf("unexpected attempt status values")
+	}
+}
+
+func TestPhase8StreamEventNamesAreStable(t *testing.T) {
+	names := map[StreamEventName]string{
+		StreamEventRequestStarted:   "request_started",
+		StreamEventRouteSelected:    "route_selected",
+		StreamEventAgentSelected:    "agent_selected",
+		StreamEventAssistantDelta:   "assistant_text_delta",
+		StreamEventFallbackSelected: "fallback_selected",
+		StreamEventMessageCompleted: "message_completed",
+		StreamEventCanceled:         "canceled",
+		StreamEventError:            "error",
+		StreamEventDone:             "done",
+	}
+
+	for got, want := range names {
+		if string(got) != want {
+			t.Fatalf("event name = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestConversationContractsRoundTripJSON(t *testing.T) {
 	createdAt := time.Date(2026, 6, 14, 10, 30, 0, 0, time.UTC)
 	conversation := Conversation{

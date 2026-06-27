@@ -2,10 +2,13 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/nobodycan/digital-twin/internal/conversation"
 	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
@@ -17,6 +20,7 @@ type OrchestratorConfig struct {
 	Agents    *core.AgentRegistry
 	Recorder  *EventRecorder
 	RequestID func() string
+	Coordinator *conversation.Coordinator
 }
 
 type Orchestrator struct {
@@ -24,6 +28,7 @@ type Orchestrator struct {
 	agents    *core.AgentRegistry
 	recorder  *EventRecorder
 	requestID func() string
+	coordinator *conversation.Coordinator
 }
 
 func NewOrchestrator(config OrchestratorConfig) Orchestrator {
@@ -38,6 +43,7 @@ func NewOrchestrator(config OrchestratorConfig) Orchestrator {
 		agents:    config.Agents,
 		recorder:  config.Recorder,
 		requestID: requestID,
+		coordinator: config.Coordinator,
 	}
 }
 
@@ -97,6 +103,124 @@ func (o Orchestrator) Handle(ctx context.Context, conversation types.Conversatio
 
 func (o Orchestrator) record(name EventName, requestID string, conversation types.Conversation, metadata types.Metadata) {
 	o.recorder.Record(NewRuntimeEvent(name, requestID, conversation, metadata))
+}
+
+func (o Orchestrator) Stream(ctx context.Context, req types.TurnRequest, sink core.StreamSink) (types.AgentResult, error) {
+	if o.coordinator == nil {
+		return types.AgentResult{}, core.WrapError(core.ErrInvalidConfig, "streaming coordinator unavailable")
+	}
+	if sink == nil {
+		return types.AgentResult{}, core.WrapError(core.ErrInvalidInput, "stream sink required")
+	}
+	if err := req.Validate(); err != nil {
+		return types.AgentResult{}, core.WrapError(core.ErrInvalidInput, err.Error())
+	}
+	if err := ctx.Err(); err != nil {
+		return types.AgentResult{}, err
+	}
+
+	requestID := o.requestID()
+	emitter := streamEmitter{
+		sink: sink,
+		base: types.StreamEvent{
+			RequestID:      requestID,
+			TenantID:       req.TenantID,
+			UserID:         req.UserID,
+			ConversationID: req.ConversationID,
+			TurnID:         req.TurnID,
+			AttemptID:      req.AttemptID,
+		},
+	}
+	if err := emitter.emit(ctx, types.StreamEventRequestStarted, nil, nil); err != nil {
+		return types.AgentResult{}, err
+	}
+
+	session, err := o.coordinator.Begin(ctx, req, requestID)
+	if err != nil {
+		return types.AgentResult{}, err
+	}
+	if session.Replayed && session.ReplayResult != nil {
+		if err := emitter.emit(ctx, types.StreamEventMessageCompleted, types.Metadata{
+			"content":    session.ReplayResult.Message.Content,
+			"agent_name": session.ReplayResult.AgentName,
+		}, types.Metadata{"replayed": true}); err != nil {
+			return types.AgentResult{}, err
+		}
+		if err := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "completed"}, types.Metadata{"replayed": true}); err != nil {
+			return types.AgentResult{}, err
+		}
+		return *session.ReplayResult, nil
+	}
+
+	intent, err := o.router.Route(ctx, session.Window)
+	if err != nil {
+		intent = fallbackIntent(session.Window, "router_error")
+	} else if intent.Confidence.Valid() && intent.Confidence < types.Confidence(0.5) {
+		intent = fallbackIntent(session.Window, "low_confidence")
+	}
+	if err := emitter.emit(ctx, types.StreamEventRouteSelected, types.Metadata{"intent": string(intent.Name)}, nil); err != nil {
+		_ = o.coordinator.Fail(ctx, session, "sink_failed")
+		return types.AgentResult{}, err
+	}
+
+	agent, err := o.agents.Find(intent)
+	if err != nil {
+		_ = o.coordinator.Fail(ctx, session, "agent_not_found")
+		if emitErr := emitter.emit(ctx, types.StreamEventError, types.Metadata{"code": "agent_not_found"}, nil); emitErr != nil {
+			return types.AgentResult{}, emitErr
+		}
+		if emitErr := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "failed"}, nil); emitErr != nil {
+			return types.AgentResult{}, emitErr
+		}
+		return safeResult("agent_not_found", types.Metadata{"intent": string(intent.Name)}), nil
+	}
+	if err := emitter.emit(ctx, types.StreamEventAgentSelected, types.Metadata{"agent": agent.Name()}, nil); err != nil {
+		_ = o.coordinator.Fail(ctx, session, "sink_failed")
+		return types.AgentResult{}, err
+	}
+
+	var result types.AgentResult
+	if streamingAgent, ok := agent.(core.StreamingAgent); ok {
+		result, err = streamingAgent.Stream(ctx, session.Window, intent, assistantDeltaSink{ctx: ctx, emitter: &emitter})
+	} else {
+		result, err = agent.Run(ctx, session.Window, intent)
+	}
+	if err != nil {
+		if errorsIsCanceled(err) {
+			_ = o.coordinator.Cancel(ctx, session)
+			if emitErr := emitter.emit(ctx, types.StreamEventCanceled, types.Metadata{"status": "canceled"}, nil); emitErr != nil {
+				return types.AgentResult{}, emitErr
+			}
+			if emitErr := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "canceled"}, nil); emitErr != nil {
+				return types.AgentResult{}, emitErr
+			}
+			return types.AgentResult{}, err
+		}
+		_ = o.coordinator.Fail(ctx, session, "agent_failed")
+		if emitErr := emitter.emit(ctx, types.StreamEventError, types.Metadata{"code": "agent_failed"}, nil); emitErr != nil {
+			return types.AgentResult{}, emitErr
+		}
+		if emitErr := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "failed"}, nil); emitErr != nil {
+			return types.AgentResult{}, emitErr
+		}
+		return types.AgentResult{}, err
+	}
+
+	result = ensureAssistantMessageIdentity(result, session, requestID)
+	if err := o.coordinator.Complete(ctx, session, result); err != nil {
+		_ = o.coordinator.Fail(ctx, session, "commit_failed")
+		return types.AgentResult{}, err
+	}
+	if err := emitter.emit(ctx, types.StreamEventMessageCompleted, types.Metadata{
+		"content":    result.Message.Content,
+		"agent_name": result.AgentName,
+	}, nil); err != nil {
+		return types.AgentResult{}, err
+	}
+	if err := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "completed"}, nil); err != nil {
+		return types.AgentResult{}, err
+	}
+	return result, nil
 }
 
 func validateConversation(conversation types.Conversation) error {
@@ -159,3 +283,63 @@ func safeResult(reason string, metadata types.Metadata) types.AgentResult {
 }
 
 var _ core.Orchestrator = Orchestrator{}
+var _ core.StreamingOrchestrator = Orchestrator{}
+
+type streamEmitter struct {
+	sink     core.StreamSink
+	base     types.StreamEvent
+	sequence uint64
+}
+
+func (e *streamEmitter) emit(ctx context.Context, name types.StreamEventName, payload, metadata types.Metadata) error {
+	e.sequence++
+	event := e.base
+	event.Name = name
+	event.Sequence = e.sequence
+	event.Timestamp = time.Now().UTC()
+	event.Payload = copyStreamMetadata(payload)
+	event.Metadata = copyStreamMetadata(metadata)
+	return e.sink.Emit(ctx, event)
+}
+
+type assistantDeltaSink struct {
+	ctx     context.Context
+	emitter *streamEmitter
+}
+
+func (s assistantDeltaSink) EmitAssistantDelta(ctx context.Context, text string) error {
+	if ctx == nil {
+		ctx = s.ctx
+	}
+	return s.emitter.emit(ctx, types.StreamEventAssistantDelta, types.Metadata{"content": text}, nil)
+}
+
+func copyStreamMetadata(metadata types.Metadata) types.Metadata {
+	if metadata == nil {
+		return nil
+	}
+	copied := make(types.Metadata, len(metadata))
+	for key, value := range metadata {
+		copied[key] = value
+	}
+	return copied
+}
+
+func errorsIsCanceled(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func ensureAssistantMessageIdentity(result types.AgentResult, session *conversation.TurnSession, requestID string) types.AgentResult {
+	if strings.TrimSpace(result.Message.ID) != "" {
+		return result
+	}
+	cloned := result
+	cloned.Message.ID = fmt.Sprintf("assistant-%s-%s", session.TurnID, requestID)
+	if cloned.Message.Role == "" {
+		cloned.Message.Role = types.RoleAssistant
+	}
+	if cloned.Message.CreatedAt.IsZero() {
+		cloned.Message.CreatedAt = time.Now().UTC()
+	}
+	return cloned
+}

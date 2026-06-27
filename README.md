@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-本仓库已完成到 **Phase 6A 本地生产形态 readiness**，并已开始进入 **Phase 7A LLM-driven persona** 的实现。
+本仓库已完成到 **Phase 6A 本地生产形态 readiness**、**Phase 7A LLM-driven persona**，并已进入 **Phase 8 Real Conversation Loop** 的实现与联调阶段。
 
-当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、本地 eval CLI、governed runtime adapter、memory write policy、release gate、rollback/feedback 记录、governance decision audit exporter、decision records CLI、工具执行前治理 hook，以及 Phase 7A 的 LLM provider config、local/mock persona LLM factory、LLM-backed `PersonaAgent`、provider fallback 和 model transparency path。
+当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、本地 eval CLI、governed runtime adapter、memory write policy、release gate、rollback/feedback 记录、governance decision audit exporter、decision records CLI、工具执行前治理 hook、Phase 7A 的 LLM provider config、local/mock persona LLM factory、LLM-backed `PersonaAgent`、provider fallback 和 model transparency path，以及 Phase 8 的 `TurnRequest`、durable conversation history、attempt/replay 语义、真实增量 `/chat/stream` 和 runtime-to-presentation streaming adapter。
 
-Phase 7A 仍采用 local-first：默认仍可在无 secrets 的情况下运行，CI 仍只使用 fake client/fake server，不包含真实多 provider agent planning、RAG answer generation、token streaming、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核、合规认证或完整治理 dashboard。
+Phase 8 仍采用 local-first：默认仍可在无 secrets 的情况下运行，CI 仍只使用 fake client/fake server，不包含真实多 provider agent planning、RAG answer generation、流式 TTS、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核、合规认证或完整治理 dashboard。
 
 ## 项目定位
 
@@ -54,6 +54,9 @@ flowchart TD
 | Phase 3 | 编排运行时与 API 入口 | 已完成 |
 | Phase 4 | 数字人表现层与产品后台 | 已完成 |
 | Phase 5 | 治理、评测、安全与运营 | 已完成：本地治理闭环基础 |
+| Phase 6A | Provider 与本地部署就绪 | 已完成 |
+| Phase 7A | LLM 驱动人格回答 | 已完成 |
+| Phase 8 | 真实会话流与持久化回放 | 进行中 |
 
 ## SDD 文档
 
@@ -74,6 +77,9 @@ flowchart TD
 - [Phase 5 Spec](./docs/specs/phase-5-governance-evaluation-operations.md)
 - [Phase 5 Design](./docs/design/phase-5-governance-evaluation-operations.md)
 - [Phase 5 Plan](./docs/plans/phase-5-governance-evaluation-operations-plan.md)
+- [Phase 8 Spec](./docs/specs/phase-8-real-conversation-loop.md)
+- [Phase 8 Design](./docs/design/phase-8-real-conversation-loop.md)
+- [Phase 8 Plan](./docs/plans/phase-8-real-conversation-loop-plan.md)
 - [ADR 0001](./docs/adr/0001-phase-3-runtime-http-sse-local-first.md)
 
 ## 本地运行
@@ -103,9 +109,16 @@ go run ./cmd/server
 Invoke-RestMethod http://localhost:8080/health
 Invoke-RestMethod http://localhost:8080/metrics
 Invoke-RestMethod -Method Post http://localhost:8080/chat -ContentType "application/json" -Body '{"id":"conv-1","tenant_id":"tenant-1","user_id":"user-1","messages":[{"id":"msg-1","role":"user","content":"hello","created_at":"2026-06-16T12:00:00Z"}],"created_at":"2026-06-16T12:00:00Z","updated_at":"2026-06-16T12:00:00Z"}'
-curl.exe -N -X POST http://localhost:8080/chat/stream -H "Content-Type: application/json" --data "{\"id\":\"conv-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"messages\":[{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-16T12:00:00Z\"}],\"created_at\":\"2026-06-16T12:00:00Z\",\"updated_at\":\"2026-06-16T12:00:00Z\"}"
-curl.exe -N -X POST http://localhost:8080/experience/stream -H "Content-Type: application/json" --data "{\"id\":\"conv-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"messages\":[{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-17T12:00:00Z\"}],\"created_at\":\"2026-06-17T12:00:00Z\",\"updated_at\":\"2026-06-17T12:00:00Z\"}"
+curl.exe -N -X POST http://localhost:8080/chat/stream -H "Content-Type: application/json" --data "{\"conversation_id\":\"conv-1\",\"turn_id\":\"turn-1\",\"attempt_id\":\"attempt-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"message\":{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-27T12:00:00Z\"}}"
+curl.exe -N -X POST http://localhost:8080/experience/stream -H "Content-Type: application/json" --data "{\"id\":\"conv-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"messages\":[{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-27T12:00:00Z\"}],\"created_at\":\"2026-06-27T12:00:00Z\",\"updated_at\":\"2026-06-27T12:00:00Z\"}"
 ```
+
+Phase 8 stream contract:
+
+- `/chat/stream` 现在接收 `types.TurnRequest`，而不是完整 `Conversation` JSON。
+- `conversation_id` 标识会话，`turn_id` 标识本轮用户输入，`attempt_id` 标识重试尝试。
+- 同一个 `turn_id` 使用新的 `attempt_id` 重放时，服务端会返回已完成结果并带上 replay 语义，而不会重复写入 assistant 消息。
+- `/experience/stream` 当前仍兼容 legacy `Conversation` body，但服务端内部会转换为 turn 语义，复用 runtime streaming，再映射成 presentation events。
 
 Web surfaces:
 
@@ -128,12 +141,33 @@ go test ./...
 go vet ./...
 go build ./cmd/server
 go build ./cmd/cli
+go build ./cmd/smoke
 go run ./cmd/cli eval --cases .\evals\conversations --reports .\evals\reports --run-id phase5-local
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke-conversation.ps1 -DryRun
 ```
 
 ## 下一步
 
-下一步按 `AGENTS.md` 进入 Phase 5 的 review、QA、security 和 ship stages；产品能力层面可继续扩展真实 provider、生产认证/RBAC、外部 eval 平台和完整治理 dashboard。
+下一步按 `AGENTS.md` 继续完成 Phase 8 的 review、QA、security 和 ship stages；随后再进入更完整的 provider 实联、RAG/tool streaming、生产认证/RBAC 和治理 dashboard。
+
+## Phase 8 Real Conversation Loop
+
+Phase 8 的目标是把“看起来像流式”升级成“真正有服务端会话状态的流式对话回路”。
+
+已完成的核心点：
+
+- `/chat/stream` 基于 `TurnRequest` 进入服务端持久化会话。
+- assistant 增量内容通过 SSE `assistant_text_delta` 实时输出。
+- 会话历史按 turn/attempt 持久化，服务重启后可继续读取最近上下文。
+- 同一 turn 的 retry/replay 有稳定语义，不会重复提交 assistant 消息。
+- `/experience/stream` 通过 streaming presentation adapter 消费 runtime deltas，并输出字幕、avatar state、done/error 等事件。
+- 新增 `scripts/smoke-conversation.ps1`，可一键验证双轮对话、重试回放和本地历史落盘。
+
+快速 smoke：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke-conversation.ps1 -Port 8080
+```
 
 ## Phase 6A Provider and Deployment Readiness
 

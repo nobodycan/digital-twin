@@ -18,6 +18,10 @@ var (
 	ErrProviderFailure = errors.New("provider failure")
 	// ErrStoreFailure indicates that persistence failed.
 	ErrStoreFailure = errors.New("store failure")
+	// ErrConversationNotFound indicates that a conversation document is missing.
+	ErrConversationNotFound = errors.New("conversation not found")
+	// ErrConflict indicates an optimistic or logical state conflict.
+	ErrConflict = errors.New("conflict")
 	// ErrInvalidConfig indicates invalid runtime or domain configuration.
 	ErrInvalidConfig = errors.New("invalid config")
 	// ErrInvalidInput indicates malformed user or system input.
@@ -97,6 +101,14 @@ func IsProviderFailure(err error) bool {
 
 func IsStoreFailure(err error) bool {
 	return errors.Is(err, ErrStoreFailure)
+}
+
+func IsConversationNotFound(err error) bool {
+	return errors.Is(err, ErrConversationNotFound)
+}
+
+func IsConflict(err error) bool {
+	return errors.Is(err, ErrConflict)
 }
 
 func IsInvalidConfig(err error) bool {

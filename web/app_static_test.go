@@ -17,11 +17,33 @@ func TestAppScriptPostsToExperienceStreamAndRendersPresentationEvents(t *testing
 		`fetch("/experience/stream"`,
 		"parseSSEFrames",
 		"assistant_text_delta",
+		"activeAssistantLine",
 		"subtitle",
 		"avatar_state",
 		"audio_chunk",
 		"error",
 		"done",
+		"conversationId",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("app.js missing %q", want)
+		}
+	}
+}
+
+func TestAppScriptSupportsAbortableStreamingAndStopState(t *testing.T) {
+	data, err := os.ReadFile("app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(data)
+
+	for _, want := range []string{
+		"AbortController",
+		"stop-button",
+		"activeRequestController",
+		`error.name === "AbortError"`,
+		"not saved",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("app.js missing %q", want)
@@ -60,11 +82,29 @@ func TestAppStylesDefineVisibleAvatarStates(t *testing.T) {
 		`[data-state="thinking"]`,
 		`[data-state="speaking"]`,
 		`[data-state="error"]`,
+		`[data-state="interrupted"]`,
 		"transcript-line-assistant",
+		"transcript-line-pending",
 		"transcript-line-status",
 	} {
 		if !strings.Contains(styles, want) {
 			t.Fatalf("app.css missing %q", want)
+		}
+	}
+}
+
+func TestAppShellIncludesStopButton(t *testing.T) {
+	html, err := os.ReadFile("app.html")
+	if err != nil {
+		t.Fatalf("read app.html: %v", err)
+	}
+	source := string(html)
+	for _, want := range []string{
+		`id="stop-button"`,
+		">Stop<",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("app.html missing %q", want)
 		}
 	}
 }

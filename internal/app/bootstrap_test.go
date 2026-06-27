@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -116,6 +119,110 @@ func TestNewLocalRuntimeUsesConfiguredPersonaLLM(t *testing.T) {
 	}
 }
 
+func TestNewLocalRuntimeStreamPersistsConversationHistoryToConfiguredDataDir(t *testing.T) {
+	dataDir := t.TempDir()
+	local, err := NewLocalRuntime(LocalRuntimeConfig{
+		DataDir: dataDir,
+	})
+	if err != nil {
+		t.Fatalf("NewLocalRuntime() error = %v", err)
+	}
+
+	streaming, ok := any(local.Orchestrator).(core.StreamingOrchestrator)
+	if !ok {
+		t.Fatal("expected orchestrator to implement core.StreamingOrchestrator")
+	}
+
+	sink := discardStreamSink{}
+	_, err = streaming.Stream(t.Context(), types.TurnRequest{
+		ConversationID: "conv-1",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		TurnID:         "turn-1",
+		AttemptID:      "attempt-1",
+		Message: types.Message{
+			ID:        "msg-1",
+			Role:      types.RoleUser,
+			Content:   "hello",
+			CreatedAt: time.Now().UTC(),
+		},
+	}, sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+
+	path := filepath.Join(dataDir, "tenants", "tenant-1", "users", "user-1", "conversations", "conv-1.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	var conversation types.Conversation
+	if err := json.Unmarshal(data, &conversation); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(conversation.Turns) != 1 || conversation.Turns[0].Status != types.TurnCompleted {
+		t.Fatalf("conversation turns = %#v, want one completed turn", conversation.Turns)
+	}
+}
+
+func TestNewLocalRuntimeKeepsConversationHistoryAcrossRebuilds(t *testing.T) {
+	dataDir := t.TempDir()
+	first, err := NewLocalRuntime(LocalRuntimeConfig{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("first NewLocalRuntime() error = %v", err)
+	}
+	firstStreaming := any(first.Orchestrator).(core.StreamingOrchestrator)
+	if _, err := firstStreaming.Stream(t.Context(), types.TurnRequest{
+		ConversationID: "conv-1",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		TurnID:         "turn-1",
+		AttemptID:      "attempt-1",
+		Message: types.Message{
+			ID:        "msg-1",
+			Role:      types.RoleUser,
+			Content:   "hello",
+			CreatedAt: time.Now().UTC(),
+		},
+	}, discardStreamSink{}); err != nil {
+		t.Fatalf("first Stream() error = %v", err)
+	}
+
+	second, err := NewLocalRuntime(LocalRuntimeConfig{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("second NewLocalRuntime() error = %v", err)
+	}
+	secondStreaming := any(second.Orchestrator).(core.StreamingOrchestrator)
+	if _, err := secondStreaming.Stream(t.Context(), types.TurnRequest{
+		ConversationID: "conv-1",
+		TenantID:       "tenant-1",
+		UserID:         "user-1",
+		TurnID:         "turn-2",
+		AttemptID:      "attempt-1",
+		Message: types.Message{
+			ID:        "msg-2",
+			Role:      types.RoleUser,
+			Content:   "hello again",
+			CreatedAt: time.Now().UTC(),
+		},
+	}, discardStreamSink{}); err != nil {
+		t.Fatalf("second Stream() error = %v", err)
+	}
+
+	path := filepath.Join(dataDir, "tenants", "tenant-1", "users", "user-1", "conversations", "conv-1.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	var conversation types.Conversation
+	if err := json.Unmarshal(data, &conversation); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(conversation.Turns) != 2 {
+		t.Fatalf("turns len = %d, want 2", len(conversation.Turns))
+	}
+}
+
 type denyAllSkills struct {
 	calls int
 	call  agents.SkillCall
@@ -125,4 +232,10 @@ func (a *denyAllSkills) AuthorizeSkill(_ context.Context, call agents.SkillCall)
 	a.calls++
 	a.call = call
 	return core.WrapError(core.ErrUnauthorized, "test authorizer denied skill")
+}
+
+type discardStreamSink struct{}
+
+func (discardStreamSink) Emit(context.Context, types.StreamEvent) error {
+	return nil
 }

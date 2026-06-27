@@ -52,7 +52,7 @@ func run(config smokeConfig) error {
 		{method: http.MethodGet, path: "/health"},
 		{method: http.MethodGet, path: "/ready"},
 		{method: http.MethodPost, path: "/chat", body: smokeConversationJSON(), auth: true},
-		{method: http.MethodPost, path: "/chat/stream", body: smokeConversationJSON(), auth: true},
+		{method: http.MethodPost, path: "/chat/stream", body: smokeTurnRequestJSON(), auth: true},
 		{method: http.MethodGet, path: "/app"},
 		{method: http.MethodGet, path: "/admin"},
 		{method: http.MethodGet, path: "/metrics"},
@@ -98,4 +98,9 @@ func runCheck(ctx context.Context, client *http.Client, baseURL, apiKey, method,
 func smokeConversationJSON() string {
 	now := "2026-06-22T00:00:00Z"
 	return `{"id":"smoke-conv","tenant_id":"tenant-1","user_id":"smoke-user","messages":[{"id":"smoke-msg","role":"user","content":"smoke check","created_at":"` + now + `"}],"created_at":"` + now + `","updated_at":"` + now + `"}`
+}
+
+func smokeTurnRequestJSON() string {
+	now := "2026-06-22T00:00:00Z"
+	return `{"conversation_id":"smoke-conv","tenant_id":"tenant-1","user_id":"smoke-user","turn_id":"smoke-turn-1","attempt_id":"smoke-attempt-1","message":{"id":"smoke-msg","role":"user","content":"smoke check","created_at":"` + now + `"}}`
 }

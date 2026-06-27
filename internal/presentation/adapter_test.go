@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nobodycan/digital-twin/internal/avatar"
+	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/internal/voice"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
@@ -104,6 +105,184 @@ func TestAdapterEmitsErrorEventWhenTTSFailsAndKeepsTextEvents(t *testing.T) {
 	}
 }
 
+func TestAdapterStreamSinkMapsRuntimeDeltasAndTerminalSuccess(t *testing.T) {
+	machine, err := avatar.NewStateMachine(avatar.Manifest{
+		Supported:     []avatar.State{avatar.StateIdle, avatar.StateThinking, avatar.StateSpeaking},
+		FallbackState: avatar.StateIdle,
+	})
+	if err != nil {
+		t.Fatalf("NewStateMachine returned error: %v", err)
+	}
+	adapter := Adapter{
+		TTS:    voice.MockTTSClient{},
+		Avatar: machine,
+		Clock:  fixedClock(time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)),
+	}
+	sink := &recordingPresentationSink{}
+	streamSink := adapter.NewStreamSink(sink)
+	ctx := context.Background()
+
+	for _, event := range []types.StreamEvent{
+		{
+			Name:           types.StreamEventRequestStarted,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       1,
+			Timestamp:      time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			Name:           types.StreamEventAssistantDelta,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       2,
+			Timestamp:      time.Date(2026, 6, 27, 10, 0, 1, 0, time.UTC),
+			Payload:        types.Metadata{"content": "Hello there."},
+		},
+		{
+			Name:           types.StreamEventMessageCompleted,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       3,
+			Timestamp:      time.Date(2026, 6, 27, 10, 0, 2, 0, time.UTC),
+			Payload:        types.Metadata{"content": "Hello there.", "agent_name": "persona-agent"},
+		},
+		{
+			Name:           types.StreamEventDone,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       4,
+			Timestamp:      time.Date(2026, 6, 27, 10, 0, 3, 0, time.UTC),
+			Payload:        types.Metadata{"status": "completed"},
+		},
+	} {
+		if err := streamSink.Emit(ctx, event); err != nil {
+			t.Fatalf("Emit(%s) error = %v", event.Name, err)
+		}
+	}
+
+	names := eventNames(sink.events)
+	want := []EventName{
+		EventConversationStarted,
+		EventAvatarState,
+		EventAssistantTextDelta,
+		EventAvatarState,
+		EventSubtitle,
+		EventAudioChunk,
+		EventDone,
+		EventAvatarState,
+	}
+	if len(names) != len(want) {
+		t.Fatalf("event names = %#v, want %#v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("event names = %#v, want %#v", names, want)
+		}
+	}
+	if sink.events[1].Payload["state"] != string(avatar.StateThinking) {
+		t.Fatalf("thinking payload = %#v", sink.events[1].Payload)
+	}
+	if sink.events[2].Payload["text"] != "Hello there." {
+		t.Fatalf("delta payload = %#v", sink.events[2].Payload)
+	}
+	if sink.events[3].Payload["state"] != string(avatar.StateSpeaking) {
+		t.Fatalf("speaking payload = %#v", sink.events[3].Payload)
+	}
+	if sink.events[4].Name != EventSubtitle || sink.events[5].Name != EventAudioChunk {
+		t.Fatalf("completion events = %#v", names)
+	}
+	if sink.events[7].Payload["state"] != string(avatar.StateIdle) {
+		t.Fatalf("idle payload = %#v", sink.events[7].Payload)
+	}
+}
+
+func TestAdapterStreamSinkMapsCancellationWithoutTTS(t *testing.T) {
+	machine, err := avatar.NewStateMachine(avatar.Manifest{
+		Supported:     []avatar.State{avatar.StateIdle, avatar.StateThinking, avatar.StateInterrupted},
+		FallbackState: avatar.StateIdle,
+	})
+	if err != nil {
+		t.Fatalf("NewStateMachine returned error: %v", err)
+	}
+	adapter := Adapter{
+		TTS:    voice.MockTTSClient{},
+		Avatar: machine,
+		Clock:  fixedClock(time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)),
+	}
+	sink := &recordingPresentationSink{}
+	streamSink := adapter.NewStreamSink(sink)
+
+	for _, event := range []types.StreamEvent{
+		{
+			Name:           types.StreamEventRequestStarted,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       1,
+			Timestamp:      time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC),
+		},
+		{
+			Name:           types.StreamEventCanceled,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       2,
+			Timestamp:      time.Date(2026, 6, 27, 11, 0, 1, 0, time.UTC),
+			Payload:        types.Metadata{"status": "canceled"},
+		},
+		{
+			Name:           types.StreamEventDone,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       3,
+			Timestamp:      time.Date(2026, 6, 27, 11, 0, 2, 0, time.UTC),
+			Payload:        types.Metadata{"status": "canceled"},
+		},
+	} {
+		if err := streamSink.Emit(context.Background(), event); err != nil {
+			t.Fatalf("Emit(%s) error = %v", event.Name, err)
+		}
+	}
+
+	names := eventNames(sink.events)
+	for _, forbidden := range []EventName{EventSubtitle, EventAudioChunk} {
+		for _, got := range names {
+			if got == forbidden {
+				t.Fatalf("event names = %#v, want no %q on cancel", names, forbidden)
+			}
+		}
+	}
+	if !containsEventName(names, EventInterrupted) || !containsEventName(names, EventDone) {
+		t.Fatalf("event names = %#v, want interrupted + done", names)
+	}
+}
+
 func eventNames(events []Event) []EventName {
 	names := make([]EventName, len(events))
 	for index, event := range events {
@@ -123,3 +302,23 @@ type failingTTS struct{}
 func (failingTTS) Synthesize(context.Context, voice.TTSRequest) (voice.TTSResult, error) {
 	return voice.TTSResult{}, errors.New("mock tts failed")
 }
+
+type recordingPresentationSink struct {
+	events []Event
+}
+
+func (s *recordingPresentationSink) Emit(_ context.Context, event Event) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func containsEventName(names []EventName, want EventName) bool {
+	for _, name := range names {
+		if name == want {
+			return true
+		}
+	}
+	return false
+}
+
+var _ core.StreamSink = (*AdapterStreamSink)(nil)

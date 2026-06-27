@@ -32,6 +32,7 @@ object_storage:
   endpoint: http://minio:9000
 tenant:
   default_id: tenant-a
+  default_user_id: user-a
 `)
 
 	cfg, err := Load(path)
@@ -84,6 +85,9 @@ tenant:
 	if cfg.Tenant.DefaultID != "tenant-a" {
 		t.Fatalf("Tenant.DefaultID = %q, want tenant-a", cfg.Tenant.DefaultID)
 	}
+	if cfg.Tenant.DefaultUserID != "user-a" {
+		t.Fatalf("Tenant.DefaultUserID = %q, want user-a", cfg.Tenant.DefaultUserID)
+	}
 }
 
 func TestLoadAcceptsUTF8BOM(t *testing.T) {
@@ -121,6 +125,7 @@ object_storage:
   endpoint: yaml-endpoint
 tenant:
   default_id: yaml-tenant
+  default_user_id: yaml-user
 `)
 
 	t.Setenv("SERVER_PORT", "10080")
@@ -138,6 +143,7 @@ tenant:
 	t.Setenv("ASR_PROVIDER", "deepgram")
 	t.Setenv("OBJECT_STORAGE_ENDPOINT", "https://storage.example")
 	t.Setenv("TENANT_DEFAULT_ID", "env-tenant")
+	t.Setenv("TENANT_DEFAULT_USER_ID", "env-user")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -189,6 +195,9 @@ tenant:
 	if cfg.Tenant.DefaultID != "env-tenant" {
 		t.Fatalf("Tenant.DefaultID = %q, want env-tenant", cfg.Tenant.DefaultID)
 	}
+	if cfg.Tenant.DefaultUserID != "env-user" {
+		t.Fatalf("Tenant.DefaultUserID = %q, want env-user", cfg.Tenant.DefaultUserID)
+	}
 }
 
 func TestLoadAppliesPrefixedEnvironmentOverrides(t *testing.T) {
@@ -197,10 +206,12 @@ server:
   port: 9090
 tenant:
   default_id: yaml-tenant
+  default_user_id: yaml-user
 `)
 
 	t.Setenv("DIGITAL_TWIN_SERVER_PORT", "10081")
 	t.Setenv("DIGITAL_TWIN_TENANT_DEFAULT_ID", "prefixed-tenant")
+	t.Setenv("DIGITAL_TWIN_TENANT_DEFAULT_USER_ID", "prefixed-user")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -212,6 +223,9 @@ tenant:
 	}
 	if cfg.Tenant.DefaultID != "prefixed-tenant" {
 		t.Fatalf("Tenant.DefaultID = %q, want prefixed-tenant", cfg.Tenant.DefaultID)
+	}
+	if cfg.Tenant.DefaultUserID != "prefixed-user" {
+		t.Fatalf("Tenant.DefaultUserID = %q, want prefixed-user", cfg.Tenant.DefaultUserID)
 	}
 }
 
@@ -526,6 +540,7 @@ llm:
   api_key: "key#not-comment"
 tenant:
   default_id: 'tenant-a'
+  default_user_id: 'user-a'
 `)
 
 	cfg, err := Load(path)
@@ -541,6 +556,9 @@ tenant:
 	}
 	if cfg.Tenant.DefaultID != "tenant-a" {
 		t.Fatalf("Tenant.DefaultID = %q, want tenant-a", cfg.Tenant.DefaultID)
+	}
+	if cfg.Tenant.DefaultUserID != "user-a" {
+		t.Fatalf("Tenant.DefaultUserID = %q, want user-a", cfg.Tenant.DefaultUserID)
 	}
 }
 
@@ -563,6 +581,9 @@ func TestLoadDefaultConfigFile(t *testing.T) {
 	}
 	if cfg.Tenant.DefaultID != "default" {
 		t.Fatalf("Tenant.DefaultID = %q, want default", cfg.Tenant.DefaultID)
+	}
+	if cfg.Tenant.DefaultUserID != "default-user" {
+		t.Fatalf("Tenant.DefaultUserID = %q, want default-user", cfg.Tenant.DefaultUserID)
 	}
 }
 

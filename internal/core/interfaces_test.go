@@ -14,6 +14,10 @@ func TestCoreInterfaceCompileTimeShape(t *testing.T) {
 	var _ Skill = skillFunc{}
 	var _ Router = routerFunc{}
 	var _ Orchestrator = orchestratorFunc{}
+	var _ StreamSink = streamSinkFunc{}
+	var _ AssistantDeltaSink = assistantDeltaSinkFunc{}
+	var _ StreamingAgent = streamingAgentFunc{}
+	var _ StreamingOrchestrator = streamingOrchestratorFunc{}
 }
 
 func TestNewNamedErrorMatchesSentinel(t *testing.T) {
@@ -75,6 +79,26 @@ func (routerFunc) Route(context.Context, types.Conversation) (types.Intent, erro
 type orchestratorFunc struct{}
 
 func (orchestratorFunc) Handle(context.Context, types.Conversation) (types.AgentResult, error) {
+	return types.AgentResult{}, nil
+}
+
+type streamSinkFunc struct{}
+
+func (streamSinkFunc) Emit(context.Context, types.StreamEvent) error { return nil }
+
+type assistantDeltaSinkFunc struct{}
+
+func (assistantDeltaSinkFunc) EmitAssistantDelta(context.Context, string) error { return nil }
+
+type streamingAgentFunc struct{ agentFunc }
+
+func (streamingAgentFunc) Stream(context.Context, types.Conversation, types.Intent, AssistantDeltaSink) (types.AgentResult, error) {
+	return types.AgentResult{}, nil
+}
+
+type streamingOrchestratorFunc struct{ orchestratorFunc }
+
+func (streamingOrchestratorFunc) Stream(context.Context, types.TurnRequest, StreamSink) (types.AgentResult, error) {
 	return types.AgentResult{}, nil
 }
 

@@ -28,3 +28,25 @@ type Router interface {
 type Orchestrator interface {
 	Handle(context.Context, types.Conversation) (types.AgentResult, error)
 }
+
+// StreamSink emits typed streaming events.
+type StreamSink interface {
+	Emit(context.Context, types.StreamEvent) error
+}
+
+// AssistantDeltaSink emits accepted assistant text segments.
+type AssistantDeltaSink interface {
+	EmitAssistantDelta(context.Context, string) error
+}
+
+// StreamingAgent adds incremental output to an Agent.
+type StreamingAgent interface {
+	Agent
+	Stream(context.Context, types.Conversation, types.Intent, AssistantDeltaSink) (types.AgentResult, error)
+}
+
+// StreamingOrchestrator adds typed streaming to an Orchestrator.
+type StreamingOrchestrator interface {
+	Orchestrator
+	Stream(context.Context, types.TurnRequest, StreamSink) (types.AgentResult, error)
+}

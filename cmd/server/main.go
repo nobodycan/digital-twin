@@ -68,6 +68,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		PersonaLLMProvider:       cfg.LLM.Provider,
 		PersonaLLMModel:          cfg.LLM.Model,
 		PersonaLLMFallbackPolicy: cfg.LLM.FallbackPolicy,
+		DataDir:                  defaultRuntimeDataDir(),
 	})
 	if err != nil {
 		return nil, err
@@ -126,6 +127,8 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		StaticDir:         defaultStaticDir(),
 		APIKeys:           apiKeys,
 		RateLimitRequests: cfg.Server.RateLimitRequests,
+		DefaultTenantID:   cfg.Tenant.DefaultID,
+		DefaultUserID:     cfg.Tenant.DefaultUserID,
 	}), nil
 }
 
@@ -150,6 +153,13 @@ func defaultAdminDataDir() string {
 		return path
 	}
 	return filepath.Join("data", "admin")
+}
+
+func defaultRuntimeDataDir() string {
+	if path := os.Getenv("DIGITAL_TWIN_RUNTIME_DATA"); path != "" {
+		return path
+	}
+	return filepath.Join("data", "runtime")
 }
 
 func parseLogLevel(level string) slog.Level {

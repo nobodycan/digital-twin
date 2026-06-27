@@ -21,3 +21,4 @@ object_storage:
   endpoint: ""
 tenant:
   default_id: default
+  default_user_id: default-user

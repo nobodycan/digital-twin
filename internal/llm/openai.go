@@ -8,11 +8,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
+
+const maxStreamEventBytes = 1024 * 1024
+
+var secretPattern = regexp.MustCompile(`sk-[A-Za-z0-9_-]+`)
 
 // OpenAIConfig configures an OpenAI-compatible HTTP client.
 type OpenAIConfig struct {
@@ -84,6 +89,7 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 	}
 
 	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamEventBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -98,7 +104,7 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		}
 		var chunk openAIStreamResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			return core.WrapError(err, "decode openai stream")
+			return providerFailure("decode openai stream", err)
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -107,7 +113,19 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 			return err
 		}
 	}
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return providerFailure("read openai stream", err)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err := onChunk(ChatChunk{Done: true}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Embed is intentionally not implemented for OpenAIClient in Phase 1.
@@ -179,7 +197,21 @@ func (c *OpenAIClient) newRequest(ctx context.Context, body []byte) (*http.Reque
 
 func statusError(response *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-	return core.WrapError(core.ErrProviderFailure, fmt.Sprintf("openai status %d: %s", response.StatusCode, strings.TrimSpace(string(data))))
+	return core.WrapError(core.ErrProviderFailure, fmt.Sprintf("openai status %d: %s", response.StatusCode, redactSecrets(strings.TrimSpace(string(data)))))
+}
+
+func providerFailure(message string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return core.WrapError(core.ErrProviderFailure, fmt.Sprintf("%s: %v", message, err))
+}
+
+func redactSecrets(value string) string {
+	if value == "" {
+		return ""
+	}
+	return secretPattern.ReplaceAllString(value, "[REDACTED]")
 }
 
 type openAIChatRequest struct {

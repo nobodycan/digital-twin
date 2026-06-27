@@ -125,6 +125,11 @@ button {
   color: #8b2f2f;
 }
 
+.avatar-face[data-state="interrupted"] {
+  background: #eef1f6;
+  color: #4d5a6b;
+}
+
 .subtitle-line,
 .voice-panel {
   min-height: 48px;
@@ -139,6 +144,10 @@ button {
 
 .transcript-line-assistant {
   color: #1d5f73;
+}
+
+.transcript-line-pending {
+  color: #6d5420;
 }
 
 .transcript-line-status {

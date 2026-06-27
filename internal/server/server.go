@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -37,6 +38,8 @@ type Config struct {
 	StaticDir           string
 	APIKeys             []string
 	RateLimitRequests   int
+	DefaultTenantID     string
+	DefaultUserID       string
 }
 
 type ReadinessConfig struct {
@@ -63,6 +66,8 @@ type Handler struct {
 	staticDir           string
 	apiKeys             map[string]struct{}
 	rateLimitRequests   int
+	defaultTenantID     string
+	defaultUserID       string
 	mu                  sync.Mutex
 	requestCounts       map[string]int
 }
@@ -88,6 +93,8 @@ func NewHandler(config Config) http.Handler {
 		staticDir:           config.StaticDir,
 		apiKeys:             apiKeySet(config.APIKeys),
 		rateLimitRequests:   config.RateLimitRequests,
+		defaultTenantID:     strings.TrimSpace(config.DefaultTenantID),
+		defaultUserID:       strings.TrimSpace(config.DefaultUserID),
 		requestCounts:       make(map[string]int),
 	}
 	handler.mux.HandleFunc("GET /health", handler.handleHealth)
@@ -279,6 +286,7 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
+	h.applyAuthoritativeConversationIdentity(&conversation)
 	result, err := h.orchestrator.Handle(r.Context(), conversation)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "orchestrator_error", "cause": err.Error()})
@@ -485,6 +493,29 @@ func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "orchestrator_unavailable"})
 		return
 	}
+	if streaming, ok := h.orchestrator.(core.StreamingOrchestrator); ok {
+		var request types.TurnRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+			return
+		}
+		h.applyAuthoritativeTurnIdentity(&request)
+		if err := request.Validate(); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_turn_request", "cause": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		result, err := streaming.Stream(r.Context(), request, httpStreamSink{writer: w})
+		if err != nil {
+			writeSSEJSON(w, string(types.StreamEventError), map[string]any{"error": "orchestrator_error", "cause": err.Error()})
+			writeSSE(w, string(types.StreamEventDone), `{"status":"failed"}`)
+			return
+		}
+		_ = result
+		return
+	}
+
 	var conversation types.Conversation
 	if err := json.NewDecoder(r.Body).Decode(&conversation); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
@@ -513,6 +544,25 @@ func (h *Handler) handleExperienceStream(w http.ResponseWriter, r *http.Request)
 	var conversation types.Conversation
 	if err := json.NewDecoder(r.Body).Decode(&conversation); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	h.applyAuthoritativeConversationIdentity(&conversation)
+	if streaming, ok := h.orchestrator.(core.StreamingOrchestrator); ok {
+		request, err := turnRequestFromConversation(conversation)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_turn_request", "cause": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		presentationSink := &httpPresentationSink{writer: w}
+		result, err := streaming.Stream(r.Context(), request, h.presentationAdapter.NewStreamSink(presentationSink))
+		if err != nil {
+			writeSSEJSON(w, string(presentation.EventError), map[string]any{"problem": "orchestrator_error", "cause": err.Error(), "fix": "retry"})
+			writeSSEJSON(w, string(presentation.EventDone), map[string]any{"status": "failed"})
+			return
+		}
+		h.recordAudit(conversation, result, presentationSink.events, admin.AuditStatusCompleted, 0)
 		return
 	}
 	result, err := h.orchestrator.Handle(r.Context(), conversation)
@@ -567,8 +617,8 @@ func (h *Handler) handleMockVoiceStream(w http.ResponseWriter, r *http.Request) 
 	now := timeNowUTC()
 	conversation := types.Conversation{
 		ID:       "mock-voice-session",
-		TenantID: "tenant-1",
-		UserID:   "user-1",
+		TenantID: h.authoritativeTenantID("tenant-1"),
+		UserID:   h.authoritativeUserID("user-1"),
 		Messages: []types.Message{{
 			ID:        "mock-voice-user",
 			Role:      types.RoleUser,
@@ -733,4 +783,85 @@ func requestIDFrom(r *http.Request) string {
 		return fmt.Sprintf("req-%d", time.Now().UnixNano())
 	}
 	return "req-" + hex.EncodeToString(bytes[:])
+}
+
+func (h *Handler) authoritativeTenantID(fallback string) string {
+	if h.defaultTenantID != "" {
+		return h.defaultTenantID
+	}
+	return fallback
+}
+
+func (h *Handler) authoritativeUserID(fallback string) string {
+	if h.defaultUserID != "" {
+		return h.defaultUserID
+	}
+	return fallback
+}
+
+func (h *Handler) applyAuthoritativeConversationIdentity(conversation *types.Conversation) {
+	if conversation == nil {
+		return
+	}
+	conversation.TenantID = h.authoritativeTenantID(conversation.TenantID)
+	conversation.UserID = h.authoritativeUserID(conversation.UserID)
+}
+
+func (h *Handler) applyAuthoritativeTurnIdentity(request *types.TurnRequest) {
+	if request == nil {
+		return
+	}
+	request.TenantID = h.authoritativeTenantID(request.TenantID)
+	request.UserID = h.authoritativeUserID(request.UserID)
+}
+
+type httpStreamSink struct {
+	writer http.ResponseWriter
+}
+
+func (s httpStreamSink) Emit(_ context.Context, event types.StreamEvent) error {
+	writeSSEJSON(s.writer, string(event.Name), event)
+	if flusher, ok := s.writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
+}
+
+type httpPresentationSink struct {
+	writer http.ResponseWriter
+	events []presentation.Event
+}
+
+func (s *httpPresentationSink) Emit(_ context.Context, event presentation.Event) error {
+	s.events = append(s.events, event)
+	writeSSEJSON(s.writer, string(event.Name), event)
+	if flusher, ok := s.writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
+}
+
+func turnRequestFromConversation(conversation types.Conversation) (types.TurnRequest, error) {
+	if strings.TrimSpace(conversation.ID) == "" || strings.TrimSpace(conversation.TenantID) == "" || strings.TrimSpace(conversation.UserID) == "" {
+		return types.TurnRequest{}, fmt.Errorf("conversation identity is incomplete")
+	}
+	for i := len(conversation.Messages) - 1; i >= 0; i-- {
+		message := conversation.Messages[i]
+		if message.Role != types.RoleUser || strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		request := types.TurnRequest{
+			ConversationID: conversation.ID,
+			TenantID:       conversation.TenantID,
+			UserID:         conversation.UserID,
+			TurnID:         message.ID,
+			AttemptID:      message.ID + "-attempt-1",
+			Message:        message,
+		}
+		if err := request.Validate(); err != nil {
+			return types.TurnRequest{}, err
+		}
+		return request, nil
+	}
+	return types.TurnRequest{}, fmt.Errorf("conversation requires one user message")
 }

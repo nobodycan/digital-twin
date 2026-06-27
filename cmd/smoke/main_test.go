@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,8 +17,13 @@ func TestSmokeRequiresBaseURL(t *testing.T) {
 
 func TestSmokeChecksRuntimeEndpoints(t *testing.T) {
 	seen := map[string]bool{}
+	requestBodies := map[string]string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen[r.Method+" "+r.URL.Path] = true
+		if r.Body != nil {
+			data, _ := io.ReadAll(r.Body)
+			requestBodies[r.Method+" "+r.URL.Path] = string(data)
+		}
 		switch r.URL.Path {
 		case "/health", "/ready":
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -58,6 +64,9 @@ func TestSmokeChecksRuntimeEndpoints(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("missing smoke request %s; seen %#v", want, seen)
 		}
+	}
+	if !strings.Contains(requestBodies["POST /chat/stream"], `"turn_id":"smoke-turn-1"`) {
+		t.Fatalf("/chat/stream body = %s, want TurnRequest", requestBodies["POST /chat/stream"])
 	}
 }
 

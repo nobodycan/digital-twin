@@ -55,7 +55,8 @@ type ObjectStorageConfig struct {
 }
 
 type TenantConfig struct {
-	DefaultID string
+	DefaultID     string
+	DefaultUserID string
 }
 
 func Load(path string) (AppConfig, error) {
@@ -71,7 +72,7 @@ func Load(path string) (AppConfig, error) {
 		LLM:           LLMConfig{Provider: "local", FallbackPolicy: "fallback_to_local"},
 		TTS:           ProviderConfig{Provider: "local"},
 		ASR:           ProviderConfig{Provider: "local"},
-		Tenant:        TenantConfig{DefaultID: "default"},
+		Tenant:        TenantConfig{DefaultID: "default", DefaultUserID: "default-user"},
 		ObjectStorage: ObjectStorageConfig{},
 	}
 
@@ -181,6 +182,7 @@ func applyEnv(cfg *AppConfig) error {
 		"asr.api_key":                firstEnv("DIGITAL_TWIN_ASR_API_KEY", "ASR_API_KEY"),
 		"object_storage.endpoint":    firstEnv("DIGITAL_TWIN_OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_ENDPOINT"),
 		"tenant.default_id":          firstEnv("DIGITAL_TWIN_TENANT_DEFAULT_ID", "TENANT_DEFAULT_ID"),
+		"tenant.default_user_id":     firstEnv("DIGITAL_TWIN_TENANT_DEFAULT_USER_ID", "TENANT_DEFAULT_USER_ID"),
 	}
 
 	for key, value := range env {
@@ -248,6 +250,8 @@ func setValue(cfg *AppConfig, key, value string) error {
 		cfg.ObjectStorage.Endpoint = value
 	case "tenant.default_id":
 		cfg.Tenant.DefaultID = value
+	case "tenant.default_user_id":
+		cfg.Tenant.DefaultUserID = value
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -327,6 +331,7 @@ func (cfg AppConfig) SafeSummary() string {
 		"server.port=" + strconv.Itoa(cfg.Server.Port),
 		"log.level=" + cfg.Log.Level,
 		"tenant.default_id=" + cfg.Tenant.DefaultID,
+		"tenant.default_user_id=" + cfg.Tenant.DefaultUserID,
 		"llm.provider=" + cfg.LLM.Provider,
 		"llm.base_url=" + safeURLSummary(cfg.LLM.BaseURL),
 		"llm.model=" + cfg.LLM.Model,

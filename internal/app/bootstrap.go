@@ -1,13 +1,18 @@
 package app
 
 import (
+	"os"
+
 	"github.com/nobodycan/digital-twin/internal/agents"
+	"github.com/nobodycan/digital-twin/internal/conversation"
 	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/internal/llm"
+	"github.com/nobodycan/digital-twin/internal/memory"
 	"github.com/nobodycan/digital-twin/internal/persona"
 	"github.com/nobodycan/digital-twin/internal/router"
 	"github.com/nobodycan/digital-twin/internal/runtime"
 	"github.com/nobodycan/digital-twin/internal/skills"
+	"github.com/nobodycan/digital-twin/internal/store"
 )
 
 type LocalRuntimeConfig struct {
@@ -18,6 +23,8 @@ type LocalRuntimeConfig struct {
 	PersonaLLMProvider       string
 	PersonaLLMModel          string
 	PersonaLLMFallbackPolicy string
+	DataDir                  string
+	MemoryBudget             int
 }
 
 type LocalRuntime struct {
@@ -89,12 +96,35 @@ func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 	}
 
 	recorder := runtime.NewEventRecorder()
+	conversationStore, err := newConversationStore(config)
+	if err != nil {
+		return LocalRuntime{}, err
+	}
+	budget := config.MemoryBudget
+	if budget <= 0 {
+		budget = 64
+	}
+	coordinator := conversation.NewCoordinator(conversation.CoordinatorConfig{
+		Store:  conversationStore,
+		Memory: memory.NewShortTermMemory(budget),
+	})
 	orchestrator := runtime.NewOrchestrator(runtime.OrchestratorConfig{
-		Router:   router.NewHybridRouter(router.NewRuleRouter(), nil),
-		Agents:   agentRegistry,
-		Recorder: recorder,
+		Router:      router.NewHybridRouter(router.NewRuleRouter(), nil),
+		Agents:      agentRegistry,
+		Recorder:    recorder,
+		Coordinator: coordinator,
 	})
 	return LocalRuntime{Orchestrator: orchestrator, Recorder: recorder}, nil
+}
+
+func newConversationStore(config LocalRuntimeConfig) (store.Store, error) {
+	if config.DataDir == "" {
+		return store.NewInMemoryStore(), nil
+	}
+	if err := os.MkdirAll(config.DataDir, 0o755); err != nil {
+		return nil, err
+	}
+	return store.NewLocalStore(config.DataDir), nil
 }
 
 func applyGovernance(base *agents.BaseAgent, config LocalRuntimeConfig) {

@@ -49,8 +49,8 @@ func (a PersonaAgent) CanHandle(intent types.Intent) bool {
 }
 
 func (a PersonaAgent) Run(ctx context.Context, conversation types.Conversation, intent types.Intent) (types.AgentResult, error) {
-	userContent := lastUserContent(conversation)
-	if _, err := a.RunSkill(ctx, "persona_check", map[string]any{"content": userContent, "confidence": float64(intent.Confidence)}); err != nil {
+	userContent, err := a.preflight(ctx, conversation, intent)
+	if err != nil {
 		return types.AgentResult{}, err
 	}
 	if asksModelIdentity(userContent) {
@@ -85,6 +85,80 @@ func (a PersonaAgent) Run(ctx context.Context, conversation types.Conversation, 
 		confidenceOrDefault(intent),
 		types.Metadata{"intent": intent.Name, "generation_mode": "local"},
 	), nil
+}
+
+func (a PersonaAgent) Stream(ctx context.Context, conversation types.Conversation, intent types.Intent, sink core.AssistantDeltaSink) (types.AgentResult, error) {
+	userContent, err := a.preflight(ctx, conversation, intent)
+	if err != nil {
+		return types.AgentResult{}, err
+	}
+	if asksModelIdentity(userContent) {
+		return a.modelIdentityResult(intent), nil
+	}
+
+	if a.client == nil {
+		return a.Result(
+			"I'm here and keeping the same professional persona.",
+			confidenceOrDefault(intent),
+			types.Metadata{"intent": intent.Name, "generation_mode": "local"},
+		), nil
+	}
+
+	messages, err := a.chatMessages(conversation)
+	if err != nil {
+		return types.AgentResult{}, err
+	}
+
+	streamGuard := persona.NewStreamGuard(persona.Guard{Persona: a.persona}, float64(confidenceOrDefault(intent)))
+	var accepted strings.Builder
+	streamErr := a.client.Stream(ctx, llm.ChatRequest{Messages: messages}, func(chunk llm.ChatChunk) error {
+		if chunk.Done {
+			return nil
+		}
+		step := streamGuard.Add(chunk.Content)
+		if !step.Decision.Allowed {
+			return core.WrapError(core.ErrProviderFailure, "persona stream rejected")
+		}
+		for _, segment := range step.Segments {
+			if err := emitAssistantDelta(ctx, sink, &accepted, segment); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if streamErr != nil {
+		if errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded) || a.fallbackPolicy == "fail_closed" {
+			return types.AgentResult{}, streamErr
+		}
+		if streamGuard.HasVisibleOutput() {
+			return types.AgentResult{}, streamErr
+		}
+		return a.fallbackResult(intent, "I hit a provider issue, so I'm falling back to a local safe reply for now.", "", "provider_error"), nil
+	}
+
+	final := streamGuard.Finalize()
+	if !final.Decision.Allowed {
+		if streamGuard.HasVisibleOutput() {
+			return types.AgentResult{}, core.WrapError(core.ErrProviderFailure, "persona final guard rejected streamed output")
+		}
+		return a.fallbackResult(intent, final.Decision.SafeFallback, final.Decision.Reason, "guard_rejected"), nil
+	}
+	for _, segment := range final.Segments {
+		if err := emitAssistantDelta(ctx, sink, &accepted, segment); err != nil {
+			return types.AgentResult{}, err
+		}
+	}
+
+	content := accepted.String()
+	if strings.TrimSpace(content) == "" {
+		return a.fallbackResult(intent, "The configured model returned no usable text, so I'm using a local safe reply.", "", "empty_response"), nil
+	}
+
+	generationMode := "llm"
+	if a.provider == "" || a.provider == "local" || a.provider == "mock" {
+		generationMode = "local"
+	}
+	return a.generatedResult(intent, content, generationMode, llm.Usage{}), nil
 }
 
 type MemoryAgent struct{ BaseAgent }
@@ -182,6 +256,14 @@ func confidenceOrDefault(intent types.Intent) types.Confidence {
 	return types.Confidence(0.5)
 }
 
+func (a PersonaAgent) preflight(ctx context.Context, conversation types.Conversation, intent types.Intent) (string, error) {
+	userContent := lastUserContent(conversation)
+	if _, err := a.RunSkill(ctx, "persona_check", map[string]any{"content": userContent, "confidence": float64(intent.Confidence)}); err != nil {
+		return "", err
+	}
+	return userContent, nil
+}
+
 func lastUserContent(conversation types.Conversation) string {
 	for i := len(conversation.Messages) - 1; i >= 0; i-- {
 		if conversation.Messages[i].Role == types.RoleUser {
@@ -277,4 +359,17 @@ func (a PersonaAgent) guardDecision(content string, confidence float64) persona.
 		return persona.GuardDecision{Allowed: true, Reason: "ok"}
 	}
 	return persona.Guard{Persona: a.persona}.Check(content, confidence)
+}
+
+func emitAssistantDelta(ctx context.Context, sink core.AssistantDeltaSink, accepted *strings.Builder, segment string) error {
+	if strings.TrimSpace(segment) == "" {
+		return nil
+	}
+	if sink != nil {
+		if err := sink.EmitAssistantDelta(ctx, segment); err != nil {
+			return err
+		}
+	}
+	_, _ = accepted.WriteString(segment)
+	return nil
 }

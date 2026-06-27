@@ -52,8 +52,8 @@ func TestLocalStoreScopesByTenantAndUser(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	if _, err := store.GetConversation(t.Context(), "tenant-2", "user-1", "conv-1"); !errors.Is(err, core.ErrStoreFailure) {
-		t.Fatalf("expected store failure for missing scoped conversation, got %v", err)
+	if _, err := store.GetConversation(t.Context(), "tenant-2", "user-1", "conv-1"); !errors.Is(err, core.ErrConversationNotFound) {
+		t.Fatalf("expected conversation not found for missing scoped conversation, got %v", err)
 	}
 }
 
@@ -86,6 +86,48 @@ func TestLocalStoreReturnsActionableCorruptFileError(t *testing.T) {
 	_, err := store.GetConversation(t.Context(), "tenant-1", "user-1", "conv-1")
 	if !errors.Is(err, core.ErrStoreFailure) {
 		t.Fatalf("expected store failure, got %v", err)
+	}
+}
+
+func TestLocalStoreReturnsStoreFailureForReadErrors(t *testing.T) {
+	dir := t.TempDir()
+	store := NewLocalStore(dir)
+	path := filepath.Join(dir, "tenants", "tenant-1", "users", "user-1", "conversations", "conv-1.json")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatalf("mkdir path: %v", err)
+	}
+
+	_, err := store.GetConversation(t.Context(), "tenant-1", "user-1", "conv-1")
+	if !errors.Is(err, core.ErrStoreFailure) {
+		t.Fatalf("expected store failure, got %v", err)
+	}
+}
+
+func TestLocalStoreSaveLeavesNoTemporaryFilesBehind(t *testing.T) {
+	dir := t.TempDir()
+	store := NewLocalStore(dir)
+	conversation := testConversation("tenant-1", "user-1", "conv-1")
+
+	if err := store.SaveConversation(t.Context(), conversation); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	conversation.Messages = append(conversation.Messages, types.Message{
+		ID:        "msg-2",
+		Role:      types.RoleAssistant,
+		Content:   "reply",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err := store.SaveConversation(t.Context(), conversation); err != nil {
+		t.Fatalf("save updated: %v", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "tenants", "tenant-1", "users", "user-1", "conversations", "*.tmp*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("expected no temp files, got %v", matches)
 	}
 }
 
