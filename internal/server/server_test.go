@@ -14,6 +14,7 @@ import (
 
 	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/avatar"
+	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/internal/observability"
 	"github.com/nobodycan/digital-twin/internal/presentation"
 	"github.com/nobodycan/digital-twin/internal/runtime"
@@ -308,6 +309,115 @@ func TestHandlerServesChatStream(t *testing.T) {
 	}
 }
 
+func TestHandlerPrefersStreamingOrchestratorForChatStream(t *testing.T) {
+	streaming := &stubStreamingOrchestrator{
+		result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "streamed from runtime"},
+		},
+		events: []types.StreamEvent{
+			{
+				Name:           types.StreamEventRequestStarted,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				AttemptID:      "attempt-1",
+				Sequence:       1,
+				Timestamp:      time.Date(2026, 6, 26, 10, 0, 0, 0, time.UTC),
+			},
+			{
+				Name:           types.StreamEventAssistantDelta,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				AttemptID:      "attempt-1",
+				Sequence:       2,
+				Timestamp:      time.Date(2026, 6, 26, 10, 0, 1, 0, time.UTC),
+				Payload:        types.Metadata{"content": "streamed from runtime"},
+			},
+			{
+				Name:           types.StreamEventMessageCompleted,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				AttemptID:      "attempt-1",
+				Sequence:       3,
+				Timestamp:      time.Date(2026, 6, 26, 10, 0, 2, 0, time.UTC),
+				Payload:        types.Metadata{"content": "streamed from runtime"},
+			},
+			{
+				Name:           types.StreamEventDone,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				AttemptID:      "attempt-1",
+				Sequence:       4,
+				Timestamp:      time.Date(2026, 6, 26, 10, 0, 3, 0, time.UTC),
+				Payload:        types.Metadata{"status": "completed"},
+			},
+		},
+	}
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		Orchestrator: streaming,
+		DefaultTenantID: "tenant-default",
+		DefaultUserID:   "user-default",
+	})
+	body := `{"conversation_id":"conv-1","tenant_id":"tenant-attacker","user_id":"user-attacker","turn_id":"turn-1","attempt_id":"attempt-1","message":{"id":"msg-1","role":"user","content":"hello","created_at":"2026-06-16T12:00:00Z"}}`
+	request := httptest.NewRequest(http.MethodPost, "/chat/stream", strings.NewReader(body))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !streaming.streamCalled {
+		t.Fatal("expected streaming orchestrator to be used")
+	}
+	if streaming.handleCalled {
+		t.Fatal("expected legacy Handle() path to be skipped")
+	}
+	got := response.Body.String()
+	for _, want := range []string{"event: assistant_text_delta", "data: {\"name\":\"assistant_text_delta\"", "event: done"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("body missing %q:\n%s", want, got)
+		}
+	}
+	if streaming.request.TurnID != "turn-1" || streaming.request.AttemptID != "attempt-1" {
+		t.Fatalf("request = %#v, want turn request", streaming.request)
+	}
+	if streaming.request.TenantID != "tenant-default" || streaming.request.UserID != "user-default" {
+		t.Fatalf("request identity = %q/%q, want authoritative defaults", streaming.request.TenantID, streaming.request.UserID)
+	}
+}
+
+func TestHandlerRejectsInvalidTurnRequestBeforeStreamingHeaders(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		Orchestrator: &stubStreamingOrchestrator{},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/chat/stream", strings.NewReader(`{"conversation_id":"conv-1"}`))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", contentType)
+	}
+}
+
 func TestHandlerServesStaticAppAndAdminShells(t *testing.T) {
 	handler := NewHandler(Config{
 		Metrics:   observability.NewMemoryMetrics(),
@@ -430,6 +540,97 @@ func TestHandlerServesExperienceStreamWithPresentationEvents(t *testing.T) {
 	}
 	body := response.Body.String()
 	for _, want := range []string{"event: conversation_started", "event: assistant_text_delta", "event: subtitle", "event: audio_chunk", "event: avatar_state", "event: done"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestHandlerPrefersStreamingOrchestratorForExperienceStream(t *testing.T) {
+	streaming := &stubStreamingOrchestrator{
+		result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "experience streamed"},
+		},
+		events: []types.StreamEvent{
+			{
+				Name:           types.StreamEventRequestStarted,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "msg-1",
+				AttemptID:      "msg-1-attempt-1",
+				Sequence:       1,
+				Timestamp:      time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC),
+			},
+			{
+				Name:           types.StreamEventAssistantDelta,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "msg-1",
+				AttemptID:      "msg-1-attempt-1",
+				Sequence:       2,
+				Timestamp:      time.Date(2026, 6, 27, 10, 0, 1, 0, time.UTC),
+				Payload:        types.Metadata{"content": "experience streamed"},
+			},
+			{
+				Name:           types.StreamEventMessageCompleted,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "msg-1",
+				AttemptID:      "msg-1-attempt-1",
+				Sequence:       3,
+				Timestamp:      time.Date(2026, 6, 27, 10, 0, 2, 0, time.UTC),
+				Payload:        types.Metadata{"content": "experience streamed"},
+			},
+			{
+				Name:           types.StreamEventDone,
+				RequestID:      "req-1",
+				TenantID:       "tenant-1",
+				UserID:         "user-1",
+				ConversationID: "conv-1",
+				TurnID:         "msg-1",
+				AttemptID:      "msg-1-attempt-1",
+				Sequence:       4,
+				Timestamp:      time.Date(2026, 6, 27, 10, 0, 3, 0, time.UTC),
+				Payload:        types.Metadata{"status": "completed"},
+			},
+		},
+	}
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		Orchestrator: streaming,
+		DefaultTenantID: "tenant-default",
+		DefaultUserID:   "user-default",
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateThinking, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON()))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !streaming.streamCalled {
+		t.Fatal("expected streaming orchestrator to be used")
+	}
+	if streaming.request.TenantID != "tenant-default" || streaming.request.UserID != "user-default" {
+		t.Fatalf("request identity = %q/%q, want authoritative defaults", streaming.request.TenantID, streaming.request.UserID)
+	}
+	body := response.Body.String()
+	for _, want := range []string{"event: conversation_started", "event: assistant_text_delta", "event: subtitle", "event: done"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -734,6 +935,31 @@ type stubOrchestrator struct {
 func (s stubOrchestrator) Handle(_ context.Context, conversation types.Conversation) (types.AgentResult, error) {
 	if conversation.CreatedAt.IsZero() {
 		conversation.CreatedAt = time.Now()
+	}
+	return s.result, s.err
+}
+
+type stubStreamingOrchestrator struct {
+	result       types.AgentResult
+	err          error
+	events       []types.StreamEvent
+	request      types.TurnRequest
+	streamCalled bool
+	handleCalled bool
+}
+
+func (s *stubStreamingOrchestrator) Handle(_ context.Context, _ types.Conversation) (types.AgentResult, error) {
+	s.handleCalled = true
+	return s.result, s.err
+}
+
+func (s *stubStreamingOrchestrator) Stream(ctx context.Context, request types.TurnRequest, sink core.StreamSink) (types.AgentResult, error) {
+	s.streamCalled = true
+	s.request = request
+	for _, event := range s.events {
+		if err := sink.Emit(ctx, event); err != nil {
+			return types.AgentResult{}, err
+		}
 	}
 	return s.result, s.err
 }
