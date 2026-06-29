@@ -5,6 +5,38 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$pidFile = Join-Path $repoRoot "data\server.pid.json"
+
+function Stop-TrackedProcess {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $tracked = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $process = Get-Process -Id $tracked.ServerPid -ErrorAction SilentlyContinue
+    if (-not $process) {
+        Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    if ($DryRun) {
+        $tracked | Format-List | Out-String | Write-Output
+        Write-Output "Dry run only. No process stopped."
+        return $true
+    }
+
+    Stop-Process -Id $tracked.ServerPid -Force
+    Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    $tracked | Format-List | Out-String | Write-Output
+    Write-Output ("Stopped tracked ServerPid: {0}" -f $tracked.ServerPid)
+    return $true
+}
+
 function Get-ListenerProcess {
     param(
         [int[]]$Ports
@@ -22,10 +54,6 @@ function Get-ListenerProcess {
             continue
         }
 
-        if ($process.ProcessName -notin @("server", "digital-twin")) {
-            continue
-        }
-
         [PSCustomObject]@{
             Port = $connection.LocalPort
             PID = $connection.OwningProcess
@@ -33,17 +61,19 @@ function Get-ListenerProcess {
         }
     }
 
-    $targets |
-        Sort-Object PID, Port -Unique
+    $targets | Sort-Object PID, Port -Unique
+}
+
+if (Stop-TrackedProcess -Path $pidFile) {
+    exit 0
 }
 
 $targets = @(Get-ListenerProcess -Ports $Port)
-
 if ($targets.Count -eq 0) {
     if ($Port -and $Port.Count -gt 0) {
-        Write-Output "No digital-twin server process is listening on port(s): $($Port -join ', ')."
+        Write-Output "No tracked or listening server process found on port(s): $($Port -join ', ')."
     } else {
-        Write-Output "No listening digital-twin server process found."
+        Write-Output "No tracked or listening server process found."
     }
     exit 0
 }

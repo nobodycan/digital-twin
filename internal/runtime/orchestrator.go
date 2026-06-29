@@ -16,18 +16,18 @@ import (
 var requestCounter atomic.Uint64
 
 type OrchestratorConfig struct {
-	Router    core.Router
-	Agents    *core.AgentRegistry
-	Recorder  *EventRecorder
-	RequestID func() string
+	Router      core.Router
+	Agents      *core.AgentRegistry
+	Recorder    *EventRecorder
+	RequestID   func() string
 	Coordinator *conversation.Coordinator
 }
 
 type Orchestrator struct {
-	router    core.Router
-	agents    *core.AgentRegistry
-	recorder  *EventRecorder
-	requestID func() string
+	router      core.Router
+	agents      *core.AgentRegistry
+	recorder    *EventRecorder
+	requestID   func() string
 	coordinator *conversation.Coordinator
 }
 
@@ -39,10 +39,10 @@ func NewOrchestrator(config OrchestratorConfig) Orchestrator {
 		}
 	}
 	return Orchestrator{
-		router:    config.Router,
-		agents:    config.Agents,
-		recorder:  config.Recorder,
-		requestID: requestID,
+		router:      config.Router,
+		agents:      config.Agents,
+		recorder:    config.Recorder,
+		requestID:   requestID,
 		coordinator: config.Coordinator,
 	}
 }
@@ -143,7 +143,10 @@ func (o Orchestrator) Stream(ctx context.Context, req types.TurnRequest, sink co
 		if err := emitter.emit(ctx, types.StreamEventMessageCompleted, types.Metadata{
 			"content":    session.ReplayResult.Message.Content,
 			"agent_name": session.ReplayResult.AgentName,
-		}, types.Metadata{"replayed": true}); err != nil {
+		}, mergeStreamMetadata(
+			allowlistedGenerationMetadata(session.ReplayResult.Metadata),
+			types.Metadata{"replayed": true},
+		)); err != nil {
 			return types.AgentResult{}, err
 		}
 		if err := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "completed"}, types.Metadata{"replayed": true}); err != nil {
@@ -214,7 +217,7 @@ func (o Orchestrator) Stream(ctx context.Context, req types.TurnRequest, sink co
 	if err := emitter.emit(ctx, types.StreamEventMessageCompleted, types.Metadata{
 		"content":    result.Message.Content,
 		"agent_name": result.AgentName,
-	}, nil); err != nil {
+	}, allowlistedGenerationMetadata(result.Metadata)); err != nil {
 		return types.AgentResult{}, err
 	}
 	if err := emitter.emit(ctx, types.StreamEventDone, types.Metadata{"status": "completed"}, nil); err != nil {
@@ -323,6 +326,36 @@ func copyStreamMetadata(metadata types.Metadata) types.Metadata {
 		copied[key] = value
 	}
 	return copied
+}
+
+func allowlistedGenerationMetadata(metadata types.Metadata) types.Metadata {
+	if metadata == nil {
+		return nil
+	}
+	allowedKeys := []string{"generation_mode", "fallback_category", "llm_provider", "llm_model"}
+	filtered := make(types.Metadata)
+	for _, key := range allowedKeys {
+		if value, ok := metadata[key]; ok && value != nil {
+			filtered[key] = value
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+func mergeStreamMetadata(parts ...types.Metadata) types.Metadata {
+	merged := make(types.Metadata)
+	for _, part := range parts {
+		for key, value := range part {
+			merged[key] = value
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 func errorsIsCanceled(err error) bool {

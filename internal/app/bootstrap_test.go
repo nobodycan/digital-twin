@@ -119,6 +119,42 @@ func TestNewLocalRuntimeUsesConfiguredPersonaLLM(t *testing.T) {
 	}
 }
 
+func TestNewLocalRuntimeDoesNotForceUncertaintyFallbackForNormalPersonaChat(t *testing.T) {
+	local, err := NewLocalRuntime(LocalRuntimeConfig{
+		PersonaLLM: &testutil.FakeLLM{
+			ChatResponse: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "I can help you with that."}},
+		},
+		PersonaLLMProvider: "openai-compatible",
+		PersonaLLMModel:    "gpt-runtime",
+	})
+	if err != nil {
+		t.Fatalf("NewLocalRuntime() error = %v", err)
+	}
+
+	result, err := local.Orchestrator.Handle(t.Context(), types.Conversation{
+		ID:       "conv-1",
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Messages: []types.Message{{
+			ID:        "msg-1",
+			Role:      types.RoleUser,
+			Content:   "hello",
+			CreatedAt: time.Now().UTC(),
+		}},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.Message.Content != "I can help you with that." {
+		t.Fatalf("Message.Content = %q, want direct LLM reply", result.Message.Content)
+	}
+	if result.Metadata["fallback_category"] != nil {
+		t.Fatalf("fallback_category = %v, want nil", result.Metadata["fallback_category"])
+	}
+}
+
 func TestNewLocalRuntimeStreamPersistsConversationHistoryToConfiguredDataDir(t *testing.T) {
 	dataDir := t.TempDir()
 	local, err := NewLocalRuntime(LocalRuntimeConfig{

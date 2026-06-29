@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,9 +64,10 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	providerLabel := runtimeStatusProvider(cfg.LLM.Provider, cfg.LLM.BaseURL)
 	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{
 		PersonaLLM:               personaLLM,
-		PersonaLLMProvider:       cfg.LLM.Provider,
+		PersonaLLMProvider:       providerLabel,
 		PersonaLLMModel:          cfg.LLM.Model,
 		PersonaLLMFallbackPolicy: cfg.LLM.FallbackPolicy,
 		DataDir:                  defaultRuntimeDataDir(),
@@ -118,6 +120,14 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 			ConfigSummary:     cfg.SafeSummary(),
 			ReleaseGateStatus: "skipped",
 			Redact:            cfg.RedactSecrets,
+		},
+		RuntimeStatus: server.RuntimeStatus{
+			Environment:        cfg.Environment,
+			Provider:           providerLabel,
+			Model:              cfg.LLM.Model,
+			FallbackPolicy:     cfg.LLM.FallbackPolicy,
+			GenerationModeHint: runtimeStatusModeHint(cfg.LLM.Provider),
+			BaseURL:            config.SafeURLSummary(cfg.LLM.BaseURL),
 		},
 		PersonaAdmin:      &personaAdmin,
 		MemoryAdmin:       &memoryAdmin,
@@ -172,5 +182,42 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+func runtimeStatusModeHint(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "local", "mock":
+		return "local"
+	default:
+		return "llm"
+	}
+}
+
+func runtimeStatusProvider(provider, rawBaseURL string) string {
+	if hostProvider := providerNameFromBaseURL(rawBaseURL); hostProvider != "" {
+		return hostProvider
+	}
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "local", "mock":
+		return "local"
+	default:
+		return strings.TrimSpace(provider)
+	}
+}
+
+func providerNameFromBaseURL(rawBaseURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawBaseURL))
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	switch {
+	case strings.Contains(host, "deepseek"):
+		return "deepseek"
+	case strings.Contains(host, "openai"):
+		return "openai"
+	default:
+		return ""
 	}
 }

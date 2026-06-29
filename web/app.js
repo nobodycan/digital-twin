@@ -6,19 +6,56 @@ const subtitleLine = document.querySelector("#subtitle-line");
 const mockVoice = document.querySelector("#mock-voice-button");
 const audioStatus = document.querySelector("#audio-status");
 const stopButton = document.querySelector("#stop-button");
+const runtimeStatus = document.querySelector("#runtime-status");
+const statusChip = document.querySelector("#status-chip");
+const sessionProvider = document.querySelector("#session-provider");
+const sessionModel = document.querySelector("#session-model");
+const sessionMode = document.querySelector("#session-mode");
+const sessionFallbackPolicy = document.querySelector("#session-fallback-policy");
+const providerStrip = document.querySelector("#provider-strip");
 
 const conversationId = "web-session";
+const providerStatus = {
+  environment: "local",
+  provider: "local",
+  model: "deterministic",
+  fallback_policy: "fallback_to_local",
+  generation_mode_hint: "local",
+  base_url: ""
+};
+
 let activeRequestController = null;
 let activeAssistantLine = null;
 let latestAssistantText = "";
 
-function appendLine(role, text, extraClass) {
-  const line = document.createElement("p");
-  line.className = `transcript-line transcript-line-${role}`;
+function transcriptLineClass(role, extraClass) {
+  const classes = [`transcript-line`, `transcript-line-${role}`];
   if (extraClass) {
-    line.classList.add(extraClass);
+    classes.push(extraClass);
   }
-  line.textContent = `${role}: ${text}`;
+  return classes.join(" ");
+}
+
+function appendLine(role, text, extraClass) {
+  const line = document.createElement("article");
+  line.className = transcriptLineClass(role, extraClass);
+
+  const head = document.createElement("div");
+  head.className = "transcript-head";
+
+  const roleLabel = document.createElement("span");
+  roleLabel.className = "transcript-role";
+  roleLabel.textContent = role;
+
+  const meta = document.createElement("div");
+  head.append(roleLabel, meta);
+
+  const content = document.createElement("div");
+  content.className = "transcript-content";
+  content.textContent = text;
+
+  line.append(head, content);
+  line.dataset.role = role;
   transcript.append(line);
   return line;
 }
@@ -30,10 +67,34 @@ function ensureActiveAssistantLine() {
   return activeAssistantLine;
 }
 
+function setLineBadge(line, text, tone) {
+  if (!line) {
+    return null;
+  }
+  const head = line.querySelector(".transcript-head div");
+  let badge = head.querySelector(".transcript-badge");
+  if (!badge) {
+    badge = document.createElement("span");
+    badge.className = "transcript-badge";
+    head.append(badge);
+  }
+  badge.textContent = text;
+  badge.className = "transcript-badge";
+  if (tone) {
+    badge.classList.add(`transcript-badge-${tone}`);
+  }
+  return badge;
+}
+
+function fallbackBadge(line) {
+  return setLineBadge(line, "fallback", "fallback");
+}
+
 function updateActiveAssistantLine(text, finalized) {
   const line = ensureActiveAssistantLine();
   latestAssistantText = text;
-  line.textContent = `assistant: ${text}`;
+  const content = line.querySelector(".transcript-content");
+  content.textContent = text;
   if (finalized) {
     line.classList.remove("transcript-line-pending");
     activeAssistantLine = null;
@@ -45,8 +106,10 @@ function markActiveAssistantLineNotSaved(reason) {
     latestAssistantText = "";
     return;
   }
-  activeAssistantLine.textContent = `${activeAssistantLine.textContent} (${reason}; not saved)`;
-  activeAssistantLine.classList.add("transcript-line-status");
+  const content = activeAssistantLine.querySelector(".transcript-content");
+  content.textContent = `${content.textContent} (${reason}; not-saved)`;
+  activeAssistantLine.classList.add("transcript-line-status", "transcript-line-error");
+  setLineBadge(activeAssistantLine, "not saved", "not-saved");
   activeAssistantLine = null;
   latestAssistantText = "";
 }
@@ -58,10 +121,8 @@ function setAvatar(state, subtitle) {
 }
 
 function appendStatus(text) {
-  const line = document.createElement("p");
-  line.className = "transcript-line transcript-line-status";
-  line.textContent = text;
-  transcript.append(line);
+  const line = appendLine("status", text, "transcript-line-status");
+  line.dataset.kind = "status";
 }
 
 function setRequestActive(active) {
@@ -90,9 +151,47 @@ function conversationPayload(text) {
   };
 }
 
+function setProviderStatus(status) {
+  providerStatus.environment = status.environment || providerStatus.environment;
+  providerStatus.provider = status.provider || providerStatus.provider;
+  providerStatus.model = status.model || providerStatus.model;
+  providerStatus.fallback_policy = status.fallback_policy || providerStatus.fallback_policy;
+  providerStatus.generation_mode_hint = status.generation_mode_hint || providerStatus.generation_mode_hint;
+  providerStatus.base_url = status.base_url || "";
+
+  sessionProvider.textContent = providerStatus.provider;
+  sessionModel.textContent = providerStatus.model || "deterministic";
+  sessionMode.textContent = providerStatus.generation_mode_hint;
+  sessionFallbackPolicy.textContent = providerStatus.fallback_policy;
+  providerStrip.title = providerStatus.base_url || `${providerStatus.provider} session`;
+  if (runtimeStatus) {
+    runtimeStatus.dataset.environment = providerStatus.environment;
+  }
+}
+
+async function fetchRuntimeStatus() {
+  try {
+    const response = await fetch("/runtime/status");
+    if (!response.ok) {
+      appendStatus(`runtime status unavailable (${response.status})`);
+      return;
+    }
+    const status = await response.json();
+    setProviderStatus(status);
+  } catch (error) {
+    appendStatus(`runtime status unavailable: ${error.message}`);
+  }
+}
+
+function setStatusChip(text, tone) {
+  statusChip.textContent = text;
+  statusChip.dataset.tone = tone;
+}
+
 async function sendMessage(text) {
   appendLine("user", text);
   latestAssistantText = "";
+  setStatusChip("thinking", "thinking");
   setAvatar("thinking", "Preparing response...");
   activeRequestController = new AbortController();
   setRequestActive(true);
@@ -105,6 +204,7 @@ async function sendMessage(text) {
     });
     if (!response.ok || !response.body) {
       appendStatus(`error: stream failed (${response.status})`);
+      setStatusChip("error", "error");
       setAvatar("error", "The stream could not be opened.");
       return;
     }
@@ -113,10 +213,12 @@ async function sendMessage(text) {
     if (error.name === "AbortError") {
       markActiveAssistantLineNotSaved("canceled");
       appendStatus("canceled");
+      setStatusChip("interrupted", "interrupted");
       setAvatar("interrupted", "Request canceled.");
       return;
     }
     appendStatus(`error: ${error.message}`);
+    setStatusChip("error", "error");
     setAvatar("error", "Request failed.");
   } finally {
     setRequestActive(false);
@@ -126,6 +228,7 @@ async function sendMessage(text) {
 async function sendMockVoice(audioText) {
   appendStatus("Mock voice: sending local transcript");
   latestAssistantText = "";
+  setStatusChip("listening", "ready");
   setAvatar("listening", "Mock voice input captured");
   activeRequestController = new AbortController();
   setRequestActive(true);
@@ -138,6 +241,7 @@ async function sendMockVoice(audioText) {
     });
     if (!response.ok || !response.body) {
       appendStatus(`error: mock voice failed (${response.status})`);
+      setStatusChip("error", "error");
       setAvatar("error", "Mock voice stream failed.");
       return;
     }
@@ -146,10 +250,12 @@ async function sendMockVoice(audioText) {
     if (error.name === "AbortError") {
       markActiveAssistantLineNotSaved("canceled");
       appendStatus("canceled");
+      setStatusChip("interrupted", "interrupted");
       setAvatar("interrupted", "Mock voice canceled.");
       return;
     }
     appendStatus(`error: ${error.message}`);
+    setStatusChip("error", "error");
     setAvatar("error", "Mock voice failed.");
   } finally {
     setRequestActive(false);
@@ -188,6 +294,20 @@ function parseSSEFrames(buffer) {
   return { frames, remainder };
 }
 
+function finalizeAssistantLine(metadata) {
+  if (!activeAssistantLine) {
+    return;
+  }
+  if (metadata.generation_mode === "fallback") {
+    fallbackBadge(activeAssistantLine);
+  }
+  if (metadata.generation_mode === "fallback" || metadata.generation_mode === "transparency") {
+    setStatusChip(metadata.generation_mode, metadata.generation_mode);
+  } else {
+    setStatusChip("ready", "ready");
+  }
+}
+
 function renderPresentationEvent(eventName, rawData) {
   let event;
   try {
@@ -197,19 +317,22 @@ function renderPresentationEvent(eventName, rawData) {
     return;
   }
   const payload = event.payload || {};
+  const metadata = event.metadata || {};
   switch (eventName) {
     case "assistant_text_delta":
-      updateActiveAssistantLine((payload.text || "").trimEnd(), false);
+      setStatusChip("speaking", "ready");
+      updateActiveAssistantLine(latestAssistantText + (payload.text || ""), false);
       break;
     case "asr_final":
       appendLine("voice", payload.text || "");
       break;
-    case "subtitle":
+    case "subtitle": {
       const subtitleText = renderSubtitle(payload.subtitles || []);
       if (subtitleText && !activeAssistantLine) {
         updateActiveAssistantLine(subtitleText, false);
       }
       break;
+    }
     case "avatar_state":
       setAvatar(payload.state || "idle", subtitleLine.textContent);
       break;
@@ -219,17 +342,38 @@ function renderPresentationEvent(eventName, rawData) {
     case "error":
       markActiveAssistantLineNotSaved(payload.problem || "failed");
       appendStatus(`error: ${payload.problem || "unknown"}; ${payload.fix || "retry"}`);
+      setStatusChip("error", "error");
       setAvatar("error", payload.problem || "error");
       break;
-    case "done":
+    case "done": {
       const finalAssistantText = latestAssistantText || subtitleLine.textContent.trim();
       if (activeAssistantLine) {
-        updateActiveAssistantLine(finalAssistantText || activeAssistantLine.textContent.replace(/^assistant:\s*/, ""), true);
+        updateActiveAssistantLine(finalAssistantText || activeAssistantLine.querySelector(".transcript-content").textContent, true);
       } else if (finalAssistantText) {
-        appendLine("assistant", finalAssistantText);
+        const line = appendLine("assistant", finalAssistantText);
+        if (metadata.generation_mode === "fallback") {
+          fallbackBadge(line);
+        }
       }
-      appendStatus("done");
+      finalizeAssistantLine(metadata);
+      if (metadata.llm_provider) {
+        setProviderStatus({
+          provider: metadata.llm_provider,
+          model: metadata.llm_model,
+          generation_mode_hint: metadata.generation_mode || providerStatus.generation_mode_hint,
+          fallback_policy: providerStatus.fallback_policy
+        });
+      }
+      if (metadata.generation_mode === "fallback") {
+        appendStatus(`fallback: ${metadata.fallback_category || "provider issue"}; local response shown`);
+        setAvatar("fallback", "Local fallback reply displayed.");
+      } else if (payload.status === "completed") {
+        appendStatus("done");
+        setAvatar("idle", subtitleLine.textContent);
+        setStatusChip("ready", "ready");
+      }
       break;
+    }
     default:
       break;
   }
@@ -250,6 +394,7 @@ form?.addEventListener("submit", (event) => {
   input.value = "";
   sendMessage(text).catch((error) => {
     appendStatus(`error: ${error.message}`);
+    setStatusChip("error", "error");
     setAvatar("error", "Request failed.");
     setRequestActive(false);
   });
@@ -259,6 +404,7 @@ mockVoice?.addEventListener("click", () => {
   if (activeRequestController) return;
   sendMockVoice("Mock voice input").catch((error) => {
     appendStatus(`error: ${error.message}`);
+    setStatusChip("error", "error");
     setAvatar("error", "Mock voice failed.");
     setRequestActive(false);
   });
@@ -270,3 +416,6 @@ stopButton?.addEventListener("click", () => {
 });
 
 setRequestActive(false);
+setProviderStatus(providerStatus);
+setStatusChip("ready", "ready");
+fetchRuntimeStatus().catch(() => {});

@@ -283,6 +283,86 @@ func TestAdapterStreamSinkMapsCancellationWithoutTTS(t *testing.T) {
 	}
 }
 
+func TestAdapterStreamSinkCarriesCompletionGenerationMetadataIntoDoneEvent(t *testing.T) {
+	machine, err := avatar.NewStateMachine(avatar.Manifest{
+		Supported:     []avatar.State{avatar.StateIdle, avatar.StateThinking, avatar.StateSpeaking},
+		FallbackState: avatar.StateIdle,
+	})
+	if err != nil {
+		t.Fatalf("NewStateMachine returned error: %v", err)
+	}
+	adapter := Adapter{
+		TTS:    voice.MockTTSClient{},
+		Avatar: machine,
+		Clock:  fixedClock(time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)),
+	}
+	sink := &recordingPresentationSink{}
+	streamSink := adapter.NewStreamSink(sink)
+
+	for _, event := range []types.StreamEvent{
+		{
+			Name:           types.StreamEventRequestStarted,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       1,
+			Timestamp:      time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			Name:           types.StreamEventMessageCompleted,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       2,
+			Timestamp:      time.Date(2026, 6, 27, 12, 0, 1, 0, time.UTC),
+			Payload:        types.Metadata{"content": "Fallback reply"},
+			Metadata: types.Metadata{
+				"generation_mode":   "fallback",
+				"fallback_category": "provider_status",
+				"llm_provider":      "deepseek",
+				"llm_model":         "deepseek-v4-pro",
+			},
+		},
+		{
+			Name:           types.StreamEventDone,
+			RequestID:      "req-1",
+			TenantID:       "tenant-1",
+			UserID:         "user-1",
+			ConversationID: "conv-1",
+			TurnID:         "turn-1",
+			AttemptID:      "attempt-1",
+			Sequence:       3,
+			Timestamp:      time.Date(2026, 6, 27, 12, 0, 2, 0, time.UTC),
+			Payload:        types.Metadata{"status": "completed"},
+		},
+	} {
+		if err := streamSink.Emit(context.Background(), event); err != nil {
+			t.Fatalf("Emit(%s) error = %v", event.Name, err)
+		}
+	}
+
+	done := sink.events[len(sink.events)-2]
+	if done.Name != EventDone {
+		t.Fatalf("event = %#v, want done before idle avatar", done)
+	}
+	for key, want := range map[string]any{
+		"generation_mode":   "fallback",
+		"fallback_category": "provider_status",
+		"llm_provider":      "deepseek",
+		"llm_model":         "deepseek-v4-pro",
+	} {
+		if done.Metadata[key] != want {
+			t.Fatalf("done metadata[%q] = %v, want %v", key, done.Metadata[key], want)
+		}
+	}
+}
+
 func eventNames(events []Event) []EventName {
 	names := make([]EventName, len(events))
 	for index, event := range events {

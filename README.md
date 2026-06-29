@@ -1,140 +1,140 @@
 # digital-twin
 
-面向专业数字人的 Go 多 Agent 系统规划与实现路线。
+Planning and implementation repo for a local-first professional digital human system in Go.
 
-## 当前状态
+## Status
 
-本仓库已完成到 **Phase 6A 本地生产形态 readiness**、**Phase 7A LLM-driven persona**，并已进入 **Phase 8 Real Conversation Loop** 的实现与联调阶段。
+Current stage: `Phase 9 - Experience and Provider Diagnostics`
 
-当前已包含 Go module、配置加载、结构化日志、领域错误、公共数据契约、核心接口、Registry、测试 fake、LLM 抽象、本地文件存储、内存向量库、记忆基础设施、本地 EventBus、Persona 模型、prompt renderer、persona guard、rule/LLM/hybrid router、Skill 参数校验框架、确定性 Skill 库、BaseAgent、六类专家 Agent、生产 Orchestrator、本地 runtime bootstrap、CLI one-shot、HTTP `/health` `/metrics` `/chat`、SSE `/chat/stream`、Phase 4 presentation event stream、mock TTS/ASR、Avatar manifest/state machine、Web 数字人控制台、本地优先产品后台、Phase 5 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、本地 eval CLI、governed runtime adapter、memory write policy、release gate、rollback/feedback 记录、governance decision audit exporter、decision records CLI、工具执行前治理 hook、Phase 7A 的 LLM provider config、local/mock persona LLM factory、LLM-backed `PersonaAgent`、provider fallback 和 model transparency path，以及 Phase 8 的 `TurnRequest`、durable conversation history、attempt/replay 语义、真实增量 `/chat/stream` 和 runtime-to-presentation streaming adapter。
+What is already working:
 
-Phase 8 仍采用 local-first：默认仍可在无 secrets 的情况下运行，CI 仍只使用 fake client/fake server，不包含真实多 provider agent planning、RAG answer generation、流式 TTS、真实 3D/Live2D/视频 Avatar、生产认证、多租户权限体系、SQLite、外部 eval 平台、云端内容审核、合规认证或完整治理 dashboard。
+- local-first chat runtime with durable conversation history
+- persona agent with local mode, OpenAI-compatible provider mode, and fallback policy
+- streaming `/chat/stream` and `/experience/stream`
+- `/app` operator-facing digital human workspace
+- `/admin` local operations console
+- `/runtime/status` for sanitized provider diagnostics
+- DeepSeek-friendly local startup and smoke scripts
 
-## 项目定位
+What is still intentionally out of scope in this repo:
 
-`digital-twin` 目标是构建一个可工程化落地的专业数字人系统，而不只是聊天机器人。它需要同时覆盖人格一致性、长期记忆、知识库问答、工具调用、运行时编排、语音/Avatar 表现层、管理后台、评测治理和安全合规。
+- real 3D avatar or Live2D
+- real TTS / ASR providers in CI
+- auth / RBAC / billing
+- cloud deployment platform work
+- SQLite or other DB migration in the current local-first slice
 
-## 核心能力
+## Core ideas
 
-- **人格**：Persona 配置、system prompt 渲染、人格一致性守卫。
-- **记忆**：短期会话窗口、长期摘要记忆、语义召回。
-- **知识**：RAG 检索、引用标注、知识来源管理。
-- **工具**：Skill 参数校验、工具白名单、权限控制和失败降级。
-- **编排**：Router、Agent、Skill、Orchestrator、状态机、runtime events。
-- **入口**：CLI one-shot、HTTP JSON API、SSE runtime event stream、Web `/app` 和 `/admin`。
-- **表现层**：PresentationEvent、字幕时间轴、mock TTS/ASR、Avatar manifest、Avatar 状态机、打断控制。
-- **后台**：Persona 发布/回滚、记忆禁用、知识上传/切块/引用测试、工具策略、会话审计。
-- **治理**：本地 eval fixture/parser、确定性 evaluator、JSON/Markdown reports、治理上下文版本元数据、governed runtime adapter、工具执行前 authorizer、memory write policy、release gate、rollback 记录、feedback triage、decision audit exporter 和本地 decision records CLI。
+- `Persona`: stable assistant identity with guardrails
+- `Memory`: durable local conversation state and replay-safe attempts
+- `Runtime`: router, agent registry, orchestrator, turn persistence
+- `Provider boundary`: OpenAI-compatible LLM client with sanitized diagnostics
+- `Experience`: SSE-driven web workspace with provider, fallback, and error visibility
+- `Governance`: evals, decision records, audit-oriented admin surfaces
 
-## 架构概览
+## Architecture
 
 ```mermaid
 flowchart TD
-    User["User / Operator"] --> Web["Web /app + /admin"]
-    Web --> API["HTTP / SSE"]
-    User --> API["CLI / HTTP / SSE"]
-    API --> Runtime["Orchestrator / State Machine / Event Recorder"]
-    Runtime --> Router["Intent Router"]
-    Router --> Agents["Persona / Memory / Knowledge / Task / Tool / Safety Agents"]
-    Agents --> Skills["Memory / Knowledge / Task / Tool / Safety / Presentation Skills"]
-    Skills --> Infra["LLM / Store / VectorStore / Local Fakes"]
-    Runtime --> Presentation["PresentationEvent / Mock Voice / Avatar State"]
+    User["User / Operator"] --> Web["/app and /admin"]
+    Web --> API["HTTP + SSE"]
+    API --> Server["internal/server"]
+    Server --> Runtime["orchestrator / turn coordinator"]
+    Runtime --> Agents["persona / memory / knowledge / task / tool / safety"]
+    Agents --> Skills["skills + guards + adapters"]
+    Agents --> LLM["OpenAI-compatible client"]
+    Runtime --> Store["local file storage"]
+    Runtime --> Presentation["presentation adapter"]
     Presentation --> Web
-    Web --> Admin["Persona / Memory / Knowledge / Tools / Audit Admin"]
-    Runtime --> Observability["Logs / Metrics / Runtime Events"]
+    Server --> Status["/runtime/status"]
 ```
 
-## Phase 路线图
+## Main endpoints
 
-| Phase | 名称 | 状态 |
-| --- | --- | --- |
-| Phase 0 | 项目定义与工程基线 | 已完成 |
-| Phase 1 | 内核契约与基础设施 | 已完成 |
-| Phase 2 | 人格、路由、Skill 与 Agent | 已完成 |
-| Phase 3 | 编排运行时与 API 入口 | 已完成 |
-| Phase 4 | 数字人表现层与产品后台 | 已完成 |
-| Phase 5 | 治理、评测、安全与运营 | 已完成：本地治理闭环基础 |
-| Phase 6A | Provider 与本地部署就绪 | 已完成 |
-| Phase 7A | LLM 驱动人格回答 | 已完成 |
-| Phase 8 | 真实会话流与持久化回放 | 进行中 |
+- `GET /health`
+- `GET /ready`
+- `GET /metrics`
+- `GET /runtime/status`
+- `POST /chat`
+- `POST /chat/stream`
+- `POST /experience/stream`
+- `POST /experience/mock-voice/stream`
+- `GET /app`
+- `GET /admin`
 
-## SDD 文档
+## Local quick start
 
-- [Phase 0 Spec](./docs/specs/phase-0-engineering-baseline.md)
-- [Phase 0 Design](./docs/design/phase-0-engineering-baseline.md)
-- [Phase 1 Spec](./docs/specs/phase-1-core-contracts-infrastructure.md)
-- [Phase 1 Design](./docs/design/phase-1-core-contracts-infrastructure.md)
-- [Phase 1 Plan](./docs/plans/phase-1-core-contracts-infrastructure-plan.md)
-- [Phase 2 Spec](./docs/specs/phase-2-persona-router-skills-agents.md)
-- [Phase 2 Design](./docs/design/phase-2-persona-router-skills-agents.md)
-- [Phase 2 Plan](./docs/plans/phase-2-persona-router-skills-agents-plan.md)
-- [Phase 3 Spec](./docs/specs/phase-3-orchestrator-runtime-api.md)
-- [Phase 3 Design](./docs/design/phase-3-orchestrator-runtime-api.md)
-- [Phase 3 Plan](./docs/plans/phase-3-orchestrator-runtime-api-plan.md)
-- [Phase 4 Spec](./docs/specs/phase-4-digital-human-experience-admin.md)
-- [Phase 4 Design](./docs/design/phase-4-digital-human-experience-admin.md)
-- [Phase 4 Plan](./docs/plans/phase-4-digital-human-experience-admin-plan.md)
-- [Phase 5 Spec](./docs/specs/phase-5-governance-evaluation-operations.md)
-- [Phase 5 Design](./docs/design/phase-5-governance-evaluation-operations.md)
-- [Phase 5 Plan](./docs/plans/phase-5-governance-evaluation-operations-plan.md)
-- [Phase 8 Spec](./docs/specs/phase-8-real-conversation-loop.md)
-- [Phase 8 Design](./docs/design/phase-8-real-conversation-loop.md)
-- [Phase 8 Plan](./docs/plans/phase-8-real-conversation-loop-plan.md)
-- [ADR 0001](./docs/adr/0001-phase-3-runtime-http-sse-local-first.md)
-
-## 本地运行
-
-```powershell
-go run ./cmd/cli ask "hello"
-go run ./cmd/cli ask "你背后是什么模型"
-go run ./cmd/cli ask --json "hello"
-```
+Local deterministic mode:
 
 ```powershell
 go run ./cmd/server
 ```
 
-配置 OpenAI-compatible persona provider:
+Then open:
+
+- [http://localhost:8080/app](http://localhost:8080/app)
+- [http://localhost:8080/admin](http://localhost:8080/admin)
+
+DeepSeek via the OpenAI-compatible boundary:
 
 ```powershell
-$env:DIGITAL_TWIN_LLM_PROVIDER="openai-compatible"
-$env:DIGITAL_TWIN_LLM_BASE_URL="http://localhost:9999/v1"
-$env:DIGITAL_TWIN_LLM_MODEL="gpt-test"
-$env:DIGITAL_TWIN_LLM_API_KEY="test-key"
-$env:DIGITAL_TWIN_LLM_FALLBACK_POLICY="fallback_to_local"
-go run ./cmd/server
+$env:DIGITAL_TWIN_LLM_API_KEY="your-api-key"
+.\scripts\start-deepseek.ps1 -Port 18080 -FallbackPolicy fail_closed
 ```
+
+Then open:
+
+- [http://localhost:18080/app](http://localhost:18080/app)
+
+Stop the tracked server:
 
 ```powershell
-Invoke-RestMethod http://localhost:8080/health
-Invoke-RestMethod http://localhost:8080/metrics
-Invoke-RestMethod -Method Post http://localhost:8080/chat -ContentType "application/json" -Body '{"id":"conv-1","tenant_id":"tenant-1","user_id":"user-1","messages":[{"id":"msg-1","role":"user","content":"hello","created_at":"2026-06-16T12:00:00Z"}],"created_at":"2026-06-16T12:00:00Z","updated_at":"2026-06-16T12:00:00Z"}'
-curl.exe -N -X POST http://localhost:8080/chat/stream -H "Content-Type: application/json" --data "{\"conversation_id\":\"conv-1\",\"turn_id\":\"turn-1\",\"attempt_id\":\"attempt-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"message\":{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-27T12:00:00Z\"}}"
-curl.exe -N -X POST http://localhost:8080/experience/stream -H "Content-Type: application/json" --data "{\"id\":\"conv-1\",\"tenant_id\":\"tenant-1\",\"user_id\":\"user-1\",\"messages\":[{\"id\":\"msg-1\",\"role\":\"user\",\"content\":\"hello\",\"created_at\":\"2026-06-27T12:00:00Z\"}],\"created_at\":\"2026-06-27T12:00:00Z\",\"updated_at\":\"2026-06-27T12:00:00Z\"}"
+.\scripts\stop-server.ps1
 ```
 
-Phase 8 stream contract:
+## Runtime status and fallback policy
 
-- `/chat/stream` 现在接收 `types.TurnRequest`，而不是完整 `Conversation` JSON。
-- `conversation_id` 标识会话，`turn_id` 标识本轮用户输入，`attempt_id` 标识重试尝试。
-- 同一个 `turn_id` 使用新的 `attempt_id` 重放时，服务端会返回已完成结果并带上 replay 语义，而不会重复写入 assistant 消息。
-- `/experience/stream` 当前仍兼容 legacy `Conversation` body，但服务端内部会转换为 turn 语义，复用 runtime streaming，再映射成 presentation events。
+`/runtime/status` returns sanitized session diagnostics for the web app and local operators.
 
-Web surfaces:
+Example fields:
 
-- User digital-human console: `http://localhost:8080/app`
-- Local operations console: `http://localhost:8080/admin`
+- `environment`
+- `provider`
+- `model`
+- `fallback_policy`
+- `generation_mode_hint`
+- `base_url`
 
-Local governance:
+Fallback policies:
+
+- `fallback_to_local`: if the provider fails before usable output, return an explicit local fallback reply
+- `fail_closed`: if the provider fails, surface the error and do not silently hide it behind a normal assistant answer
+
+Recommended verification mode when testing DeepSeek:
 
 ```powershell
-go run ./cmd/cli eval --cases .\evals\conversations --reports .\evals\reports --run-id phase5-local
-go run ./cmd/cli decisions --store .\data --tenant tenant-1
+.\scripts\start-deepseek.ps1 -Port 18080 -FallbackPolicy fail_closed
 ```
 
-Generated eval reports are written under `evals/reports/` and ignored by git. Local governance decision records use `data/tenants/<tenant-id>/governance/decisions/`; rollback and release decisions are stored as governance decisions, while feedback records currently use the in-memory feedback store unless an adapter supplies persistence.
+## Smoke checks
 
-## 验证
+Conversation and persistence smoke:
+
+```powershell
+.\scripts\smoke-conversation.ps1 -BaseUrl http://localhost:18080
+```
+
+The smoke script now:
+
+- fetches `/runtime/status`
+- prints a sanitized provider diagnostic
+- runs two streaming turns plus one replay attempt
+- verifies durable local conversation history
+
+## Developer workflow
+
+Useful commands:
 
 ```powershell
 go test ./...
@@ -142,59 +142,22 @@ go vet ./...
 go build ./cmd/server
 go build ./cmd/cli
 go build ./cmd/smoke
-go run ./cmd/cli eval --cases .\evals\conversations --reports .\evals\reports --run-id phase5-local
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-conversation.ps1 -DryRun
 ```
 
-## 下一步
+## Repo guide
 
-下一步按 `AGENTS.md` 继续完成 Phase 8 的 review、QA、security 和 ship stages；随后再进入更完整的 provider 实联、RAG/tool streaming、生产认证/RBAC 和治理 dashboard。
+- [AGENTS.md](./AGENTS.md): required SDD + TDD workflow
+- [docs/specs](./docs/specs): approved feature specs
+- [docs/design](./docs/design): design docs
+- [docs/plans](./docs/plans): implementation plans and test matrices
+- [RELEASE_NOTES.md](./RELEASE_NOTES.md): document and implementation release history
 
-## Phase 8 Real Conversation Loop
+## Phase 9 highlights
 
-Phase 8 的目标是把“看起来像流式”升级成“真正有服务端会话状态的流式对话回路”。
+Phase 9 focuses on trust recovery:
 
-已完成的核心点：
-
-- `/chat/stream` 基于 `TurnRequest` 进入服务端持久化会话。
-- assistant 增量内容通过 SSE `assistant_text_delta` 实时输出。
-- 会话历史按 turn/attempt 持久化，服务重启后可继续读取最近上下文。
-- 同一 turn 的 retry/replay 有稳定语义，不会重复提交 assistant 消息。
-- `/experience/stream` 通过 streaming presentation adapter 消费 runtime deltas，并输出字幕、avatar state、done/error 等事件。
-- 新增 `scripts/smoke-conversation.ps1`，可一键验证双轮对话、重试回放和本地历史落盘。
-
-快速 smoke：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-conversation.ps1 -Port 8080
-```
-
-## Phase 6A Provider and Deployment Readiness
-
-Phase 6A adds a production-shaped local runtime boundary while keeping the project local-file-storage-first. It includes production-like config validation, secret redaction, an HTTP-shaped TTS adapter tested only against fake servers, `/ready` readiness checks, request ID headers, provider/readiness metrics, Docker Compose packaging, and a Go smoke command.
-
-Included:
-
-- Config profiles and provider fields for local/mock and HTTP TTS providers.
-- Startup config summaries and readiness errors that redact configured secrets.
-- `/health` for liveness and `/ready` for config/data/release-gate readiness.
-- `cmd/smoke` checks for `/health`, `/ready`, `/chat`, `/chat/stream`, `/app`, `/admin`, and `/metrics`.
-- `deploy/Dockerfile`, `deploy/docker-compose.yml`, `deploy/.env.example`, and `deploy/README.md`.
-
-Excluded:
-
-- No SQLite, Postgres, cloud database, or migration framework.
-- No real provider calls in CI and no paid provider account requirement.
-- No OAuth, SSO, production RBAC, Kubernetes platform, compliance certification, or external eval platform.
-
-Production-shaped local verification:
-
-```powershell
-go test ./...
-go vet ./...
-go build ./cmd/server
-go build ./cmd/cli
-go build ./cmd/smoke
-.\scripts\verify_deploy.ps1
-go run ./cmd/smoke -base-url http://localhost:8080
-```
+- the app now looks like an operator workspace instead of a demo console
+- provider and model status are visible before the first message
+- fallback replies are explicitly labeled instead of masquerading as normal LLM output
+- truncated, empty, malformed, and status-failure provider streams are classified
+- DeepSeek startup and smoke verification are copy-paste friendly

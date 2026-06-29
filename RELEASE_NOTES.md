@@ -1,4 +1,22 @@
 # Release Notes
+## Unreleased - Phase 9 Experience and Provider Diagnostics
+
+### Added
+
+- Added Phase 9 provider diagnostics: `/runtime/status`, sanitized provider/model/fallback metadata, and OpenAI-compatible provider failure taxonomy for status, network, malformed stream, truncated stream, and empty response cases.
+- Added explicit fallback metadata plumbing from runtime to presentation so the web experience can distinguish live LLM output, local fallback, and hard error states.
+- Added a redesigned `/app` workspace with provider strip, status chip, presence panel, and labeled fallback/not-saved transcript states.
+- Added safer DeepSeek local scripts: tracked background startup, PID-aware stop flow, and a smoke script that checks `/runtime/status` before running streaming conversation verification.
+
+### Documented
+
+- README now explains Phase 9 status, `/runtime/status`, `fail_closed` versus `fallback_to_local`, DeepSeek startup, and the local smoke workflow.
+
+### Notes
+
+- Phase 9 still uses the OpenAI-compatible boundary for DeepSeek-style providers; it does not add a provider-specific SDK.
+- CI remains local and deterministic: fake servers only, no real paid provider calls.
+
 ## Unreleased - Phase 8 Real Conversation Loop Update
 
 ### Added

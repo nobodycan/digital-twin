@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,7 +18,46 @@ import (
 
 const maxStreamEventBytes = 1024 * 1024
 
+const (
+	ProviderStatusCategory          = "provider_status"
+	ProviderNetworkCategory         = "provider_network"
+	ProviderStreamDecodeCategory    = "provider_stream_decode"
+	ProviderStreamTruncatedCategory = "provider_stream_truncated"
+	ProviderEmptyResponseCategory   = "provider_empty_response"
+)
+
 var secretPattern = regexp.MustCompile(`sk-[A-Za-z0-9_-]+`)
+
+type ProviderFailureError struct {
+	Category string
+	Cause    string
+	Err      error
+}
+
+func (e *ProviderFailureError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Cause == "" {
+		return e.Category
+	}
+	return fmt.Sprintf("%s: %s", e.Category, e.Cause)
+}
+
+func (e *ProviderFailureError) Unwrap() []error {
+	if e == nil || e.Err == nil {
+		return []error{core.ErrProviderFailure}
+	}
+	return []error{core.ErrProviderFailure, e.Err}
+}
+
+func ProviderFailureCategory(err error) string {
+	var providerErr *ProviderFailureError
+	if errors.As(err, &providerErr) {
+		return providerErr.Category
+	}
+	return ""
+}
 
 // OpenAIConfig configures an OpenAI-compatible HTTP client.
 type OpenAIConfig struct {
@@ -79,7 +119,10 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 	}
 	response, err := c.client.Do(httpRequest)
 	if err != nil {
-		return core.WrapError(err, "openai stream")
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return providerFailure(ProviderNetworkCategory, "openai stream", err)
 	}
 	defer func() {
 		_ = response.Body.Close()
@@ -88,6 +131,7 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		return statusError(response)
 	}
 
+	var sawContent bool
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamEventBytes)
 	for scanner.Scan() {
@@ -100,16 +144,23 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if payload == "[DONE]" {
+			if !sawContent {
+				return providerFailureMessage(ProviderEmptyResponseCategory, "provider returned no usable content")
+			}
 			return onChunk(ChatChunk{Done: true})
 		}
 		var chunk openAIStreamResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			return providerFailure("decode openai stream", err)
+			return providerFailure(ProviderStreamDecodeCategory, "decode openai stream", err)
 		}
 		if len(chunk.Choices) == 0 {
 			continue
 		}
-		if err := onChunk(ChatChunk{Content: chunk.Choices[0].Delta.Content}); err != nil {
+		content := chunk.Choices[0].Delta.Content
+		if strings.TrimSpace(content) != "" {
+			sawContent = true
+		}
+		if err := onChunk(ChatChunk{Content: content}); err != nil {
 			return err
 		}
 	}
@@ -117,15 +168,12 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return providerFailure("read openai stream", err)
+		return providerFailure(ProviderNetworkCategory, "read openai stream", err)
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if err := onChunk(ChatChunk{Done: true}); err != nil {
-		return err
-	}
-	return nil
+	return providerFailureMessage(ProviderStreamTruncatedCategory, "provider stream ended before completion marker")
 }
 
 // Embed is intentionally not implemented for OpenAIClient in Phase 1.
@@ -149,7 +197,10 @@ func (c *OpenAIClient) doJSON(ctx context.Context, request ChatRequest, out any)
 	}
 	response, err := c.client.Do(httpRequest)
 	if err != nil {
-		return core.WrapError(err, "openai chat")
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return providerFailure(ProviderNetworkCategory, "openai chat", err)
 	}
 	defer func() {
 		_ = response.Body.Close()
@@ -197,14 +248,25 @@ func (c *OpenAIClient) newRequest(ctx context.Context, body []byte) (*http.Reque
 
 func statusError(response *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-	return core.WrapError(core.ErrProviderFailure, fmt.Sprintf("openai status %d: %s", response.StatusCode, redactSecrets(strings.TrimSpace(string(data)))))
+	return providerFailureMessage(ProviderStatusCategory, fmt.Sprintf("openai status %d: %s", response.StatusCode, redactSecrets(strings.TrimSpace(string(data)))))
 }
 
-func providerFailure(message string, err error) error {
+func providerFailure(category string, message string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return core.WrapError(core.ErrProviderFailure, fmt.Sprintf("%s: %v", message, err))
+	return &ProviderFailureError{
+		Category: category,
+		Cause:    redactSecrets(fmt.Sprintf("%s: %v", message, err)),
+		Err:      err,
+	}
+}
+
+func providerFailureMessage(category string, cause string) error {
+	return &ProviderFailureError{
+		Category: category,
+		Cause:    redactSecrets(cause),
+	}
 }
 
 func redactSecrets(value string) string {

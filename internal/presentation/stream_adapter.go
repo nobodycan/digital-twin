@@ -21,6 +21,7 @@ type AdapterStreamSink struct {
 	sequence        int
 	accumulatedText string
 	spoke           bool
+	completionMeta  map[string]any
 }
 
 func (a Adapter) NewStreamSink(sink PresentationSink) *AdapterStreamSink {
@@ -55,6 +56,7 @@ func (s *AdapterStreamSink) Emit(ctx context.Context, event types.StreamEvent) e
 		}
 		return nil
 	case types.StreamEventMessageCompleted:
+		s.completionMeta = copyPresentationMetadata(event.Metadata)
 		return s.emitCompletion(ctx, event)
 	case types.StreamEventCanceled:
 		if err := s.emit(ctx, eventContextFromStream(event), EventInterrupted, event.Payload, nil); err != nil {
@@ -75,7 +77,7 @@ func (s *AdapterStreamSink) Emit(ctx context.Context, event types.StreamEvent) e
 			"state": string(s.adapter.Avatar.Next(avatar.SignalRuntimeError)),
 		}, nil)
 	case types.StreamEventDone:
-		if err := s.emit(ctx, eventContextFromStream(event), EventDone, event.Payload, nil); err != nil {
+		if err := s.emit(ctx, eventContextFromStream(event), EventDone, event.Payload, s.completionMeta); err != nil {
 			return err
 		}
 		status := payloadString(event.Payload, "status", "")
@@ -160,6 +162,17 @@ func payloadString(payload types.Metadata, key, fallback string) string {
 		return fallback
 	}
 	return fmt.Sprint(value)
+}
+
+func copyPresentationMetadata(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	copied := make(map[string]any, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+	return copied
 }
 
 var _ core.StreamSink = (*AdapterStreamSink)(nil)

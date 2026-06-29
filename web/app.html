@@ -3,32 +3,70 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Digital Human Console</title>
+    <title>Digital Human Workspace</title>
     <link rel="stylesheet" href="/web/app.css">
   </head>
   <body>
-    <main class="app-shell">
+    <main class="workspace-shell">
       <section id="conversation-panel" class="conversation-panel" aria-label="Conversation">
-        <header class="surface-header">
-          <h1>Digital Human Console</h1>
-          <p class="status-line">Local mock voice and avatar stream</p>
+        <header class="surface-header conversation-header">
+          <div>
+            <p class="eyebrow">Digital Twin</p>
+            <h1>Professional Session Workspace</h1>
+          </div>
+          <div id="runtime-status" class="runtime-status">
+            <div id="provider-strip" class="provider-strip">
+              <span class="provider-label">Provider</span>
+              <strong id="session-provider">local</strong>
+              <span class="provider-divider"></span>
+              <span class="provider-label">Model</span>
+              <strong id="session-model">deterministic</strong>
+            </div>
+            <span id="status-chip" class="status-chip" data-tone="ready">ready</span>
+          </div>
         </header>
+
         <div id="transcript" class="transcript" aria-live="polite"></div>
+
         <form id="message-form" class="composer">
-          <label for="message-input">Message</label>
-          <input id="message-input" name="message" type="text" autocomplete="off" placeholder="Ask the digital human">
-          <button type="submit">Send</button>
-          <button id="stop-button" type="button">Stop</button>
+          <label class="composer-label" for="message-input">Message</label>
+          <div class="composer-row">
+            <input id="message-input" name="message" type="text" autocomplete="off" placeholder="Ask the digital human">
+            <div class="composer-actions">
+              <button type="submit">Send</button>
+              <button id="stop-button" type="button">Stop</button>
+            </div>
+          </div>
         </form>
       </section>
 
-      <aside id="avatar-stage" class="avatar-stage" aria-label="Avatar state">
-        <div id="avatar-face" class="avatar-face" data-state="idle">idle</div>
-        <div id="subtitle-line" class="subtitle-line"></div>
-        <div id="voice-panel" class="voice-panel">
+      <aside id="presence-panel" class="presence-panel" aria-label="Presence and status">
+        <section id="avatar-stage" class="avatar-stage" aria-label="Avatar state">
+          <div class="presence-card">
+            <p class="eyebrow">Presence</p>
+            <div id="avatar-face" class="avatar-face" data-state="idle">idle</div>
+            <div id="subtitle-line" class="subtitle-line"></div>
+          </div>
+        </section>
+
+        <section class="diagnostic-panel" aria-label="Session diagnostics">
+          <div class="diagnostic-row">
+            <span class="diagnostic-label">Mode</span>
+            <strong id="session-mode">local</strong>
+          </div>
+          <div class="diagnostic-row">
+            <span class="diagnostic-label">Fallback</span>
+            <strong id="session-fallback-policy">fallback_to_local</strong>
+          </div>
+          <div class="diagnostic-row">
+            <span class="diagnostic-label">Audio</span>
+            <strong id="audio-status">audio idle</strong>
+          </div>
+        </section>
+
+        <section id="voice-panel" class="voice-panel" aria-label="Voice controls">
           <button id="mock-voice-button" type="button">Mock voice</button>
-          <span id="audio-status">audio idle</span>
-        </div>
+        </section>
       </aside>
     </main>
     <script src="/web/app.js"></script>

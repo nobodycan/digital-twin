@@ -30,6 +30,7 @@ type Config struct {
 	PresentationAdapter presentation.Adapter
 	ASR                 voice.ASRClient
 	Readiness           ReadinessConfig
+	RuntimeStatus       RuntimeStatus
 	PersonaAdmin        *admin.PersonaService
 	MemoryAdmin         *admin.MemoryService
 	KnowledgeAdmin      *admin.KnowledgeService
@@ -50,6 +51,15 @@ type ReadinessConfig struct {
 	Redact            func(string) string
 }
 
+type RuntimeStatus struct {
+	Environment        string `json:"environment"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	FallbackPolicy     string `json:"fallback_policy"`
+	GenerationModeHint string `json:"generation_mode_hint"`
+	BaseURL            string `json:"base_url,omitempty"`
+}
+
 type Handler struct {
 	mux                 *http.ServeMux
 	metrics             observability.Metrics
@@ -58,6 +68,7 @@ type Handler struct {
 	presentationAdapter presentation.Adapter
 	asr                 voice.ASRClient
 	readiness           ReadinessConfig
+	runtimeStatus       RuntimeStatus
 	personaAdmin        *admin.PersonaService
 	memoryAdmin         *admin.MemoryService
 	knowledgeAdmin      *admin.KnowledgeService
@@ -85,6 +96,7 @@ func NewHandler(config Config) http.Handler {
 		presentationAdapter: config.PresentationAdapter,
 		asr:                 config.ASR,
 		readiness:           config.Readiness,
+		runtimeStatus:       config.RuntimeStatus,
 		personaAdmin:        config.PersonaAdmin,
 		memoryAdmin:         config.MemoryAdmin,
 		knowledgeAdmin:      config.KnowledgeAdmin,
@@ -100,6 +112,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /health", handler.handleHealth)
 	handler.mux.HandleFunc("GET /ready", handler.handleReady)
 	handler.mux.HandleFunc("GET /metrics", handler.handleMetrics)
+	handler.mux.HandleFunc("GET /runtime/status", handler.handleRuntimeStatus)
 	handler.mux.HandleFunc("GET /favicon.ico", handler.handleFavicon)
 	handler.mux.HandleFunc("GET /app", handler.handleStaticHTML("app.html"))
 	handler.mux.HandleFunc("GET /admin", handler.handleStaticHTML("admin.html"))
@@ -198,6 +211,11 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+func (h *Handler) handleRuntimeStatus(w http.ResponseWriter, _ *http.Request) {
+	h.metrics.IncCounter("requests_total", map[string]string{"route": "/runtime/status"})
+	writeJSON(w, http.StatusOK, h.runtimeStatus)
 }
 
 func (r ReadinessConfig) releaseGateStatus() string {

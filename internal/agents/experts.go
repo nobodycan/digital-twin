@@ -66,10 +66,10 @@ func (a PersonaAgent) Run(ctx context.Context, conversation types.Conversation, 
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || a.fallbackPolicy == "fail_closed" {
 				return types.AgentResult{}, err
 			}
-			return a.fallbackResult(intent, "I hit a provider issue, so I'm falling back to a local safe reply for now.", "", "provider_error"), nil
+			return a.providerFallbackResult(intent, userContent, err), nil
 		}
 		if strings.TrimSpace(response.Message.Content) == "" {
-			return a.fallbackResult(intent, "The configured model returned no usable text, so I'm using a local safe reply.", "", "empty_response"), nil
+			return a.fallbackResult(intent, a.emptyResponseFallbackCopy(userContent), "", "empty_response"), nil
 		}
 		if decision := a.guardDecision(response.Message.Content, float64(confidenceOrDefault(intent))); !decision.Allowed {
 			return a.fallbackResult(intent, decision.SafeFallback, decision.Reason, "guard_rejected"), nil
@@ -133,7 +133,7 @@ func (a PersonaAgent) Stream(ctx context.Context, conversation types.Conversatio
 		if streamGuard.HasVisibleOutput() {
 			return types.AgentResult{}, streamErr
 		}
-		return a.fallbackResult(intent, "I hit a provider issue, so I'm falling back to a local safe reply for now.", "", "provider_error"), nil
+		return a.providerFallbackResult(intent, userContent, streamErr), nil
 	}
 
 	final := streamGuard.Finalize()
@@ -151,7 +151,7 @@ func (a PersonaAgent) Stream(ctx context.Context, conversation types.Conversatio
 
 	content := accepted.String()
 	if strings.TrimSpace(content) == "" {
-		return a.fallbackResult(intent, "The configured model returned no usable text, so I'm using a local safe reply.", "", "empty_response"), nil
+		return a.fallbackResult(intent, a.emptyResponseFallbackCopy(userContent), "", "empty_response"), nil
 	}
 
 	generationMode := "llm"
@@ -352,6 +352,50 @@ func (a PersonaAgent) fallbackResult(intent types.Intent, content, reason, categ
 		metadata["fallback_category"] = category
 	}
 	return a.Result(content, confidenceOrDefault(intent), metadata)
+}
+
+func (a PersonaAgent) providerFallbackResult(intent types.Intent, userContent string, err error) types.AgentResult {
+	category := llm.ProviderFailureCategory(err)
+	if category == "" {
+		category = "provider_error"
+	}
+	return a.fallbackResult(intent, a.providerFallbackCopy(userContent), "", category)
+}
+
+func (a PersonaAgent) providerFallbackCopy(userContent string) string {
+	provider := a.providerLabel()
+	if prefersChinese(userContent) {
+		return fmt.Sprintf("%s 当前没有返回可用结果，我先用本地安全回复继续这次对话。请稍后检查 provider 配置或重试。", provider)
+	}
+	return fmt.Sprintf("The configured provider %s did not return a usable answer, so I am continuing with a local fallback reply for now. Please recheck the provider setup or retry.", provider)
+}
+
+func (a PersonaAgent) emptyResponseFallbackCopy(userContent string) string {
+	provider := a.providerLabel()
+	if prefersChinese(userContent) {
+		return fmt.Sprintf("%s 已连接，但这次没有返回可用内容，我先切到本地安全回复继续。", provider)
+	}
+	return fmt.Sprintf("The configured provider %s returned no usable text for this turn, so I am switching to a local fallback reply.", provider)
+}
+
+func (a PersonaAgent) providerLabel() string {
+	switch strings.ToLower(strings.TrimSpace(a.provider)) {
+	case "", "local", "mock":
+		return "local mode"
+	case "deepseek":
+		return "DeepSeek"
+	default:
+		return a.provider
+	}
+}
+
+func prefersChinese(content string) bool {
+	for _, r := range content {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return true
+		}
+	}
+	return false
 }
 
 func (a PersonaAgent) guardDecision(content string, confidence float64) persona.GuardDecision {

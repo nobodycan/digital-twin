@@ -14,10 +14,15 @@ func TestAppScriptPostsToExperienceStreamAndRendersPresentationEvents(t *testing
 	script := string(data)
 
 	for _, want := range []string{
+		`fetch("/runtime/status")`,
 		`fetch("/experience/stream"`,
 		"parseSSEFrames",
 		"assistant_text_delta",
 		"activeAssistantLine",
+		"runtime-status",
+		"fallback",
+		"providerStatus",
+		"setProviderStatus",
 		"subtitle",
 		"avatar_state",
 		"audio_chunk",
@@ -78,6 +83,11 @@ func TestAppStylesDefineVisibleAvatarStates(t *testing.T) {
 	styles := string(data)
 
 	for _, want := range []string{
+		":root {",
+		"provider-strip",
+		"status-chip",
+		"presence-panel",
+		"transcript-badge",
 		`[data-state="listening"]`,
 		`[data-state="thinking"]`,
 		`[data-state="speaking"]`,
@@ -100,6 +110,12 @@ func TestAppShellIncludesStopButton(t *testing.T) {
 	}
 	source := string(html)
 	for _, want := range []string{
+		`id="runtime-status"`,
+		`id="provider-strip"`,
+		`id="session-provider"`,
+		`id="session-model"`,
+		`id="status-chip"`,
+		`id="presence-panel"`,
 		`id="stop-button"`,
 		">Stop<",
 	} {

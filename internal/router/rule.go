@@ -54,7 +54,7 @@ func (r RuleRouter) Route(_ context.Context, conversation types.Conversation) (t
 	return types.Intent{
 		Name:       types.IntentPersonaChat,
 		Query:      query,
-		Confidence: types.Confidence(0.4),
+		Confidence: types.Confidence(0.8),
 		Metadata: types.Metadata{
 			"source": "fallback",
 			"rule":   "persona",

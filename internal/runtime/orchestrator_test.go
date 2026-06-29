@@ -342,7 +342,7 @@ func TestOrchestratorStreamEmitsOrderedRuntimeEvents(t *testing.T) {
 			}
 			return types.AgentResult{
 				AgentName: "persona-agent",
-				Message: types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Hello there."},
+				Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Hello there."},
 			}, nil
 		},
 	}); err != nil {
@@ -350,11 +350,11 @@ func TestOrchestratorStreamEmitsOrderedRuntimeEvents(t *testing.T) {
 	}
 
 	orchestrator := NewOrchestrator(OrchestratorConfig{
-		Router:       &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
-		Agents:       agents,
-		Recorder:     NewEventRecorder(),
-		RequestID:    func() string { return "req-stream-1" },
-		Coordinator:  conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store.NewInMemoryStore()}),
+		Router:      &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
+		Agents:      agents,
+		Recorder:    NewEventRecorder(),
+		RequestID:   func() string { return "req-stream-1" },
+		Coordinator: conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store.NewInMemoryStore()}),
 	})
 
 	sink := &recordingRuntimeStreamSink{}
@@ -423,6 +423,57 @@ func TestOrchestratorStreamSupportsLegacyAgentsWithoutDeltaEvents(t *testing.T) 
 	}
 	if !hasStreamEvent(sink.events, types.StreamEventMessageCompleted) || !hasStreamEvent(sink.events, types.StreamEventDone) {
 		t.Fatalf("events = %#v, want terminal events", sink.events)
+	}
+}
+
+func TestOrchestratorStreamIncludesGenerationMetadataOnMessageCompleted(t *testing.T) {
+	agents := core.NewAgentRegistry()
+	if err := agents.Register(fakeStreamingRuntimeAgent{
+		name:    "persona-agent",
+		handles: types.IntentPersonaChat,
+		stream: func(context.Context, types.Conversation, types.Intent, core.AssistantDeltaSink) (types.AgentResult, error) {
+			return types.AgentResult{
+				AgentName: "persona-agent",
+				Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Fallback reply"},
+				Metadata: types.Metadata{
+					"generation_mode":   "fallback",
+					"fallback_category": "provider_status",
+					"llm_provider":      "deepseek",
+					"llm_model":         "deepseek-v4-pro",
+					"api_key":           "should-not-leak",
+				},
+			}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+
+	orchestrator := NewOrchestrator(OrchestratorConfig{
+		Router:      &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9}},
+		Agents:      agents,
+		Recorder:    NewEventRecorder(),
+		RequestID:   func() string { return "req-stream-meta" },
+		Coordinator: conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store.NewInMemoryStore()}),
+	})
+
+	sink := &recordingRuntimeStreamSink{}
+	if _, err := orchestrator.Stream(t.Context(), validTurnRequest("turn-1", "attempt-1", "hello"), sink); err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+
+	event := findStreamEvent(t, sink.events, types.StreamEventMessageCompleted)
+	for key, want := range map[string]any{
+		"generation_mode":   "fallback",
+		"fallback_category": "provider_status",
+		"llm_provider":      "deepseek",
+		"llm_model":         "deepseek-v4-pro",
+	} {
+		if event.Metadata[key] != want {
+			t.Fatalf("metadata[%q] = %v, want %v", key, event.Metadata[key], want)
+		}
+	}
+	if _, exists := event.Metadata["api_key"]; exists {
+		t.Fatalf("message_completed metadata leaked api_key: %#v", event.Metadata)
 	}
 }
 
@@ -589,6 +640,17 @@ func hasStreamEvent(events []types.StreamEvent, name types.StreamEventName) bool
 		}
 	}
 	return false
+}
+
+func findStreamEvent(t *testing.T, events []types.StreamEvent, name types.StreamEventName) types.StreamEvent {
+	t.Helper()
+	for _, event := range events {
+		if event.Name == name {
+			return event
+		}
+	}
+	t.Fatalf("missing stream event %q in %#v", name, events)
+	return types.StreamEvent{}
 }
 
 func validTurnRequest(turnID, attemptID, content string) types.TurnRequest {
