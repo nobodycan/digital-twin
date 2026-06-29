@@ -23,11 +23,16 @@ func NewHybridRouter(ruleRouter, llmRouter core.Router) HybridRouter {
 func (r HybridRouter) Route(ctx context.Context, conversation types.Conversation) (types.Intent, error) {
 	query := lastUserText(conversation)
 	var ruleErr, llmErr error
+	var personaFallback *types.Intent
 
 	if r.rule != nil {
 		intent, err := r.rule.Route(ctx, conversation)
 		if err == nil && intent.Confidence >= r.minConfidence && intent.Name != types.IntentPersonaChat {
 			return withSource(intent, "hybrid_rule"), nil
+		}
+		if err == nil && intent.Confidence >= r.minConfidence && intent.Name == types.IntentPersonaChat {
+			intent = withSource(intent, "hybrid_rule")
+			personaFallback = &intent
 		}
 		ruleErr = err
 	}
@@ -38,6 +43,10 @@ func (r HybridRouter) Route(ctx context.Context, conversation types.Conversation
 			return withSource(intent, "hybrid_llm"), nil
 		}
 		llmErr = err
+	}
+
+	if personaFallback != nil {
+		return *personaFallback, nil
 	}
 
 	intent := types.Intent{

@@ -394,6 +394,10 @@ func safeURLSummary(raw string) string {
 	return parsed.String()
 }
 
+func SafeURLSummary(raw string) string {
+	return safeURLSummary(raw)
+}
+
 func isProductionLike(environment string) bool {
 	switch strings.ToLower(strings.TrimSpace(environment)) {
 	case "production", "prod", "staging", "stage":

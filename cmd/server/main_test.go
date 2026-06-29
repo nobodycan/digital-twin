@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/nobodycan/digital-twin/internal/config"
@@ -39,6 +39,28 @@ func TestParseLogLevel(t *testing.T) {
 		t.Run(input, func(t *testing.T) {
 			if got := parseLogLevel(input); got != want {
 				t.Fatalf("parseLogLevel(%q) = %v, want %v", input, got, want)
+			}
+		})
+	}
+}
+
+func TestRuntimeStatusProviderInfersKnownHosts(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		baseURL  string
+		want     string
+	}{
+		{name: "deepseek host", provider: "openai-compatible", baseURL: "https://api.deepseek.com/v1", want: "deepseek"},
+		{name: "openai host", provider: "openai-compatible", baseURL: "https://api.openai.com/v1", want: "openai"},
+		{name: "local provider", provider: "local", baseURL: "", want: "local"},
+		{name: "fallback to provider name", provider: "openai-compatible", baseURL: "http://127.0.0.1:9999/v1", want: "openai-compatible"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := runtimeStatusProvider(tt.provider, tt.baseURL); got != tt.want {
+				t.Fatalf("runtimeStatusProvider(%q, %q) = %q, want %q", tt.provider, tt.baseURL, got, tt.want)
 			}
 		})
 	}
@@ -80,6 +102,48 @@ func TestBuildHandlerServesHealth(t *testing.T) {
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
+	}
+}
+
+func TestBuildHandlerServesRuntimeStatusForConfiguredProvider(t *testing.T) {
+	isolateRuntimeData(t)
+	handler, err := buildHandler(config.AppConfig{
+		Environment: "local",
+		LLM: config.LLMConfig{
+			Provider:       "openai-compatible",
+			BaseURL:        "https://api.deepseek.com/v1?token=secret",
+			Model:          "deepseek-v4-pro",
+			FallbackPolicy: "fail_closed",
+			APIKey:         "sk-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/runtime/status", nil)
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`"provider":"deepseek"`,
+		`"model":"deepseek-v4-pro"`,
+		`"fallback_policy":"fail_closed"`,
+		`"generation_mode_hint":"llm"`,
+		`"base_url":"https://api.deepseek.com/v1"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"sk-secret", "token=secret", "api_key"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("runtime status leaked %q:\n%s", forbidden, body)
+		}
 	}
 }
 
@@ -214,6 +278,9 @@ func TestBuildHandlerServesConfiguredLLMChatEndToEnd(t *testing.T) {
 	if result.Message.Content != "I think this response came from the configured LLM." {
 		t.Fatalf("result message = %q, want configured llm response", result.Message.Content)
 	}
+	if result.Metadata["llm_provider"] != "openai-compatible" {
+		t.Fatalf("llm_provider = %v, want openai-compatible for local fake server", result.Metadata["llm_provider"])
+	}
 	if result.Metadata["llm_model"] != "gpt-server" {
 		t.Fatalf("llm_model = %v, want gpt-server", result.Metadata["llm_model"])
 	}
@@ -292,7 +359,7 @@ func TestBuildHandlerServesStaticAppShell(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "Digital Human Console") {
+	if !strings.Contains(response.Body.String(), "Professional Session Workspace") {
 		t.Fatalf("body = %s", response.Body.String())
 	}
 }
@@ -646,8 +713,8 @@ func validTurnRequestJSON(conversationID, turnID, attemptID, messageID, content 
 }
 
 type openAIChatRequest struct {
-	Model       string `json:"model"`
-	Messages    []struct {
+	Model    string `json:"model"`
+	Messages []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`

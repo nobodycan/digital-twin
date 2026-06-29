@@ -18,6 +18,8 @@ func TestAppScriptKeepsAssistantTranscriptWhenSubtitleArrivesWithoutDelta(t *tes
 
 	for _, want := range []string{
 		"latestAssistantText",
+		"fallbackBadge",
+		"not-saved",
 		`const subtitleText = renderSubtitle(payload.subtitles || []);`,
 		"if (subtitleText && !activeAssistantLine)",
 		"const finalAssistantText = latestAssistantText || subtitleLine.textContent.trim();",

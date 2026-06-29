@@ -2,8 +2,8 @@ package llm
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -115,7 +115,7 @@ func TestOpenAIClientStreamEmitsDoneOnExplicitDoneEvent(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientStreamEmitsDoneOnEOFWithoutDoneEvent(t *testing.T) {
+func TestOpenAIClientStreamReturnsTruncatedProviderFailureOnEOFWithoutDoneEvent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		writeResponseLine(t, w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}")
@@ -124,18 +124,12 @@ func TestOpenAIClientStreamEmitsDoneOnEOFWithoutDoneEvent(t *testing.T) {
 
 	client := NewOpenAIClient(OpenAIConfig{BaseURL: server.URL, HTTPClient: server.Client()})
 
-	var chunks []ChatChunk
 	if err := client.Stream(t.Context(), ChatRequest{Messages: []types.Message{{Role: types.RoleUser, Content: "hi"}}}, func(chunk ChatChunk) error {
-		chunks = append(chunks, chunk)
 		return nil
-	}); err != nil {
-		t.Fatalf("stream: %v", err)
-	}
-	if len(chunks) != 2 {
-		t.Fatalf("chunks len = %d, want 2", len(chunks))
-	}
-	if !chunks[1].Done {
-		t.Fatalf("final chunk = %#v, want done sentinel", chunks[1])
+	}); err == nil {
+		t.Fatal("expected truncated stream error")
+	} else if got := ProviderFailureCategory(err); got != "provider_stream_truncated" {
+		t.Fatalf("ProviderFailureCategory() = %q, want provider_stream_truncated; err = %v", got, err)
 	}
 }
 
@@ -156,6 +150,9 @@ func TestOpenAIClientStreamReturnsProviderFailureOnMalformedChunk(t *testing.T) 
 	}
 	if !core.IsProviderFailure(err) {
 		t.Fatalf("expected provider failure, got %v", err)
+	}
+	if got := ProviderFailureCategory(err); got != "provider_stream_decode" {
+		t.Fatalf("ProviderFailureCategory() = %q, want provider_stream_decode", got)
 	}
 }
 
@@ -182,6 +179,8 @@ func TestOpenAIClientStreamSupportsLargeChunks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		writeResponseLine(t, w, fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}", large))
+		writeResponseLine(t, w, "")
+		writeResponseLine(t, w, "data: [DONE]")
 	}))
 	defer server.Close()
 
@@ -218,6 +217,29 @@ func TestOpenAIClientStatusErrorRedactsSecrets(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "sk-live-super-secret") {
 		t.Fatalf("error leaked secret: %v", err)
+	}
+	if got := ProviderFailureCategory(err); got != "provider_status" {
+		t.Fatalf("ProviderFailureCategory() = %q, want provider_status", got)
+	}
+}
+
+func TestOpenAIClientStreamReturnsEmptyResponseFailureWhenNoContentArrives(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeResponseLine(t, w, "data: [DONE]")
+	}))
+	defer server.Close()
+
+	client := NewOpenAIClient(OpenAIConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+
+	err := client.Stream(t.Context(), ChatRequest{Messages: []types.Message{{Role: types.RoleUser, Content: "hi"}}}, func(ChatChunk) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected empty response error")
+	}
+	if got := ProviderFailureCategory(err); got != "provider_empty_response" {
+		t.Fatalf("ProviderFailureCategory() = %q, want provider_empty_response", got)
 	}
 }
 

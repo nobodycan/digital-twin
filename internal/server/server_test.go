@@ -186,6 +186,46 @@ func TestHandlerServesMetrics(t *testing.T) {
 	}
 }
 
+func TestHandlerServesRuntimeStatusWithoutSecrets(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		RuntimeStatus: RuntimeStatus{
+			Environment:        "local",
+			Provider:           "deepseek",
+			Model:              "deepseek-v4-pro",
+			FallbackPolicy:     "fail_closed",
+			GenerationModeHint: "llm",
+			BaseURL:            "https://api.deepseek.com",
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/runtime/status", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`"environment":"local"`,
+		`"provider":"deepseek"`,
+		`"model":"deepseek-v4-pro"`,
+		`"fallback_policy":"fail_closed"`,
+		`"generation_mode_hint":"llm"`,
+		`"base_url":"https://api.deepseek.com"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"api_key", "authorization", "sk-"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("runtime status leaked %q:\n%s", forbidden, body)
+		}
+	}
+}
+
 func TestHandlerServesChat(t *testing.T) {
 	handler := NewHandler(Config{
 		Metrics:      observability.NewMemoryMetrics(),
@@ -366,8 +406,8 @@ func TestHandlerPrefersStreamingOrchestratorForChatStream(t *testing.T) {
 		},
 	}
 	handler := NewHandler(Config{
-		Metrics:      observability.NewMemoryMetrics(),
-		Orchestrator: streaming,
+		Metrics:         observability.NewMemoryMetrics(),
+		Orchestrator:    streaming,
 		DefaultTenantID: "tenant-default",
 		DefaultUserID:   "user-default",
 	})
@@ -425,7 +465,7 @@ func TestHandlerServesStaticAppAndAdminShells(t *testing.T) {
 	})
 
 	tests := map[string][]string{
-		"/app":   {"Digital Human Console", "conversation-panel", "avatar-stage"},
+		"/app":   {"Professional Session Workspace", "conversation-panel", "presence-panel"},
 		"/admin": {"Operations Console", "persona-admin", "audit-admin"},
 	}
 	for path, wants := range tests {
@@ -603,8 +643,8 @@ func TestHandlerPrefersStreamingOrchestratorForExperienceStream(t *testing.T) {
 		},
 	}
 	handler := NewHandler(Config{
-		Metrics:      observability.NewMemoryMetrics(),
-		Orchestrator: streaming,
+		Metrics:         observability.NewMemoryMetrics(),
+		Orchestrator:    streaming,
 		DefaultTenantID: "tenant-default",
 		DefaultUserID:   "user-default",
 		PresentationAdapter: presentation.Adapter{

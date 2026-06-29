@@ -41,6 +41,27 @@ func TestHybridRouterUsesLLMFallbackWhenRuleLowConfidence(t *testing.T) {
 	}
 }
 
+func TestHybridRouterPreservesPersonaChatWhenRuleIsConfidentAndLLMUnavailable(t *testing.T) {
+	r := NewHybridRouter(
+		stubRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.8}},
+		nil,
+	)
+
+	intent, err := r.Route(context.Background(), conversationWithUserText("hello"))
+	if err != nil {
+		t.Fatalf("Route() error = %v", err)
+	}
+	if intent.Name != types.IntentPersonaChat {
+		t.Fatalf("Route() intent = %q, want persona chat", intent.Name)
+	}
+	if intent.Confidence != types.Confidence(0.8) {
+		t.Fatalf("Route() confidence = %v, want 0.8", intent.Confidence)
+	}
+	if intent.Metadata["source"] != "hybrid_rule" {
+		t.Fatalf("Route() source = %v, want hybrid_rule", intent.Metadata["source"])
+	}
+}
+
 func TestHybridRouterReturnsPersonaFallbackWhenBothLowConfidence(t *testing.T) {
 	r := NewHybridRouter(
 		stubRouter{intent: types.Intent{Name: types.IntentPersonaChat, Query: "hi", Confidence: 0.2}},

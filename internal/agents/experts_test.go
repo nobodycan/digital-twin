@@ -203,7 +203,7 @@ func TestPersonaAgentExplainsLocalModeForModelQuestion(t *testing.T) {
 
 func TestPersonaAgentFallsBackWhenLLMProviderFails(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
-	client := &recordingLLM{err: errors.New("provider down")}
+	client := &recordingLLM{err: &llm.ProviderFailureError{Category: llm.ProviderStatusCategory, Cause: "provider down"}}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
 		Client:   client,
 		Provider: "openai-compatible",
@@ -220,11 +220,14 @@ func TestPersonaAgentFallsBackWhenLLMProviderFails(t *testing.T) {
 	if result.Message.Content == "" {
 		t.Fatal("fallback content is empty")
 	}
-	if result.Metadata["fallback_category"] != "provider_error" {
-		t.Fatalf("fallback_category = %v, want provider_error", result.Metadata["fallback_category"])
+	if result.Metadata["fallback_category"] != llm.ProviderStatusCategory {
+		t.Fatalf("fallback_category = %v, want %s", result.Metadata["fallback_category"], llm.ProviderStatusCategory)
 	}
 	if _, exists := result.Metadata["guard_reason"]; exists {
 		t.Fatalf("guard_reason = %v, want absent for provider failure", result.Metadata["guard_reason"])
+	}
+	if strings.Contains(result.Message.Content, "I hit a provider issue, so I'm falling back to a local safe reply for now.") {
+		t.Fatalf("fallback content = %q, want improved actionable copy", result.Message.Content)
 	}
 }
 
@@ -482,7 +485,7 @@ func TestPersonaAgentStreamFallsBackWhenProviderFailsBeforeVisibleOutput(t *test
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{
 		stream: func(context.Context, llm.ChatRequest, func(llm.ChatChunk) error) error {
-			return errors.New("provider down")
+			return &llm.ProviderFailureError{Category: llm.ProviderStatusCategory, Cause: "provider down"}
 		},
 	}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
@@ -501,6 +504,9 @@ func TestPersonaAgentStreamFallsBackWhenProviderFailsBeforeVisibleOutput(t *test
 	}
 	if result.Metadata["generation_mode"] != "fallback" {
 		t.Fatalf("generation_mode = %v, want fallback", result.Metadata["generation_mode"])
+	}
+	if result.Metadata["fallback_category"] != llm.ProviderStatusCategory {
+		t.Fatalf("fallback_category = %v, want %s", result.Metadata["fallback_category"], llm.ProviderStatusCategory)
 	}
 }
 
@@ -554,6 +560,24 @@ func TestPersonaAgentStreamFallsBackWhenProviderEmitsNoVisibleText(t *testing.T)
 	}
 	if result.Metadata["fallback_category"] != "empty_response" {
 		t.Fatalf("fallback_category = %v, want empty_response", result.Metadata["fallback_category"])
+	}
+}
+
+func TestPersonaAgentUsesHelpfulChineseFallbackCopyForProviderFailure(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{err: &llm.ProviderFailureError{Category: llm.ProviderStatusCategory, Cause: "provider down"}}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "deepseek",
+		Model:    "deepseek-v4-pro",
+	})
+
+	result, err := agent.Run(context.Background(), agentConversation("你是谁"), types.Intent{Name: types.IntentPersonaChat, Query: "你是谁", Confidence: 0.9})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(result.Message.Content, "本地") || !strings.Contains(result.Message.Content, "DeepSeek") {
+		t.Fatalf("fallback content = %q, want Chinese actionable copy with provider context", result.Message.Content)
 	}
 }
 
