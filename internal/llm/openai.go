@@ -131,7 +131,6 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		return statusError(response)
 	}
 
-	var sawDone bool
 	var sawContent bool
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamEventBytes)
@@ -145,7 +144,6 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if payload == "[DONE]" {
-			sawDone = true
 			if !sawContent {
 				return providerFailureMessage(ProviderEmptyResponseCategory, "provider returned no usable content")
 			}
@@ -175,10 +173,7 @@ func (c *OpenAIClient) Stream(ctx context.Context, request ChatRequest, onChunk 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if !sawDone {
-		return providerFailureMessage(ProviderStreamTruncatedCategory, "provider stream ended before completion marker")
-	}
-	return nil
+	return providerFailureMessage(ProviderStreamTruncatedCategory, "provider stream ended before completion marker")
 }
 
 // Embed is intentionally not implemented for OpenAIClient in Phase 1.
