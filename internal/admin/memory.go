@@ -67,6 +67,10 @@ func (s MemoryService) Disable(tenantID, memoryID string) (MemoryRecord, error) 
 	return s.store.Save(record)
 }
 
+func (s MemoryService) List(tenantID string) ([]MemoryRecord, error) {
+	return s.store.List(tenantID)
+}
+
 func (s MemoryService) ActiveForRecall(tenantID, userID string) ([]MemoryRecord, error) {
 	records, err := s.store.List(tenantID)
 	if err != nil {

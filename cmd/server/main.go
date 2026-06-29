@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -48,11 +49,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "build handler: %v\n", err)
 		os.Exit(1)
 	}
-	addr := fmt.Sprintf(":%d", cfg.Server.Port)
+	addr := listenAddress(cfg)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func listenAddress(cfg config.AppConfig) string {
+	return net.JoinHostPort(cfg.Server.Host, fmt.Sprintf("%d", cfg.Server.Port))
 }
 
 func startupSummary(cfg config.AppConfig) string {
@@ -65,12 +70,18 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		return nil, err
 	}
 	providerLabel := runtimeStatusProvider(cfg.LLM.Provider, cfg.LLM.BaseURL)
+	adminDataDir := defaultAdminDataDir()
+	if err := os.MkdirAll(adminDataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create admin data dir: %w", err)
+	}
+	knowledgeStore := admin.NewFileKnowledgeStore(adminDataDir)
 	local, err := app.NewLocalRuntime(app.LocalRuntimeConfig{
 		PersonaLLM:               personaLLM,
 		PersonaLLMProvider:       providerLabel,
 		PersonaLLMModel:          cfg.LLM.Model,
 		PersonaLLMFallbackPolicy: cfg.LLM.FallbackPolicy,
 		DataDir:                  defaultRuntimeDataDir(),
+		KnowledgeStore:           knowledgeStore,
 	})
 	if err != nil {
 		return nil, err
@@ -98,13 +109,9 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	adminDataDir := defaultAdminDataDir()
-	if err := os.MkdirAll(adminDataDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create admin data dir: %w", err)
-	}
 	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(adminDataDir))
 	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(adminDataDir))
-	knowledgeAdmin := admin.NewKnowledgeService(admin.NewFileKnowledgeStore(adminDataDir))
+	knowledgeAdmin := admin.NewKnowledgeService(knowledgeStore)
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{

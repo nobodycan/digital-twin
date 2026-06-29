@@ -66,6 +66,15 @@ func TestRuntimeStatusProviderInfersKnownHosts(t *testing.T) {
 	}
 }
 
+func TestListenAddressUsesConfiguredHostAndPort(t *testing.T) {
+	cfg := config.AppConfig{
+		Server: config.ServerConfig{Host: "127.0.0.1", Port: 18080},
+	}
+	if got := listenAddress(cfg); got != "127.0.0.1:18080" {
+		t.Fatalf("listenAddress = %q, want 127.0.0.1:18080", got)
+	}
+}
+
 func TestStartupSummaryDoesNotLeakSecrets(t *testing.T) {
 	cfg := config.AppConfig{
 		Environment: "production",

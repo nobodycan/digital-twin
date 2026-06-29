@@ -1,11 +1,14 @@
 package app
 
 import (
+	"context"
 	"os"
 
+	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/agents"
 	"github.com/nobodycan/digital-twin/internal/conversation"
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/knowledge"
 	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/internal/memory"
 	"github.com/nobodycan/digital-twin/internal/persona"
@@ -13,6 +16,7 @@ import (
 	"github.com/nobodycan/digital-twin/internal/runtime"
 	"github.com/nobodycan/digital-twin/internal/skills"
 	"github.com/nobodycan/digital-twin/internal/store"
+	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
 type LocalRuntimeConfig struct {
@@ -25,6 +29,7 @@ type LocalRuntimeConfig struct {
 	PersonaLLMFallbackPolicy string
 	DataDir                  string
 	MemoryBudget             int
+	KnowledgeStore           admin.KnowledgeStore
 }
 
 type LocalRuntime struct {
@@ -45,6 +50,11 @@ func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 	}
 	renderer := persona.Renderer{}
 	guard := persona.Guard{Persona: defaultPersona}
+	var knowledgeGrounder agents.KnowledgeGrounder
+	if config.KnowledgeStore != nil {
+		service := knowledge.NewService(config.KnowledgeStore)
+		knowledgeGrounder = knowledgeGrounderAdapter{service: service}
+	}
 	for _, skill := range []core.Skill{
 		skills.NewMemStoreSkill(nil),
 		skills.NewMemRecallSkill(nil),
@@ -83,6 +93,7 @@ func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 			FallbackPolicy: config.PersonaLLMFallbackPolicy,
 			Persona:        defaultPersona,
 			Renderer:       renderer,
+			Knowledge:      knowledgeGrounder,
 		}), config),
 		governMemoryAgent(agents.NewMemoryAgent(skillRegistry), config),
 		governKnowledgeAgent(agents.NewKnowledgeAgent(skillRegistry), config),
@@ -115,6 +126,29 @@ func NewLocalRuntime(config LocalRuntimeConfig) (LocalRuntime, error) {
 		Coordinator: coordinator,
 	})
 	return LocalRuntime{Orchestrator: orchestrator, Recorder: recorder}, nil
+}
+
+type knowledgeGrounderAdapter struct {
+	service knowledge.Service
+}
+
+func (a knowledgeGrounderAdapter) Ground(ctx context.Context, conversation types.Conversation, query string, limit int) (agents.Grounding, error) {
+	grounding, err := a.service.Ground(ctx, conversation, query, limit)
+	if err != nil {
+		return agents.Grounding{}, err
+	}
+	result := agents.Grounding{RetrievalMode: grounding.RetrievalMode}
+	for _, citation := range grounding.Citations {
+		result.Citations = append(result.Citations, agents.GroundingCitation{
+			DocumentID:   citation.DocumentID,
+			DocumentName: citation.DocumentName,
+			ChunkID:      citation.ChunkID,
+			Rank:         citation.Rank,
+			Score:        citation.Score,
+			Text:         citation.Text,
+		})
+	}
+	return result, nil
 }
 
 func newConversationStore(config LocalRuntimeConfig) (store.Store, error) {

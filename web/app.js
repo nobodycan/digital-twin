@@ -90,6 +90,64 @@ function fallbackBadge(line) {
   return setLineBadge(line, "fallback", "fallback");
 }
 
+function ensureTranscriptMeta(line) {
+  if (!line) {
+    return null;
+  }
+  let meta = line.querySelector(".transcript-meta");
+  if (!meta) {
+    meta = document.createElement("div");
+    meta.className = "transcript-meta";
+    line.append(meta);
+  }
+  return meta;
+}
+
+function clearTranscriptMeta(line) {
+  const meta = ensureTranscriptMeta(line);
+  if (!meta) {
+    return null;
+  }
+  meta.textContent = "";
+  return meta;
+}
+
+function renderCitationSummary(line, citations) {
+  if (!line || !Array.isArray(citations) || citations.length === 0) {
+    return;
+  }
+  const meta = ensureTranscriptMeta(line);
+  for (const citation of citations) {
+    const chip = document.createElement("span");
+    chip.className = "transcript-citation";
+    chip.textContent = `${citation.document_name || citation.document_id} #${citation.rank || 1}`;
+    meta.append(chip);
+  }
+}
+
+function renderGroundingState(line, metadata) {
+  if (!line || !metadata) {
+    return;
+  }
+  const meta = clearTranscriptMeta(line);
+  const state = document.createElement("span");
+  state.className = "transcript-citation";
+  if (metadata.knowledge_used) {
+    state.textContent = "Knowledge grounded";
+    meta.append(state);
+    renderCitationSummary(line, metadata.knowledge_citations);
+  } else {
+    state.textContent = "No source used";
+    meta.append(state);
+  }
+  if (metadata.memory_used) {
+    const memory = document.createElement("span");
+    memory.className = "transcript-citation";
+    memory.textContent = "Memory considered";
+    meta.append(memory);
+  }
+}
+
 function updateActiveAssistantLine(text, finalized) {
   const line = ensureActiveAssistantLine();
   latestAssistantText = text;
@@ -294,13 +352,14 @@ function parseSSEFrames(buffer) {
   return { frames, remainder };
 }
 
-function finalizeAssistantLine(metadata) {
-  if (!activeAssistantLine) {
+function finalizeAssistantLine(line, metadata) {
+  if (!line) {
     return;
   }
   if (metadata.generation_mode === "fallback") {
-    fallbackBadge(activeAssistantLine);
+    fallbackBadge(line);
   }
+  renderGroundingState(line, metadata);
   if (metadata.generation_mode === "fallback" || metadata.generation_mode === "transparency") {
     setStatusChip(metadata.generation_mode, metadata.generation_mode);
   } else {
@@ -347,6 +406,7 @@ function renderPresentationEvent(eventName, rawData) {
       break;
     case "done": {
       const finalAssistantText = latestAssistantText || subtitleLine.textContent.trim();
+      const completedLine = activeAssistantLine;
       if (activeAssistantLine) {
         updateActiveAssistantLine(finalAssistantText || activeAssistantLine.querySelector(".transcript-content").textContent, true);
       } else if (finalAssistantText) {
@@ -354,8 +414,9 @@ function renderPresentationEvent(eventName, rawData) {
         if (metadata.generation_mode === "fallback") {
           fallbackBadge(line);
         }
+        renderGroundingState(line, metadata);
       }
-      finalizeAssistantLine(metadata);
+      finalizeAssistantLine(completedLine, metadata);
       if (metadata.llm_provider) {
         setProviderStatus({
           provider: metadata.llm_provider,

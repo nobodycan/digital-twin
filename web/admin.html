@@ -36,7 +36,16 @@
         <h2>Knowledge</h2>
         <input type="file" id="knowledge-upload">
         <button id="knowledge-upload-mock" type="button">Upload mock</button>
+        <div class="action-row">
+          <input id="knowledge-query" type="text" placeholder="Citation test query">
+          <button id="knowledge-query-run" type="button">Run citation test</button>
+        </div>
         <output id="knowledge-status">No knowledge uploaded</output>
+        <table>
+          <thead><tr><th>Name</th><th>Status</th><th>Chunks</th><th>Action</th></tr></thead>
+          <tbody id="knowledge-table-body"><tr><td colspan="4">No knowledge loaded</td></tr></tbody>
+        </table>
+        <section id="knowledge-detail" aria-label="Chunk preview">Chunk preview</section>
       </section>
 
       <section id="tool-admin" class="admin-section" aria-label="Tool permissions">

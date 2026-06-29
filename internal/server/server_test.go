@@ -777,6 +777,9 @@ func TestHandlerMemoryAdminListsAndDisablesMemory(t *testing.T) {
 	if _, err := memoryService.Save("tenant-1", admin.MemoryRecord{ID: "mem-1", UserID: "user-1", Summary: "prefers concise plans", Status: admin.MemoryActive}); err != nil {
 		t.Fatalf("Save memory: %v", err)
 	}
+	if _, err := memoryService.Save("tenant-1", admin.MemoryRecord{ID: "mem-2", UserID: "user-1", Summary: "disabled memory", Status: admin.MemoryDisabled}); err != nil {
+		t.Fatalf("Save disabled memory: %v", err)
+	}
 	handler := NewHandler(Config{
 		Metrics:     observability.NewMemoryMetrics(),
 		MemoryAdmin: &memoryService,
@@ -790,6 +793,9 @@ func TestHandlerMemoryAdminListsAndDisablesMemory(t *testing.T) {
 	}
 	if !strings.Contains(listResponse.Body.String(), `"summary":"prefers concise plans"`) {
 		t.Fatalf("list body = %s", listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"summary":"disabled memory"`) {
+		t.Fatalf("list should include disabled records, body = %s", listResponse.Body.String())
 	}
 
 	disableResponse := httptest.NewRecorder()
@@ -828,6 +834,75 @@ func TestHandlerKnowledgeAdminUploadAndCitation(t *testing.T) {
 	}
 	if !strings.Contains(citationResponse.Body.String(), `"document_id":"kb-1"`) {
 		t.Fatalf("citation body = %s", citationResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeAdminServesLifecycleEndpoints(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	if _, err := knowledgeService.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-ops",
+		Name:    "ops.md",
+		Content: "source grounding starts here.\n\nsecond chunk.",
+	}); err != nil {
+		t.Fatalf("seed upload: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:        observability.NewMemoryMetrics(),
+		KnowledgeAdmin: &knowledgeService,
+	})
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge", nil))
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"id":"kb-ops"`) {
+		t.Fatalf("list body = %s", listResponse.Body.String())
+	}
+
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/kb-ops", nil))
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", getResponse.Code, getResponse.Body.String())
+	}
+	if !strings.Contains(getResponse.Body.String(), `"chunk_count":2`) {
+		t.Fatalf("get body = %s", getResponse.Body.String())
+	}
+
+	disableResponse := httptest.NewRecorder()
+	handler.ServeHTTP(disableResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/disable", strings.NewReader(`{"document_id":"kb-ops"}`)))
+	if disableResponse.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, body = %s", disableResponse.Code, disableResponse.Body.String())
+	}
+	if !strings.Contains(disableResponse.Body.String(), `"status":"disabled"`) {
+		t.Fatalf("disable body = %s", disableResponse.Body.String())
+	}
+
+	enableResponse := httptest.NewRecorder()
+	handler.ServeHTTP(enableResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/enable", strings.NewReader(`{"document_id":"kb-ops"}`)))
+	if enableResponse.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, body = %s", enableResponse.Code, enableResponse.Body.String())
+	}
+
+	reindexResponse := httptest.NewRecorder()
+	handler.ServeHTTP(reindexResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/reindex", strings.NewReader(`{"document_id":"kb-ops","content":"reindexed source material only"}`)))
+	if reindexResponse.Code != http.StatusOK {
+		t.Fatalf("reindex status = %d, body = %s", reindexResponse.Code, reindexResponse.Body.String())
+	}
+	if !strings.Contains(reindexResponse.Body.String(), `"chunk_count":1`) {
+		t.Fatalf("reindex body = %s", reindexResponse.Body.String())
+	}
+
+	deleteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/delete", strings.NewReader(`{"document_id":"kb-ops"}`)))
+	if deleteResponse.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, body = %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+
+	missingResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/kb-ops", nil))
+	if missingResponse.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d, want 404; body = %s", missingResponse.Code, missingResponse.Body.String())
 	}
 }
 

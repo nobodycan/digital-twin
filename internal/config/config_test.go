@@ -532,6 +532,55 @@ server:
 	}
 }
 
+func TestLoadDefaultsServerHostToLoopback(t *testing.T) {
+	path := writeConfig(t, `
+environment: local
+server:
+  port: 8080
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Fatalf("Server.Host = %q, want 127.0.0.1", cfg.Server.Host)
+	}
+}
+
+func TestLoadReadsServerHostFromEnv(t *testing.T) {
+	path := writeConfig(t, `server:
+  port: 8080
+`)
+	t.Setenv("DIGITAL_TWIN_SERVER_HOST", "0.0.0.0")
+	t.Setenv("DIGITAL_TWIN_SERVER_API_KEY", "env-api-key")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Server.Host != "0.0.0.0" {
+		t.Fatalf("Server.Host = %q, want 0.0.0.0", cfg.Server.Host)
+	}
+}
+
+func TestLoadRejectsNonLocalServerHostWithoutAPIKey(t *testing.T) {
+	path := writeConfig(t, `
+environment: local
+server:
+  host: 0.0.0.0
+  port: 8080
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected non-local host without api key to be rejected")
+	}
+	if !strings.Contains(err.Error(), "server.api_key is required when server.host is non-local") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestLoadHandlesCommentsAndQuotedValues(t *testing.T) {
 	path := writeConfig(t, `
 server:
@@ -621,6 +670,7 @@ func clearConfigEnv(t *testing.T) {
 
 	names := []string{
 		"DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT",
+		"DIGITAL_TWIN_SERVER_HOST", "SERVER_HOST",
 		"DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY",
 		"DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS",
 		"DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL",

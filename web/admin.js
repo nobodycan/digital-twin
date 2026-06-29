@@ -4,19 +4,29 @@ const saveDraftButton = document.querySelector("#persona-save-draft");
 const publishButton = document.querySelector("#persona-publish");
 const rollbackButton = document.querySelector("#persona-rollback");
 const memoryTableBody = document.querySelector("#memory-table-body");
+const knowledgeUpload = document.querySelector("#knowledge-upload");
 const knowledgeUploadMock = document.querySelector("#knowledge-upload-mock");
+const knowledgeQuery = document.querySelector("#knowledge-query");
+const knowledgeQueryRun = document.querySelector("#knowledge-query-run");
 const knowledgeStatus = document.querySelector("#knowledge-status");
+const knowledgeTableBody = document.querySelector("#knowledge-table-body");
+const knowledgeDetail = document.querySelector("#knowledge-detail");
 const toolKnowledgeSearch = document.querySelector("#tool-knowledge-search");
 const toolSavePolicy = document.querySelector("#tool-save-policy");
 const toolStatus = document.querySelector("#tool-status");
 const auditRefresh = document.querySelector("#audit-refresh");
 const auditTableBody = document.querySelector("#audit-table-body");
+const knowledgeDetailPathPrefix = "/admin/knowledge/";
 
 let currentDraftId = "";
 let activeVersionId = "";
 
 function setPersonaStatus(text) {
   personaStatus.textContent = text;
+}
+
+function setKnowledgeStatus(text) {
+  knowledgeStatus.textContent = text;
 }
 
 function draftPayload() {
@@ -69,12 +79,18 @@ async function loadMemory() {
     return;
   }
   for (const record of records) {
-    const row = document.createElement("tr");
-    const idCell = document.createElement("td");
-    idCell.textContent = record.id;
-    const statusCell = document.createElement("td");
-    statusCell.textContent = record.status;
-    const actionCell = document.createElement("td");
+    memoryTableBody.append(renderMemoryRow(record));
+  }
+}
+
+function renderMemoryRow(record) {
+  const row = document.createElement("tr");
+  const idCell = document.createElement("td");
+  idCell.textContent = record.id;
+  const statusCell = document.createElement("td");
+  statusCell.textContent = record.status;
+  const actionCell = document.createElement("td");
+  if (record.status === "active") {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Disable";
@@ -83,9 +99,88 @@ async function loadMemory() {
       await loadMemory();
     });
     actionCell.append(button);
-    row.append(idCell, statusCell, actionCell);
-    memoryTableBody.append(row);
+  } else {
+    actionCell.textContent = "Disabled";
   }
+  row.append(idCell, statusCell, actionCell);
+  return row;
+}
+
+async function loadKnowledge() {
+  const response = await fetch("/admin/knowledge");
+  if (!response.ok) return;
+  const documents = await response.json();
+  knowledgeTableBody.textContent = "";
+  if (documents.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = "No knowledge loaded";
+    row.append(cell);
+    knowledgeTableBody.append(row);
+    knowledgeDetail.textContent = "Chunk preview";
+    return;
+  }
+  for (const documentRecord of documents) {
+    knowledgeTableBody.append(renderKnowledgeRow(documentRecord));
+  }
+}
+
+function renderKnowledgeRow(documentRecord) {
+  const row = document.createElement("tr");
+
+  const nameCell = document.createElement("td");
+  nameCell.textContent = documentRecord.name;
+
+  const statusCell = document.createElement("td");
+  statusCell.textContent = documentRecord.status;
+
+  const chunkCountCell = document.createElement("td");
+  chunkCountCell.textContent = String(documentRecord.chunk_count ?? documentRecord.chunks?.length ?? 0);
+
+  const actionCell = document.createElement("td");
+  const inspectButton = document.createElement("button");
+  inspectButton.type = "button";
+  inspectButton.textContent = "Inspect";
+  inspectButton.addEventListener("click", async () => {
+    const detailURL = `${knowledgeDetailPathPrefix}${documentRecord.id}`;
+    const detail = await fetch(detailURL);
+    if (!detail.ok) throw new Error(`${detailURL} failed (${detail.status})`);
+    const loaded = await detail.json();
+    knowledgeDetail.textContent = (loaded.chunks || []).map((chunk) => chunk.text).join("\n\n") || "Chunk preview";
+  });
+
+  const toggleButton = document.createElement("button");
+  toggleButton.type = "button";
+  toggleButton.textContent = documentRecord.status === "disabled" ? "Enable" : "Disable";
+  toggleButton.addEventListener("click", async () => {
+    const url = documentRecord.status === "disabled" ? "/admin/knowledge/enable" : "/admin/knowledge/disable";
+    await postJSON(url, { document_id: documentRecord.id });
+    await loadKnowledge();
+  });
+
+  const reindexButton = document.createElement("button");
+  reindexButton.type = "button";
+  reindexButton.textContent = "Reindex";
+  reindexButton.addEventListener("click", async () => {
+    await postJSON("/admin/knowledge/reindex", {
+      document_id: documentRecord.id,
+      content: (documentRecord.chunks || []).map((chunk) => chunk.text).join("\n\n")
+    });
+    await loadKnowledge();
+  });
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete";
+  deleteButton.addEventListener("click", async () => {
+    await postJSON("/admin/knowledge/delete", { document_id: documentRecord.id });
+    await loadKnowledge();
+  });
+
+  actionCell.append(inspectButton, toggleButton, reindexButton, deleteButton);
+  row.append(nameCell, statusCell, chunkCountCell, actionCell);
+  return row;
 }
 
 knowledgeUploadMock?.addEventListener("click", async () => {
@@ -96,9 +191,20 @@ knowledgeUploadMock?.addEventListener("click", async () => {
       content: "Phase 4 adds a digital human UI.\n\nIt includes persona, memory, and knowledge admin controls."
     });
     const citation = await postJSON("/admin/knowledge/citation-test", { query: "digital human UI" });
-    knowledgeStatus.textContent = `Uploaded ${uploaded.chunks.length} chunks; citation ${citation.chunk_id}`;
+    setKnowledgeStatus(`Uploaded ${uploaded.chunk_count ?? uploaded.chunks.length} chunks; citation ${citation.chunk_id}`);
+    await loadKnowledge();
   } catch (error) {
-    knowledgeStatus.textContent = `Knowledge error: ${error.message}`;
+    setKnowledgeStatus(`Knowledge error: ${error.message}`);
+  }
+});
+
+knowledgeQueryRun?.addEventListener("click", async () => {
+  try {
+    const citation = await postJSON("/admin/knowledge/citation-test", { query: knowledgeQuery?.value || "" });
+    setKnowledgeStatus(`Citation match ${citation.chunk_id}`);
+    knowledgeDetail.textContent = citation.text;
+  } catch (error) {
+    setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }
 });
 
@@ -180,6 +286,7 @@ loadActivePersona().catch((error) => {
   setPersonaStatus(`Active error: ${error.message}`);
 });
 loadMemory().catch(() => {});
+loadKnowledge().catch(() => {});
 auditRefresh?.addEventListener("click", () => {
   loadAudit().catch(() => {});
 });

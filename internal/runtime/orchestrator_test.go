@@ -477,6 +477,59 @@ func TestOrchestratorStreamIncludesGenerationMetadataOnMessageCompleted(t *testi
 	}
 }
 
+func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testing.T) {
+	registry := core.NewAgentRegistry()
+	agent := fakeRuntimeAgent{
+		name:    "persona-agent",
+		handles: types.IntentPersonaChat,
+		result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "Grounded answer"},
+			Metadata: types.Metadata{
+				"knowledge_used":         true,
+				"knowledge_result_count": 1,
+				"knowledge_citations": []map[string]any{
+					{"document_id": "kb-1", "document_name": "planning.md", "chunk_id": "kb-1:chunk-0001"},
+				},
+				"retrieval_mode":      "lexical",
+				"memory_used":         false,
+				"memory_result_count": 0,
+			},
+		},
+	}
+	if err := registry.Register(agent); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	orchestrator := NewOrchestrator(OrchestratorConfig{
+		Router:      &fakeRuntimeRouter{intent: types.Intent{Name: types.IntentPersonaChat, Confidence: 0.9}},
+		Agents:      registry,
+		Coordinator: conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store.NewInMemoryStore()}),
+		RequestID:   func() string { return "req-grounding" },
+	})
+	sink := &recordingRuntimeStreamSink{}
+
+	_, err := orchestrator.Stream(context.Background(), validTurnRequest("turn-1", "attempt-1", "hello"), sink)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+
+	event := findStreamEvent(t, sink.events, types.StreamEventMessageCompleted)
+	for key, want := range map[string]any{
+		"knowledge_used":         true,
+		"knowledge_result_count": 1,
+		"retrieval_mode":         "lexical",
+		"memory_used":            false,
+		"memory_result_count":    0,
+	} {
+		if event.Metadata[key] != want {
+			t.Fatalf("metadata[%q] = %v, want %v", key, event.Metadata[key], want)
+		}
+	}
+	if _, exists := event.Metadata["knowledge_citations"]; !exists {
+		t.Fatalf("knowledge_citations missing from metadata: %#v", event.Metadata)
+	}
+}
+
 func TestOrchestratorStreamReplaysCompletedTurnWithoutCallingAgent(t *testing.T) {
 	store := store.NewInMemoryStore()
 	coordinator := conversation.NewCoordinator(conversation.CoordinatorConfig{Store: store})
