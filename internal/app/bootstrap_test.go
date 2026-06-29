@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/agents"
 	"github.com/nobodycan/digital-twin/internal/core"
 	"github.com/nobodycan/digital-twin/internal/llm"
@@ -152,6 +153,56 @@ func TestNewLocalRuntimeDoesNotForceUncertaintyFallbackForNormalPersonaChat(t *t
 	}
 	if result.Metadata["fallback_category"] != nil {
 		t.Fatalf("fallback_category = %v, want nil", result.Metadata["fallback_category"])
+	}
+}
+
+func TestNewLocalRuntimeUsesKnowledgeStoreForGroundedPersonaMetadata(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	if _, err := knowledgeService.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-1",
+		Name:    "planning.md",
+		Content: "Phase 10 should show citations in the app.",
+	}); err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	local, err := NewLocalRuntime(LocalRuntimeConfig{
+		PersonaLLM: &testutil.FakeLLM{
+			ChatResponse: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Grounded runtime reply."}},
+		},
+		PersonaLLMProvider: "openai-compatible",
+		PersonaLLMModel:    "gpt-runtime",
+		KnowledgeStore:     knowledgeStore,
+	})
+	if err != nil {
+		t.Fatalf("NewLocalRuntime() error = %v", err)
+	}
+
+	result, err := local.Orchestrator.Handle(t.Context(), types.Conversation{
+		ID:       "conv-knowledge",
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Messages: []types.Message{{
+			ID:        "msg-1",
+			Role:      types.RoleUser,
+			Content:   "How should phase 10 work?",
+			CreatedAt: time.Now().UTC(),
+		}},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.Metadata["knowledge_used"] != true {
+		t.Fatalf("knowledge_used = %v, want true", result.Metadata["knowledge_used"])
+	}
+	if result.Metadata["retrieval_mode"] != "lexical" {
+		t.Fatalf("retrieval_mode = %v, want lexical", result.Metadata["retrieval_mode"])
+	}
+	citations, ok := result.Metadata["knowledge_citations"].([]map[string]any)
+	if !ok || len(citations) != 1 {
+		t.Fatalf("knowledge_citations = %#v, want 1 citation", result.Metadata["knowledge_citations"])
 	}
 }
 

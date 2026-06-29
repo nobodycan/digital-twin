@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 9 - Experience and Provider Diagnostics`
+Current stage: `Phase 10 - Knowledge Base and Memory Control`
 
 What is already working:
 
@@ -13,6 +13,9 @@ What is already working:
 - streaming `/chat/stream` and `/experience/stream`
 - `/app` operator-facing digital human workspace
 - `/admin` local operations console
+- local knowledge document lifecycle: upload, list, inspect, disable, enable, delete, and reindex
+- deterministic lexical knowledge retrieval with source metadata and citations
+- grounded persona replies that can surface knowledge usage and citation summaries in `/app`
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -28,6 +31,7 @@ What is still intentionally out of scope in this repo:
 
 - `Persona`: stable assistant identity with guardrails
 - `Memory`: durable local conversation state and replay-safe attempts
+- `Knowledge`: operator-managed local documents with retrieval and citations
 - `Runtime`: router, agent registry, orchestrator, turn persistence
 - `Provider boundary`: OpenAI-compatible LLM client with sanitized diagnostics
 - `Experience`: SSE-driven web workspace with provider, fallback, and error visibility
@@ -56,10 +60,18 @@ flowchart TD
 - `GET /ready`
 - `GET /metrics`
 - `GET /runtime/status`
+- `GET /admin/knowledge`
+- `GET /admin/knowledge/{document_id}`
 - `POST /chat`
 - `POST /chat/stream`
 - `POST /experience/stream`
 - `POST /experience/mock-voice/stream`
+- `POST /admin/knowledge/upload`
+- `POST /admin/knowledge/disable`
+- `POST /admin/knowledge/enable`
+- `POST /admin/knowledge/delete`
+- `POST /admin/knowledge/reindex`
+- `POST /admin/knowledge/citation-test`
 - `GET /app`
 - `GET /admin`
 
@@ -86,6 +98,7 @@ $env:DIGITAL_TWIN_LLM_API_KEY="your-api-key"
 Then open:
 
 - [http://localhost:18080/app](http://localhost:18080/app)
+- [http://localhost:18080/admin](http://localhost:18080/admin)
 
 Stop the tracked server:
 
@@ -132,6 +145,23 @@ The smoke script now:
 - runs two streaming turns plus one replay attempt
 - verifies durable local conversation history
 
+## Knowledge workflow
+
+Phase 10 adds a real local knowledge loop:
+
+1. Start the server.
+2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
+3. Upload a mock or text/Markdown knowledge document.
+4. Run a citation test query from `/admin`.
+5. Ask a related question in `/app`.
+
+When grounding succeeds, `/app` can now show:
+
+- `Knowledge grounded`
+- source citation chips
+- `Memory considered` when memory metadata is present
+- `No source used` when retrieval found nothing relevant
+
 ## Developer workflow
 
 Useful commands:
@@ -152,12 +182,12 @@ go build ./cmd/smoke
 - [docs/plans](./docs/plans): implementation plans and test matrices
 - [RELEASE_NOTES.md](./RELEASE_NOTES.md): document and implementation release history
 
-## Phase 9 highlights
+## Phase 10 highlights
 
-Phase 9 focuses on trust recovery:
+Phase 10 focuses on turning the digital human into a local knowledge worker:
 
-- the app now looks like an operator workspace instead of a demo console
-- provider and model status are visible before the first message
-- fallback replies are explicitly labeled instead of masquerading as normal LLM output
-- truncated, empty, malformed, and status-failure provider streams are classified
-- DeepSeek startup and smoke verification are copy-paste friendly
+- `/admin` now manages real knowledge documents instead of a mock-only upload path
+- ready and disabled knowledge states affect retrieval behavior
+- persona chat can use deterministic lexical retrieval and emit citation metadata
+- `/app` can distinguish grounded answers from source-free answers
+- the implementation stays local-first and deterministic: no SQLite, no real provider calls in CI

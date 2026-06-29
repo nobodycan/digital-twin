@@ -332,7 +332,18 @@ func allowlistedGenerationMetadata(metadata types.Metadata) types.Metadata {
 	if metadata == nil {
 		return nil
 	}
-	allowedKeys := []string{"generation_mode", "fallback_category", "llm_provider", "llm_model"}
+	allowedKeys := []string{
+		"generation_mode",
+		"fallback_category",
+		"llm_provider",
+		"llm_model",
+		"knowledge_used",
+		"knowledge_result_count",
+		"knowledge_citations",
+		"retrieval_mode",
+		"memory_used",
+		"memory_result_count",
+	}
 	filtered := make(types.Metadata)
 	for _, key := range allowedKeys {
 		if value, ok := metadata[key]; ok && value != nil {

@@ -255,6 +255,25 @@ input:disabled {
   word-break: break-word;
 }
 
+.transcript-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.transcript-citation {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(120, 105, 89, 0.14);
+  border-radius: 999px;
+  background: rgba(247, 243, 236, 0.9);
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .composer {
   display: grid;
   gap: 8px;

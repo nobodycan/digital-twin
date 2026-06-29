@@ -129,7 +129,13 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /admin/persona/active", handler.handlePersonaActive)
 	handler.mux.HandleFunc("GET /admin/memory", handler.handleMemoryList)
 	handler.mux.HandleFunc("POST /admin/memory/disable", handler.handleMemoryDisable)
+	handler.mux.HandleFunc("GET /admin/knowledge", handler.handleKnowledgeList)
+	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}", handler.handleKnowledgeGet)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
+	handler.mux.HandleFunc("POST /admin/knowledge/disable", handler.handleKnowledgeDisable)
+	handler.mux.HandleFunc("POST /admin/knowledge/enable", handler.handleKnowledgeEnable)
+	handler.mux.HandleFunc("POST /admin/knowledge/delete", handler.handleKnowledgeDelete)
+	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/tools/policy", handler.handleToolPolicySave)
 	handler.mux.HandleFunc("POST /admin/tools/authorize", handler.handleToolAuthorize)
@@ -383,7 +389,7 @@ func (h *Handler) handleMemoryList(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "memory_admin_unavailable"})
 		return
 	}
-	records, err := h.memoryAdmin.ActiveForRecall("tenant-1", "user-1")
+	records, err := h.memoryAdmin.List("tenant-1")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "memory_list_failed", "cause": err.Error()})
 		return
@@ -435,6 +441,37 @@ type knowledgeCitationRequest struct {
 	Query string `json:"query"`
 }
 
+type knowledgeDocumentRequest struct {
+	DocumentID string `json:"document_id"`
+	Content    string `json:"content,omitempty"`
+}
+
+func (h *Handler) handleKnowledgeList(w http.ResponseWriter, _ *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	documents, err := h.knowledgeAdmin.List("tenant-1")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_list_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, documents)
+}
+
+func (h *Handler) handleKnowledgeGet(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	document, err := h.knowledgeAdmin.Get("tenant-1", r.PathValue("documentID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "knowledge_document_missing", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
 func (h *Handler) handleKnowledgeCitationTest(w http.ResponseWriter, r *http.Request) {
 	if h.knowledgeAdmin == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
@@ -451,6 +488,51 @@ func (h *Handler) handleKnowledgeCitationTest(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, citation)
+}
+
+func (h *Handler) handleKnowledgeDisable(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeMutation(w, r, "knowledge_disable_failed", func(request knowledgeDocumentRequest) (any, error) {
+		return h.knowledgeAdmin.Disable("tenant-1", request.DocumentID)
+	})
+}
+
+func (h *Handler) handleKnowledgeEnable(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeMutation(w, r, "knowledge_enable_failed", func(request knowledgeDocumentRequest) (any, error) {
+		return h.knowledgeAdmin.Enable("tenant-1", request.DocumentID)
+	})
+}
+
+func (h *Handler) handleKnowledgeDelete(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeMutation(w, r, "knowledge_delete_failed", func(request knowledgeDocumentRequest) (any, error) {
+		if err := h.knowledgeAdmin.Delete("tenant-1", request.DocumentID); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "deleted", "document_id": request.DocumentID}, nil
+	})
+}
+
+func (h *Handler) handleKnowledgeReindex(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeMutation(w, r, "knowledge_reindex_failed", func(request knowledgeDocumentRequest) (any, error) {
+		return h.knowledgeAdmin.Reindex("tenant-1", request.DocumentID, request.Content)
+	})
+}
+
+func (h *Handler) handleKnowledgeMutation(w http.ResponseWriter, r *http.Request, code string, apply func(knowledgeDocumentRequest) (any, error)) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	var request knowledgeDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	result, err := apply(request)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": code, "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) handleToolPolicySave(w http.ResponseWriter, r *http.Request) {

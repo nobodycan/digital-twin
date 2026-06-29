@@ -1,4 +1,24 @@
 # Release Notes
+## Unreleased - Phase 10 Knowledge Base and Memory Control
+
+### Added
+
+- Added Phase 10 local knowledge lifecycle: document metadata, stable chunk IDs and ordinals, content hashing, disable/enable/delete/reindex support, and file-store persistence updates.
+- Added deterministic lexical retrieval in `internal/knowledge`, including disabled-document filtering, stable ranking, and CJK substring fallback.
+- Added runtime grounding wiring so persona chat can use local knowledge sources and emit allowlisted metadata such as `knowledge_used`, `knowledge_result_count`, `knowledge_citations`, and `retrieval_mode`.
+- Added `/admin/knowledge` lifecycle endpoints and upgraded `/admin` from a mock knowledge button into a real operator-facing knowledge table with inspect, toggle, reindex, delete, and citation-test actions.
+- Added `/app` grounding presentation for assistant turns, including `Knowledge grounded`, `No source used`, citation chips, and memory/knowledge state rendering.
+
+### Documented
+
+- Added Phase 10 spec, design, and plan docs for knowledge base management, memory control, deterministic retrieval, and prompt-injection boundaries.
+- README now reflects Phase 10 status, the local knowledge workflow, and the expanded admin knowledge endpoints.
+
+### Notes
+
+- Phase 10 still keeps persistence local-first and file-backed; it does not introduce SQLite, an external vector database, or mandatory embedding-provider integration.
+- CI remains deterministic and local: no real DeepSeek calls or paid provider dependencies are required for knowledge grounding tests.
+
 ## Unreleased - Phase 9 Experience and Provider Diagnostics
 
 ### Added

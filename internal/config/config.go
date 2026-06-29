@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -22,6 +23,7 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
+	Host              string
 	Port              int
 	APIKey            string
 	RateLimitRequests int
@@ -67,7 +69,7 @@ func Load(path string) (AppConfig, error) {
 
 	cfg := AppConfig{
 		Environment:   "local",
-		Server:        ServerConfig{Port: 8080},
+		Server:        ServerConfig{Host: "127.0.0.1", Port: 8080},
 		Log:           LogConfig{Level: "info"},
 		LLM:           LLMConfig{Provider: "local", FallbackPolicy: "fallback_to_local"},
 		TTS:           ProviderConfig{Provider: "local"},
@@ -164,6 +166,7 @@ func applyEnv(cfg *AppConfig) error {
 	env := map[string]string{
 		"environment":                firstEnv("DIGITAL_TWIN_ENVIRONMENT", "DIGITAL_TWIN_ENV"),
 		"server.port":                firstEnv("DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT"),
+		"server.host":                firstEnv("DIGITAL_TWIN_SERVER_HOST", "SERVER_HOST"),
 		"server.api_key":             firstEnv("DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY"),
 		"server.rate_limit_requests": firstEnv("DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS"),
 		"log.level":                  firstEnv("DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL"),
@@ -206,6 +209,8 @@ func setValue(cfg *AppConfig, key, value string) error {
 			return fmt.Errorf("parse server.port: %w", err)
 		}
 		cfg.Server.Port = port
+	case "server.host":
+		cfg.Server.Host = value
 	case "server.api_key":
 		cfg.Server.APIKey = value
 	case "server.rate_limit_requests":
@@ -261,6 +266,12 @@ func setValue(cfg *AppConfig, key, value string) error {
 func validate(cfg AppConfig) error {
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(cfg.Server.Host) == "" {
+		return fmt.Errorf("server.host is required")
+	}
+	if !isLocalBindHost(cfg.Server.Host) && strings.TrimSpace(cfg.Server.APIKey) == "" {
+		return fmt.Errorf("server.api_key is required when server.host is non-local")
 	}
 	if err := validateLLM(cfg.Environment, cfg.LLM); err != nil {
 		return err
@@ -328,6 +339,7 @@ func validateLLM(environment string, llm LLMConfig) error {
 func (cfg AppConfig) SafeSummary() string {
 	fields := []string{
 		"environment=" + cfg.Environment,
+		"server.host=" + cfg.Server.Host,
 		"server.port=" + strconv.Itoa(cfg.Server.Port),
 		"log.level=" + cfg.Log.Level,
 		"tenant.default_id=" + cfg.Tenant.DefaultID,
@@ -405,6 +417,16 @@ func isProductionLike(environment string) bool {
 	default:
 		return false
 	}
+}
+
+func isLocalBindHost(host string) bool {
+	value := strings.TrimSpace(strings.Trim(host, "[]"))
+	switch strings.ToLower(value) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	ip := net.ParseIP(value)
+	return ip != nil && ip.IsLoopback()
 }
 
 func firstEnv(names ...string) string {

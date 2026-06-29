@@ -29,6 +29,17 @@ func TestAppScriptPostsToExperienceStreamAndRendersPresentationEvents(t *testing
 		"error",
 		"done",
 		"conversationId",
+		"knowledge_used",
+		"knowledge_citations",
+		"memory_used",
+		"Knowledge grounded",
+		"No source used",
+		"Memory considered",
+		"renderGroundingState",
+		"renderCitationSummary",
+		"clearTranscriptMeta",
+		"const completedLine = activeAssistantLine",
+		"finalizeAssistantLine(completedLine, metadata)",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("app.js missing %q", want)
@@ -88,6 +99,8 @@ func TestAppStylesDefineVisibleAvatarStates(t *testing.T) {
 		"status-chip",
 		"presence-panel",
 		"transcript-badge",
+		"transcript-meta",
+		"transcript-citation",
 		`[data-state="listening"]`,
 		`[data-state="thinking"]`,
 		`[data-state="speaking"]`,
@@ -146,14 +159,48 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		`"/admin/persona/active"`,
 		`"/admin/memory"`,
 		`"/admin/memory/disable"`,
+		`"/admin/knowledge"`,
+		`"/admin/knowledge/"`,
 		`"/admin/knowledge/upload"`,
+		`"/admin/knowledge/disable"`,
+		`"/admin/knowledge/enable"`,
+		`"/admin/knowledge/delete"`,
+		`"/admin/knowledge/reindex"`,
 		`"/admin/knowledge/citation-test"`,
 		`"/admin/tools/policy"`,
 		`"/admin/tools/authorize"`,
 		`"/admin/audit"`,
+		"loadKnowledge",
+		"knowledge-table-body",
+		"knowledge-detail",
+		"renderKnowledgeRow",
+		"renderMemoryRow",
+		"chunk_count",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.js missing %q", want)
+		}
+	}
+}
+
+func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
+	html, err := os.ReadFile("admin.html")
+	if err != nil {
+		t.Fatalf("read admin.html: %v", err)
+	}
+	source := string(html)
+	for _, want := range []string{
+		`id="knowledge-upload"`,
+		`id="knowledge-upload-mock"`,
+		`id="knowledge-query"`,
+		`id="knowledge-query-run"`,
+		`id="knowledge-table-body"`,
+		`id="knowledge-detail"`,
+		`id="knowledge-status"`,
+		"Chunk preview",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("admin.html missing %q", want)
 		}
 	}
 }
