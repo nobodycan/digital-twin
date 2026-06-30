@@ -137,7 +137,10 @@ func (a knowledgeGrounderAdapter) Ground(ctx context.Context, conversation types
 	if err != nil {
 		return agents.Grounding{}, err
 	}
-	result := agents.Grounding{RetrievalMode: grounding.RetrievalMode}
+	result := agents.Grounding{
+		RetrievalMode:  grounding.RetrievalMode,
+		NoSourceReason: grounding.NoSourceReason,
+	}
 	for _, citation := range grounding.Citations {
 		result.Citations = append(result.Citations, agents.GroundingCitation{
 			DocumentID:   citation.DocumentID,

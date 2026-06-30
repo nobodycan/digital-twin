@@ -7,6 +7,7 @@ const memoryTableBody = document.querySelector("#memory-table-body");
 const knowledgeUpload = document.querySelector("#knowledge-upload");
 const knowledgeUploadMock = document.querySelector("#knowledge-upload-mock");
 const knowledgeQuery = document.querySelector("#knowledge-query");
+const knowledgeQueryMode = document.querySelector("#knowledge-query-mode");
 const knowledgeQueryRun = document.querySelector("#knowledge-query-run");
 const knowledgeStatus = document.querySelector("#knowledge-status");
 const knowledgeTableBody = document.querySelector("#knowledge-table-body");
@@ -27,6 +28,44 @@ function setPersonaStatus(text) {
 
 function setKnowledgeStatus(text) {
   knowledgeStatus.textContent = text;
+}
+
+function formatStageSummary(result) {
+  const ran = (result.stages_run || []).join(", ") || "none";
+  const skipped = (result.stages_skipped || []).join(", ") || "none";
+  return `Stages run: ${ran}\nStages skipped: ${skipped}`;
+}
+
+function formatExplanation(explanation) {
+  const matchedTerms = (explanation.matched_terms || []).join(", ") || "none";
+  return [
+    `chunk_id: ${explanation.chunk_id}`,
+    `document_id: ${explanation.document_id}`,
+    `lexical_score: ${explanation.lexical_score ?? 0}`,
+    `vector_score: ${explanation.vector_score ?? 0}`,
+    `final_score: ${explanation.final_score ?? 0}`,
+    `rank_reason: ${explanation.rank_reason || "n/a"}`,
+    `matched_terms: ${matchedTerms}`,
+    `index_status: ${explanation.index_status || "n/a"}`
+  ].join("\n");
+}
+
+function renderKnowledgeDiagnostics(result) {
+  const sections = [];
+  sections.push(`mode: ${result.mode || "unknown"}`);
+  if (result.no_source_reason) {
+    sections.push(`no_source_reason: ${result.no_source_reason}`);
+  }
+  sections.push(formatStageSummary(result));
+
+  const explanations = result.explanations || [];
+  if (explanations.length === 0) {
+    sections.push("No ranked chunks");
+  } else {
+    sections.push(explanations.map((explanation, index) => `#${index + 1}\n${formatExplanation(explanation)}`).join("\n\n"));
+  }
+
+  return sections.join("\n\n");
 }
 
 function draftPayload() {
@@ -200,9 +239,20 @@ knowledgeUploadMock?.addEventListener("click", async () => {
 
 knowledgeQueryRun?.addEventListener("click", async () => {
   try {
-    const citation = await postJSON("/admin/knowledge/citation-test", { query: knowledgeQuery?.value || "" });
-    setKnowledgeStatus(`Citation match ${citation.chunk_id}`);
-    knowledgeDetail.textContent = citation.text;
+    const diagnostics = await postJSON("/admin/knowledge/retrieval-diagnostics", {
+      query: knowledgeQuery?.value || "",
+      mode: knowledgeQueryMode?.value || "auto",
+      limit: 3
+    });
+    const topResult = diagnostics.results?.[0];
+    if (topResult) {
+      setKnowledgeStatus(`Top match ${topResult.chunk_id} (${topResult.score})`);
+    } else if (diagnostics.no_source_reason) {
+      setKnowledgeStatus(`No source: ${diagnostics.no_source_reason}`);
+    } else {
+      setKnowledgeStatus("No retrieval results");
+    }
+    knowledgeDetail.textContent = renderKnowledgeDiagnostics(diagnostics);
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }

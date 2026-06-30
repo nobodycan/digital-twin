@@ -15,6 +15,7 @@ import (
 	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/avatar"
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/knowledge"
 	"github.com/nobodycan/digital-twin/internal/observability"
 	"github.com/nobodycan/digital-twin/internal/presentation"
 	"github.com/nobodycan/digital-twin/internal/runtime"
@@ -810,10 +811,13 @@ func TestHandlerMemoryAdminListsAndDisablesMemory(t *testing.T) {
 }
 
 func TestHandlerKnowledgeAdminUploadAndCitation(t *testing.T) {
-	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	store := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(store)
+	knowledgeRetriever := knowledge.NewService(store)
 	handler := NewHandler(Config{
-		Metrics:        observability.NewMemoryMetrics(),
-		KnowledgeAdmin: &knowledgeService,
+		Metrics:            observability.NewMemoryMetrics(),
+		KnowledgeAdmin:     &knowledgeService,
+		KnowledgeRetriever: &knowledgeRetriever,
 	})
 
 	uploadResponse := httptest.NewRecorder()
@@ -834,6 +838,73 @@ func TestHandlerKnowledgeAdminUploadAndCitation(t *testing.T) {
 	}
 	if !strings.Contains(citationResponse.Body.String(), `"document_id":"kb-1"`) {
 		t.Fatalf("citation body = %s", citationResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeRetrievalDiagnostics(t *testing.T) {
+	store := admin.NewInMemoryKnowledgeStore()
+	knowledgeAdmin := admin.NewKnowledgeService(store)
+	if _, err := knowledgeAdmin.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-1",
+		Name:    "planning.md",
+		Content: "Phase 11 adds retrieval diagnostics.\n\nGrounded answers stay auditable.",
+	}); err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	knowledgeRetriever := knowledge.NewService(store)
+	handler := NewHandler(Config{
+		Metrics:            observability.NewMemoryMetrics(),
+		KnowledgeAdmin:     &knowledgeAdmin,
+		KnowledgeRetriever: &knowledgeRetriever,
+	})
+
+	diagnosticsResponse := httptest.NewRecorder()
+	handler.ServeHTTP(diagnosticsResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/retrieval-diagnostics", strings.NewReader(`{"query":"retrieval diagnostics","mode":"auto","limit":2}`)))
+
+	if diagnosticsResponse.Code != http.StatusOK {
+		t.Fatalf("diagnostics status = %d, body = %s", diagnosticsResponse.Code, diagnosticsResponse.Body.String())
+	}
+	body := diagnosticsResponse.Body.String()
+	for _, want := range []string{
+		`"mode":"auto"`,
+		`"document_id":"kb-1"`,
+		`"index_status":"vector_missing"`,
+		`"stages_skipped":["vector_unavailable"]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("diagnostics body missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "data\\admin") {
+		t.Fatalf("diagnostics body leaked local path:\n%s", body)
+	}
+}
+
+func TestHandlerKnowledgeRetrievalDiagnosticsReturnsNoSourceReason(t *testing.T) {
+	store := admin.NewInMemoryKnowledgeStore()
+	knowledgeAdmin := admin.NewKnowledgeService(store)
+	if _, err := knowledgeAdmin.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-1",
+		Name:    "planning.md",
+		Content: "Phase 11 adds retrieval diagnostics.",
+	}); err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	knowledgeRetriever := knowledge.NewService(store)
+	handler := NewHandler(Config{
+		Metrics:            observability.NewMemoryMetrics(),
+		KnowledgeAdmin:     &knowledgeAdmin,
+		KnowledgeRetriever: &knowledgeRetriever,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/retrieval-diagnostics", strings.NewReader(`{"query":"quartz falcon runway","mode":"lexical","limit":2}`)))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"no_source_reason":"no_matching_chunks"`) {
+		t.Fatalf("body = %s, want no_source_reason", response.Body.String())
 	}
 }
 

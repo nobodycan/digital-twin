@@ -15,6 +15,7 @@ import (
 
 	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/core"
+	"github.com/nobodycan/digital-twin/internal/knowledge"
 	"github.com/nobodycan/digital-twin/internal/observability"
 	"github.com/nobodycan/digital-twin/internal/persona"
 	"github.com/nobodycan/digital-twin/internal/presentation"
@@ -34,6 +35,7 @@ type Config struct {
 	PersonaAdmin        *admin.PersonaService
 	MemoryAdmin         *admin.MemoryService
 	KnowledgeAdmin      *admin.KnowledgeService
+	KnowledgeRetriever  *knowledge.Service
 	ToolPolicyAdmin     *admin.ToolPolicyService
 	AuditAdmin          *admin.AuditService
 	StaticDir           string
@@ -72,6 +74,7 @@ type Handler struct {
 	personaAdmin        *admin.PersonaService
 	memoryAdmin         *admin.MemoryService
 	knowledgeAdmin      *admin.KnowledgeService
+	knowledgeRetriever  *knowledge.Service
 	toolPolicyAdmin     *admin.ToolPolicyService
 	auditAdmin          *admin.AuditService
 	staticDir           string
@@ -100,6 +103,7 @@ func NewHandler(config Config) http.Handler {
 		personaAdmin:        config.PersonaAdmin,
 		memoryAdmin:         config.MemoryAdmin,
 		knowledgeAdmin:      config.KnowledgeAdmin,
+		knowledgeRetriever:  config.KnowledgeRetriever,
 		toolPolicyAdmin:     config.ToolPolicyAdmin,
 		auditAdmin:          config.AuditAdmin,
 		staticDir:           config.StaticDir,
@@ -137,6 +141,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/delete", handler.handleKnowledgeDelete)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
+	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
 	handler.mux.HandleFunc("POST /admin/tools/policy", handler.handleToolPolicySave)
 	handler.mux.HandleFunc("POST /admin/tools/authorize", handler.handleToolAuthorize)
 	handler.mux.HandleFunc("GET /admin/audit", handler.handleAuditRecent)
@@ -441,6 +446,13 @@ type knowledgeCitationRequest struct {
 	Query string `json:"query"`
 }
 
+type knowledgeDiagnosticsRequest struct {
+	Query    string                  `json:"query"`
+	Mode     knowledge.RetrievalMode `json:"mode"`
+	Limit    int                     `json:"limit"`
+	MinScore float64                 `json:"min_score"`
+}
+
 type knowledgeDocumentRequest struct {
 	DocumentID string `json:"document_id"`
 	Content    string `json:"content,omitempty"`
@@ -488,6 +500,29 @@ func (h *Handler) handleKnowledgeCitationTest(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, citation)
+}
+
+func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeRetriever == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_retriever_unavailable"})
+		return
+	}
+	var request knowledgeDiagnosticsRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	response, err := h.knowledgeRetriever.Diagnostics(r.Context(), "tenant-1", knowledge.SearchRequest{
+		Query:    request.Query,
+		Limit:    request.Limit,
+		Mode:     request.Mode,
+		MinScore: request.MinScore,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_diagnostics_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleKnowledgeDisable(w http.ResponseWriter, r *http.Request) {

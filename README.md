@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 10 - Knowledge Base and Memory Control`
+Current stage: `Phase 11 - Knowledge Retrieval Quality and RAG Evaluation`
 
 What is already working:
 
@@ -15,6 +15,8 @@ What is already working:
 - `/admin` local operations console
 - local knowledge document lifecycle: upload, list, inspect, disable, enable, delete, and reindex
 - deterministic lexical knowledge retrieval with source metadata and citations
+- retrieval diagnostics pipeline with lexical, vector, hybrid, and auto modes
+- no-source and below-threshold grounding decisions with explainable ranking metadata
 - grounded persona replies that can surface knowledge usage and citation summaries in `/app`
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
@@ -72,6 +74,7 @@ flowchart TD
 - `POST /admin/knowledge/delete`
 - `POST /admin/knowledge/reindex`
 - `POST /admin/knowledge/citation-test`
+- `POST /admin/knowledge/retrieval-diagnostics`
 - `GET /app`
 - `GET /admin`
 
@@ -147,12 +150,12 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 10 adds a real local knowledge loop:
+Phase 11 extends the local knowledge loop into an auditable retrieval workflow:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
 3. Upload a mock or text/Markdown knowledge document.
-4. Run a citation test query from `/admin`.
+4. Run retrieval diagnostics in `auto` or `lexical` mode from `/admin`.
 5. Ask a related question in `/app`.
 
 When grounding succeeds, `/app` can now show:
@@ -161,6 +164,21 @@ When grounding succeeds, `/app` can now show:
 - source citation chips
 - `Memory considered` when memory metadata is present
 - `No source used` when retrieval found nothing relevant
+
+Local verification for Phase 11:
+
+```powershell
+go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web
+go test ./...
+go vet ./...
+```
+
+The retrieval pipeline is still local-first:
+
+- lexical retrieval is always available
+- vector retrieval is optional
+- CI does not require DeepSeek, embeddings, or an external vector database
+- `internal/knowledge/testdata` contains deterministic RAG eval fixtures
 
 ## Developer workflow
 
@@ -182,12 +200,12 @@ go build ./cmd/smoke
 - [docs/plans](./docs/plans): implementation plans and test matrices
 - [RELEASE_NOTES.md](./RELEASE_NOTES.md): document and implementation release history
 
-## Phase 10 highlights
+## Phase 11 highlights
 
-Phase 10 focuses on turning the digital human into a local knowledge worker:
+Phase 11 focuses on turning the digital human into a measurable knowledge worker:
 
-- `/admin` now manages real knowledge documents instead of a mock-only upload path
-- ready and disabled knowledge states affect retrieval behavior
-- persona chat can use deterministic lexical retrieval and emit citation metadata
-- `/app` can distinguish grounded answers from source-free answers
+- `/admin` can now run retrieval diagnostics and show score and stage breakdowns
+- retrieval can return explicit `no_source_reason` states instead of weak fake grounding
+- knowledge documents now carry index-state metadata such as lexical readiness and vector status
+- local RAG eval fixtures verify citation and no-source behavior without provider credentials
 - the implementation stays local-first and deterministic: no SQLite, no real provider calls in CI

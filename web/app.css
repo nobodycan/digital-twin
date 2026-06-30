@@ -431,6 +431,17 @@ input:disabled {
   margin-top: 10px;
 }
 
+#knowledge-detail {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8e5;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
 table {
   width: 100%;
   margin-top: 10px;

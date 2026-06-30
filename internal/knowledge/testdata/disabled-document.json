@@ -1,0 +1,23 @@
+{
+  "id": "disabled-document",
+  "query": "grounded answer",
+  "mode": "lexical",
+  "limit": 2,
+  "documents": [
+    {
+      "id": "kb-disabled",
+      "tenant_id": "tenant-1",
+      "name": "disabled.md",
+      "status": "disabled",
+      "chunks": [
+        {
+          "id": "kb-disabled:chunk-0001",
+          "document_id": "kb-disabled",
+          "ordinal": 1,
+          "text": "This disabled document mentions grounded answer."
+        }
+      ]
+    }
+  ],
+  "want_no_source_reason": "no_ready_documents"
+}
