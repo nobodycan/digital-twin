@@ -841,6 +841,50 @@ func TestHandlerKnowledgeAdminUploadAndCitation(t *testing.T) {
 	}
 }
 
+func TestHandlerKnowledgeSpaceLifecycleAndScopedListing(t *testing.T) {
+	store := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(store)
+	knowledgeRetriever := knowledge.NewService(store)
+	handler := NewHandler(Config{
+		Metrics:            observability.NewMemoryMetrics(),
+		KnowledgeAdmin:     &knowledgeService,
+		KnowledgeRetriever: &knowledgeRetriever,
+	})
+
+	spacesResponse := httptest.NewRecorder()
+	handler.ServeHTTP(spacesResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/spaces", nil))
+	if spacesResponse.Code != http.StatusOK {
+		t.Fatalf("spaces status = %d, body = %s", spacesResponse.Code, spacesResponse.Body.String())
+	}
+	if !strings.Contains(spacesResponse.Body.String(), `"id":"default"`) {
+		t.Fatalf("spaces body = %s, want default space", spacesResponse.Body.String())
+	}
+
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/spaces/create", strings.NewReader(`{"id":"product","name":"Product"}`)))
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", createResponse.Code, createResponse.Body.String())
+	}
+
+	uploadResponse := httptest.NewRecorder()
+	handler.ServeHTTP(uploadResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/upload", strings.NewReader(`{"id":"kb-product","space_id":"product","name":"planning.md","content":"Product launch checklist."}`)))
+	if uploadResponse.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, body = %s", uploadResponse.Code, uploadResponse.Body.String())
+	}
+	if !strings.Contains(uploadResponse.Body.String(), `"space_id":"product"`) {
+		t.Fatalf("upload body = %s, want product space_id", uploadResponse.Body.String())
+	}
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge?space_id=product", nil))
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"id":"kb-product"`) {
+		t.Fatalf("list body = %s, want kb-product", listResponse.Body.String())
+	}
+}
+
 func TestHandlerKnowledgeRetrievalDiagnostics(t *testing.T) {
 	store := admin.NewInMemoryKnowledgeStore()
 	knowledgeAdmin := admin.NewKnowledgeService(store)
@@ -877,6 +921,42 @@ func TestHandlerKnowledgeRetrievalDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(body, "data\\admin") {
 		t.Fatalf("diagnostics body leaked local path:\n%s", body)
+	}
+}
+
+func TestHandlerKnowledgeRetrievalDiagnosticsScopesBySpace(t *testing.T) {
+	store := admin.NewInMemoryKnowledgeStore()
+	knowledgeAdmin := admin.NewKnowledgeService(store)
+	if _, err := knowledgeAdmin.CreateSpace("tenant-1", admin.KnowledgeSpaceInput{ID: "product", Name: "Product"}); err != nil {
+		t.Fatalf("CreateSpace(product) error = %v", err)
+	}
+	if _, err := knowledgeAdmin.CreateSpace("tenant-1", admin.KnowledgeSpaceInput{ID: "ops", Name: "Ops"}); err != nil {
+		t.Fatalf("CreateSpace(ops) error = %v", err)
+	}
+	for _, upload := range []admin.KnowledgeUpload{
+		{ID: "kb-product", SpaceID: "product", Name: "product.md", Content: "shared rollout checklist"},
+		{ID: "kb-ops", SpaceID: "ops", Name: "ops.md", Content: "shared rollout checklist"},
+	} {
+		if _, err := knowledgeAdmin.Upload("tenant-1", upload); err != nil {
+			t.Fatalf("Upload(%s) error = %v", upload.ID, err)
+		}
+	}
+	knowledgeRetriever := knowledge.NewService(store)
+	handler := NewHandler(Config{
+		Metrics:            observability.NewMemoryMetrics(),
+		KnowledgeAdmin:     &knowledgeAdmin,
+		KnowledgeRetriever: &knowledgeRetriever,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/retrieval-diagnostics", strings.NewReader(`{"query":"shared rollout checklist","mode":"lexical","space_id":"ops","limit":2}`)))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"document_id":"kb-ops"`) || strings.Contains(body, `"document_id":"kb-product"`) {
+		t.Fatalf("diagnostics body = %s, want only ops-scoped results", body)
 	}
 }
 

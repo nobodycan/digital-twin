@@ -13,6 +13,8 @@ const sessionModel = document.querySelector("#session-model");
 const sessionMode = document.querySelector("#session-mode");
 const sessionFallbackPolicy = document.querySelector("#session-fallback-policy");
 const providerStrip = document.querySelector("#provider-strip");
+const knowledgeSpaceSelect = document.querySelector("#knowledge-space-select");
+const knowledgeSpaceStatus = document.querySelector("#knowledge-space-status");
 
 const conversationId = "web-session";
 const providerStatus = {
@@ -27,6 +29,8 @@ const providerStatus = {
 let activeRequestController = null;
 let activeAssistantLine = null;
 let latestAssistantText = "";
+let selectedKnowledgeSpaceId = "default";
+let selectedKnowledgeSpaceName = "Default";
 
 function transcriptLineClass(role, extraClass) {
   const classes = [`transcript-line`, `transcript-line-${role}`];
@@ -132,12 +136,13 @@ function renderGroundingState(line, metadata) {
   const meta = clearTranscriptMeta(line);
   const state = document.createElement("span");
   state.className = "transcript-citation";
+  const activeSpaceName = metadata.knowledge_space_name || selectedKnowledgeSpaceName;
   if (metadata.knowledge_used) {
-    state.textContent = "Knowledge grounded";
+    state.textContent = `Knowledge grounded (${activeSpaceName})`;
     meta.append(state);
     renderCitationSummary(line, metadata.knowledge_citations);
   } else {
-    state.textContent = "No source used";
+    state.textContent = `No source used (${activeSpaceName})`;
     meta.append(state);
   }
   if (metadata.memory_used) {
@@ -204,9 +209,41 @@ function conversationPayload(text) {
         created_at: now
       }
     ],
+    metadata: {
+      knowledge_space_id: selectedKnowledgeSpaceId,
+      knowledge_space_name: selectedKnowledgeSpaceName
+    },
     created_at: now,
     updated_at: now
   };
+}
+
+async function loadKnowledgeSpaces() {
+  try {
+    const response = await fetch("/admin/knowledge/spaces");
+    if (!response.ok) {
+      return;
+    }
+    const spaces = await response.json();
+    knowledgeSpaceSelect.textContent = "";
+    for (const space of spaces) {
+      const option = document.createElement("option");
+      option.value = space.id;
+      option.textContent = space.name;
+      if (space.id === selectedKnowledgeSpaceId) {
+        option.selected = true;
+      }
+      knowledgeSpaceSelect.append(option);
+    }
+    if (spaces.length > 0) {
+      const selected = spaces.find((space) => space.id === selectedKnowledgeSpaceId) || spaces[0];
+      selectedKnowledgeSpaceId = selected.id;
+      selectedKnowledgeSpaceName = selected.name;
+      knowledgeSpaceStatus.textContent = selected.name;
+      knowledgeSpaceSelect.value = selected.id;
+    }
+  } catch {
+  }
 }
 
 function setProviderStatus(status) {
@@ -480,3 +517,11 @@ setRequestActive(false);
 setProviderStatus(providerStatus);
 setStatusChip("ready", "ready");
 fetchRuntimeStatus().catch(() => {});
+loadKnowledgeSpaces().catch(() => {});
+
+knowledgeSpaceSelect?.addEventListener("change", () => {
+  const selectedOption = knowledgeSpaceSelect.options[knowledgeSpaceSelect.selectedIndex];
+  selectedKnowledgeSpaceId = knowledgeSpaceSelect.value || "default";
+  selectedKnowledgeSpaceName = selectedOption?.textContent || "Default";
+  knowledgeSpaceStatus.textContent = selectedKnowledgeSpaceName;
+});

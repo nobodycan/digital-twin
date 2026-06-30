@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,6 +70,36 @@ func TestKnowledgeServiceRejectsEmptyUpload(t *testing.T) {
 
 	if _, err := service.Upload("tenant-1", KnowledgeUpload{ID: "empty", Name: "empty.md"}); err == nil {
 		t.Fatalf("expected empty upload to be rejected")
+	}
+}
+
+func TestKnowledgeServiceCreatesDefaultSpaceAndAssignsUploads(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	spaces, err := service.ListSpaces("tenant-1")
+	if err != nil {
+		t.Fatalf("ListSpaces returned error: %v", err)
+	}
+	if len(spaces) != 1 {
+		t.Fatalf("space count = %d, want 1", len(spaces))
+	}
+	if spaces[0].ID != DefaultKnowledgeSpaceID {
+		t.Fatalf("default space id = %q, want %q", spaces[0].ID, DefaultKnowledgeSpaceID)
+	}
+	if spaces[0].Status != KnowledgeSpaceActive {
+		t.Fatalf("default space status = %q, want %q", spaces[0].Status, KnowledgeSpaceActive)
+	}
+
+	doc, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-default",
+		Name:    "default.md",
+		Content: "default space content",
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	if doc.SpaceID != DefaultKnowledgeSpaceID {
+		t.Fatalf("SpaceID = %q, want %q", doc.SpaceID, DefaultKnowledgeSpaceID)
 	}
 }
 
@@ -170,6 +201,103 @@ func TestKnowledgeServiceListsDocumentsInStableOrder(t *testing.T) {
 	}
 }
 
+func TestKnowledgeServiceListsDocumentsBySpace(t *testing.T) {
+	store := NewInMemoryKnowledgeStore()
+	service := NewKnowledgeService(store)
+
+	space, err := service.CreateSpace("tenant-1", KnowledgeSpaceInput{
+		ID:          "product",
+		Name:        "Product",
+		Description: "Product docs",
+	})
+	if err != nil {
+		t.Fatalf("CreateSpace returned error: %v", err)
+	}
+
+	for _, upload := range []KnowledgeUpload{
+		{ID: "kb-default", Name: "default.md", Content: "default content"},
+		{ID: "kb-product", Name: "product.md", Content: "product content", SpaceID: space.ID},
+	} {
+		if _, err := service.Upload("tenant-1", upload); err != nil {
+			t.Fatalf("Upload(%s) returned error: %v", upload.ID, err)
+		}
+	}
+
+	defaultDocuments, err := service.ListBySpace("tenant-1", DefaultKnowledgeSpaceID)
+	if err != nil {
+		t.Fatalf("ListBySpace(default) returned error: %v", err)
+	}
+	if len(defaultDocuments) != 1 || defaultDocuments[0].ID != "kb-default" {
+		t.Fatalf("default documents = %#v, want kb-default only", defaultDocuments)
+	}
+
+	productDocuments, err := service.ListBySpace("tenant-1", "product")
+	if err != nil {
+		t.Fatalf("ListBySpace(product) returned error: %v", err)
+	}
+	if len(productDocuments) != 1 || productDocuments[0].ID != "kb-product" {
+		t.Fatalf("product documents = %#v, want kb-product only", productDocuments)
+	}
+}
+
+func TestKnowledgeServiceRejectsUploadIntoDisabledSpace(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	if _, err := service.CreateSpace("tenant-1", KnowledgeSpaceInput{
+		ID:   "ops",
+		Name: "Ops",
+	}); err != nil {
+		t.Fatalf("CreateSpace returned error: %v", err)
+	}
+	if _, err := service.DisableSpace("tenant-1", "ops"); err != nil {
+		t.Fatalf("DisableSpace returned error: %v", err)
+	}
+
+	if _, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-ops",
+		Name:    "ops.md",
+		Content: "ops content",
+		SpaceID: "ops",
+	}); err == nil {
+		t.Fatalf("expected upload into disabled space to fail")
+	}
+}
+
+func TestKnowledgeServiceCanMoveDocumentBetweenSpaces(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	if _, err := service.CreateSpace("tenant-1", KnowledgeSpaceInput{ID: "alpha", Name: "Alpha"}); err != nil {
+		t.Fatalf("CreateSpace(alpha) returned error: %v", err)
+	}
+	if _, err := service.CreateSpace("tenant-1", KnowledgeSpaceInput{ID: "beta", Name: "Beta"}); err != nil {
+		t.Fatalf("CreateSpace(beta) returned error: %v", err)
+	}
+	if _, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-move",
+		Name:    "move.md",
+		Content: "move me",
+		SpaceID: "alpha",
+	}); err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	moved, err := service.MoveDocument("tenant-1", "kb-move", "beta")
+	if err != nil {
+		t.Fatalf("MoveDocument returned error: %v", err)
+	}
+	if moved.SpaceID != "beta" {
+		t.Fatalf("SpaceID after move = %q, want beta", moved.SpaceID)
+	}
+
+	alphaDocuments, err := service.ListBySpace("tenant-1", "alpha")
+	if err != nil {
+		t.Fatalf("ListBySpace(alpha) returned error: %v", err)
+	}
+	if len(alphaDocuments) != 0 {
+		t.Fatalf("alpha documents = %#v, want none", alphaDocuments)
+	}
+}
+
 func TestFileKnowledgeStoreSupportsLifecycleAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	first := NewKnowledgeService(NewFileKnowledgeStore(dir))
@@ -238,6 +366,9 @@ func TestFileKnowledgeStoreLoadsLegacyDocumentWithoutIndexMetadata(t *testing.T)
 	if len(document.Chunks) != 1 {
 		t.Fatalf("legacy chunk count = %d, want 1", len(document.Chunks))
 	}
+	if document.SpaceID != DefaultKnowledgeSpaceID {
+		t.Fatalf("legacy SpaceID = %q, want %q", document.SpaceID, DefaultKnowledgeSpaceID)
+	}
 }
 
 func TestFileKnowledgeStoreRejectsUnsafeDocumentIDs(t *testing.T) {
@@ -282,5 +413,36 @@ func TestFileKnowledgeStoreLeavesNoTemporaryFilesBehind(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Fatalf("knowledge.json should not be empty")
+	}
+}
+
+func TestFileKnowledgeStoreMigratesLegacyArrayToEnvelopeOnSave(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `[{"id":"kb-legacy","tenant_id":"tenant-1","name":"legacy.md","source_type":"markdown","status":"ready","content_hash":"abc","chunk_count":1,"chunks":[{"id":"kb-legacy:chunk-0001","document_id":"kb-legacy","ordinal":1,"text":"legacy content"}],"created_at":"2026-06-30T00:00:00Z","updated_at":"2026-06-30T00:00:00Z"}]`
+	if err := os.WriteFile(filepath.Join(dir, "knowledge.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy knowledge.json: %v", err)
+	}
+
+	service := NewKnowledgeService(NewFileKnowledgeStore(dir))
+	if _, err := service.Reindex("tenant-1", "kb-legacy", "legacy content updated"); err != nil {
+		t.Fatalf("Reindex returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "knowledge.json"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var envelope struct {
+		Spaces    []KnowledgeSpace    `json:"spaces"`
+		Documents []KnowledgeDocument `json:"documents"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("Unmarshal migrated envelope: %v", err)
+	}
+	if len(envelope.Spaces) != 1 || envelope.Spaces[0].ID != DefaultKnowledgeSpaceID {
+		t.Fatalf("spaces = %#v, want default space", envelope.Spaces)
+	}
+	if len(envelope.Documents) != 1 || envelope.Documents[0].SpaceID != DefaultKnowledgeSpaceID {
+		t.Fatalf("documents = %#v, want legacy doc assigned to default space", envelope.Documents)
 	}
 }

@@ -15,6 +15,8 @@ type Service struct {
 
 type Grounding struct {
 	RetrievalMode  string
+	SpaceID        string
+	SpaceName      string
 	Citations      []Result
 	Explanations   []Explanation
 	NoSourceReason string
@@ -38,13 +40,23 @@ func (s Service) Ground(ctx context.Context, conversation types.Conversation, qu
 	if err != nil {
 		return Grounding{}, err
 	}
+	spaceID := selectedKnowledgeSpaceID(conversation)
+	spaceName := selectedKnowledgeSpaceName(conversation)
+	if spaceName == "" && spaceID != "" {
+		if space, err := s.Store.GetKnowledgeSpace(tenantID, spaceID); err == nil {
+			spaceName = space.Name
+		}
+	}
 	response := s.Pipeline.Search(ctx, documents, SearchRequest{
-		Query: query,
-		Limit: limit,
-		Mode:  RetrievalModeLexical,
+		Query:   query,
+		Limit:   limit,
+		Mode:    RetrievalModeLexical,
+		SpaceID: spaceID,
 	})
 	return Grounding{
 		RetrievalMode:  string(response.Mode),
+		SpaceID:        spaceID,
+		SpaceName:      spaceName,
 		Citations:      response.Results,
 		Explanations:   response.Explanations,
 		NoSourceReason: response.NoSourceReason,
@@ -66,4 +78,20 @@ func (s Service) Diagnostics(ctx context.Context, tenantID string, request Searc
 		return SearchResponse{}, err
 	}
 	return s.Pipeline.Search(ctx, documents, request), nil
+}
+
+func selectedKnowledgeSpaceID(conversation types.Conversation) string {
+	if conversation.Metadata == nil {
+		return ""
+	}
+	value, _ := conversation.Metadata["knowledge_space_id"].(string)
+	return strings.TrimSpace(value)
+}
+
+func selectedKnowledgeSpaceName(conversation types.Conversation) string {
+	if conversation.Metadata == nil {
+		return ""
+	}
+	value, _ := conversation.Metadata["knowledge_space_name"].(string)
+	return strings.TrimSpace(value)
 }

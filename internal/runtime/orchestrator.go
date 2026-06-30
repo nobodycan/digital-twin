@@ -338,6 +338,8 @@ func allowlistedGenerationMetadata(metadata types.Metadata) types.Metadata {
 		"llm_provider",
 		"llm_model",
 		"knowledge_used",
+		"knowledge_space_id",
+		"knowledge_space_name",
 		"knowledge_no_source_reason",
 		"knowledge_result_count",
 		"knowledge_citations",

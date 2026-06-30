@@ -486,8 +486,11 @@ func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testin
 			AgentName: "persona-agent",
 			Message:   types.Message{Role: types.RoleAssistant, Content: "Grounded answer"},
 			Metadata: types.Metadata{
-				"knowledge_used":         true,
-				"knowledge_result_count": 1,
+				"knowledge_used":             true,
+				"knowledge_result_count":     1,
+				"knowledge_space_id":         "product",
+				"knowledge_space_name":       "Product",
+				"knowledge_no_source_reason": "below_threshold",
 				"knowledge_citations": []map[string]any{
 					{"document_id": "kb-1", "document_name": "planning.md", "chunk_id": "kb-1:chunk-0001"},
 				},
@@ -515,11 +518,14 @@ func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testin
 
 	event := findStreamEvent(t, sink.events, types.StreamEventMessageCompleted)
 	for key, want := range map[string]any{
-		"knowledge_used":         true,
-		"knowledge_result_count": 1,
-		"retrieval_mode":         "lexical",
-		"memory_used":            false,
-		"memory_result_count":    0,
+		"knowledge_used":             true,
+		"knowledge_result_count":     1,
+		"knowledge_space_id":         "product",
+		"knowledge_space_name":       "Product",
+		"knowledge_no_source_reason": "below_threshold",
+		"retrieval_mode":             "lexical",
+		"memory_used":                false,
+		"memory_result_count":        0,
 	} {
 		if event.Metadata[key] != want {
 			t.Fatalf("metadata[%q] = %v, want %v", key, event.Metadata[key], want)
