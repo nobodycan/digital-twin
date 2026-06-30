@@ -1,0 +1,23 @@
+{
+  "id": "exact-citation",
+  "query": "retrieval diagnostics",
+  "mode": "lexical",
+  "limit": 2,
+  "documents": [
+    {
+      "id": "kb-1",
+      "tenant_id": "tenant-1",
+      "name": "planning.md",
+      "status": "ready",
+      "chunks": [
+        {
+          "id": "kb-1:chunk-0001",
+          "document_id": "kb-1",
+          "ordinal": 1,
+          "text": "Phase 11 adds retrieval diagnostics."
+        }
+      ]
+    }
+  ],
+  "want_top_chunk_id": "kb-1:chunk-0001"
+}

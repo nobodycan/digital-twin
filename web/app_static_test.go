@@ -167,15 +167,20 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		`"/admin/knowledge/delete"`,
 		`"/admin/knowledge/reindex"`,
 		`"/admin/knowledge/citation-test"`,
+		`"/admin/knowledge/retrieval-diagnostics"`,
 		`"/admin/tools/policy"`,
 		`"/admin/tools/authorize"`,
 		`"/admin/audit"`,
 		"loadKnowledge",
 		"knowledge-table-body",
 		"knowledge-detail",
+		"knowledge-query-mode",
 		"renderKnowledgeRow",
 		"renderMemoryRow",
 		"chunk_count",
+		"renderKnowledgeDiagnostics",
+		"no_source_reason",
+		"index_status",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.js missing %q", want)
@@ -193,11 +198,13 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 		`id="knowledge-upload"`,
 		`id="knowledge-upload-mock"`,
 		`id="knowledge-query"`,
+		`id="knowledge-query-mode"`,
 		`id="knowledge-query-run"`,
 		`id="knowledge-table-body"`,
 		`id="knowledge-detail"`,
 		`id="knowledge-status"`,
 		"Chunk preview",
+		"Run diagnostics",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.html missing %q", want)

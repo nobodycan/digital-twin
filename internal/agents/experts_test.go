@@ -223,8 +223,11 @@ func TestPersonaAgentMarksNoSourceWhenGroundingFindsNothing(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Ungrounded reply"}}}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
-		Client:    client,
-		Knowledge: staticGrounder{},
+		Client: client,
+		Knowledge: staticGrounder{result: Grounding{
+			RetrievalMode:  "lexical",
+			NoSourceReason: "no_matching_chunks",
+		}},
 	})
 
 	result, err := agent.Run(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9})
@@ -236,6 +239,9 @@ func TestPersonaAgentMarksNoSourceWhenGroundingFindsNothing(t *testing.T) {
 	}
 	if result.Metadata["knowledge_result_count"] != 0 {
 		t.Fatalf("knowledge_result_count = %v, want 0", result.Metadata["knowledge_result_count"])
+	}
+	if result.Metadata["knowledge_no_source_reason"] != "no_matching_chunks" {
+		t.Fatalf("knowledge_no_source_reason = %v, want no_matching_chunks", result.Metadata["knowledge_no_source_reason"])
 	}
 	if _, exists := result.Metadata["knowledge_citations"]; exists {
 		t.Fatalf("knowledge_citations = %#v, want absent when no grounding", result.Metadata["knowledge_citations"])

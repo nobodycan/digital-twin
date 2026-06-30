@@ -1,4 +1,24 @@
 # Release Notes
+## Unreleased - Phase 11 Knowledge Retrieval Quality and RAG Evaluation
+
+### Added
+
+- Added a retrieval pipeline in `internal/knowledge` with lexical, vector, hybrid, and auto modes, stable reranking, score explanations, and explicit `no_source_reason` outcomes.
+- Added grounding metadata propagation for retrieval mode, stage execution, and no-source reasons so `/app` can distinguish grounded from unsupported answers without fake citation confidence.
+- Added `POST /admin/knowledge/retrieval-diagnostics` plus `/admin` diagnostics rendering for retrieval mode, ranked chunk explanations, and vector/index-state visibility.
+- Added local RAG eval fixtures under `internal/knowledge/testdata` and a deterministic harness that verifies citation and no-source behavior without provider credentials.
+- Added knowledge index-state metadata for lexical readiness, vector status, and indexed-at timestamps on uploaded and reindexed documents.
+
+### Documented
+
+- README now reflects Phase 11 status, the retrieval diagnostics workflow, local verification commands, and the optional nature of vector retrieval.
+- Added Phase 11 spec, design, and plan docs for retrieval quality, hybrid ranking, diagnostics, and evaluation.
+
+### Notes
+
+- Phase 11 still keeps vector retrieval optional and local-first; CI does not require DeepSeek embeddings or an external vector database.
+- The main app remains intentionally compact: detailed ranking and index diagnostics live in `/admin`, not `/app`.
+
 ## Unreleased - Phase 10 Knowledge Base and Memory Control
 
 ### Added

@@ -37,8 +37,14 @@
         <input type="file" id="knowledge-upload">
         <button id="knowledge-upload-mock" type="button">Upload mock</button>
         <div class="action-row">
-          <input id="knowledge-query" type="text" placeholder="Citation test query">
-          <button id="knowledge-query-run" type="button">Run citation test</button>
+          <select id="knowledge-query-mode" aria-label="Retrieval mode">
+            <option value="auto">Auto</option>
+            <option value="lexical">Lexical</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="vector">Vector</option>
+          </select>
+          <input id="knowledge-query" type="text" placeholder="Retrieval diagnostics query">
+          <button id="knowledge-query-run" type="button">Run diagnostics</button>
         </div>
         <output id="knowledge-status">No knowledge uploaded</output>
         <table>

@@ -206,6 +206,52 @@ func TestNewLocalRuntimeUsesKnowledgeStoreForGroundedPersonaMetadata(t *testing.
 	}
 }
 
+func TestNewLocalRuntimeIncludesNoSourceReasonWhenKnowledgeHasNoMatch(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	if _, err := knowledgeService.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-1",
+		Name:    "planning.md",
+		Content: "Phase 11 should add retrieval diagnostics.",
+	}); err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	local, err := NewLocalRuntime(LocalRuntimeConfig{
+		PersonaLLM: &testutil.FakeLLM{
+			ChatResponse: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Ungrounded runtime reply."}},
+		},
+		PersonaLLMProvider: "openai-compatible",
+		PersonaLLMModel:    "gpt-runtime",
+		KnowledgeStore:     knowledgeStore,
+	})
+	if err != nil {
+		t.Fatalf("NewLocalRuntime() error = %v", err)
+	}
+
+	result, err := local.Orchestrator.Handle(t.Context(), types.Conversation{
+		ID:       "conv-knowledge-miss",
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Messages: []types.Message{{
+			ID:        "msg-1",
+			Role:      types.RoleUser,
+			Content:   "Explain the quartz falcon runway process.",
+			CreatedAt: time.Now().UTC(),
+		}},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.Metadata["knowledge_used"] != false {
+		t.Fatalf("knowledge_used = %v, want false", result.Metadata["knowledge_used"])
+	}
+	if result.Metadata["knowledge_no_source_reason"] != "no_matching_chunks" {
+		t.Fatalf("knowledge_no_source_reason = %v, want no_matching_chunks", result.Metadata["knowledge_no_source_reason"])
+	}
+}
+
 func TestNewLocalRuntimeStreamPersistsConversationHistoryToConfiguredDataDir(t *testing.T) {
 	dataDir := t.TempDir()
 	local, err := NewLocalRuntime(LocalRuntimeConfig{

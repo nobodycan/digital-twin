@@ -57,6 +57,21 @@ type KnowledgeDocument struct {
 	Metadata    map[string]string   `json:"metadata,omitempty"`
 }
 
+const (
+	KnowledgeMetadataLexicalReady   = "lexical_ready"
+	KnowledgeMetadataVectorStatus   = "vector_status"
+	KnowledgeMetadataEmbeddingModel = "embedding_model"
+	KnowledgeMetadataEmbeddingVer   = "embedding_version"
+	KnowledgeMetadataIndexedAt      = "indexed_at"
+	KnowledgeMetadataLastErrorCode  = "last_error_code"
+)
+
+const (
+	KnowledgeVectorMissing = "missing"
+	KnowledgeVectorReady   = "ready"
+	KnowledgeVectorFailed  = "failed"
+)
+
 type KnowledgeChunk struct {
 	ID         string            `json:"id"`
 	DocumentID string            `json:"document_id"`
@@ -109,6 +124,7 @@ func (s KnowledgeService) Upload(tenantID string, upload KnowledgeUpload) (Knowl
 		UpdatedAt:   now,
 		Tags:        slices.Clone(upload.Tags),
 	}
+	applyIndexMetadata(&document, now, KnowledgeVectorMissing, "")
 	return s.store.SaveKnowledge(document)
 }
 
@@ -154,6 +170,7 @@ func (s KnowledgeService) Reindex(tenantID, documentID, content string) (Knowled
 	document.ChunkCount = len(chunks)
 	document.Chunks = chunks
 	document.UpdatedAt = s.now()
+	applyIndexMetadata(&document, document.UpdatedAt, KnowledgeVectorMissing, "")
 	return s.store.SaveKnowledge(document)
 }
 
@@ -197,6 +214,34 @@ func chunkKnowledge(documentID, content string) []KnowledgeChunk {
 		})
 	}
 	return chunks
+}
+
+func applyIndexMetadata(document *KnowledgeDocument, indexedAt time.Time, vectorStatus, lastErrorCode string) {
+	if document.Metadata == nil {
+		document.Metadata = make(map[string]string)
+	}
+	document.Metadata[KnowledgeMetadataLexicalReady] = "true"
+	document.Metadata[KnowledgeMetadataVectorStatus] = vectorStatus
+	document.Metadata[KnowledgeMetadataIndexedAt] = indexedAt.Format(time.RFC3339)
+	if lastErrorCode == "" {
+		delete(document.Metadata, KnowledgeMetadataLastErrorCode)
+	} else {
+		document.Metadata[KnowledgeMetadataLastErrorCode] = lastErrorCode
+	}
+
+	for i := range document.Chunks {
+		if document.Chunks[i].Metadata == nil {
+			document.Chunks[i].Metadata = make(map[string]string)
+		}
+		document.Chunks[i].Metadata[KnowledgeMetadataLexicalReady] = "true"
+		document.Chunks[i].Metadata[KnowledgeMetadataVectorStatus] = vectorStatus
+		document.Chunks[i].Metadata[KnowledgeMetadataIndexedAt] = document.Metadata[KnowledgeMetadataIndexedAt]
+		if lastErrorCode == "" {
+			delete(document.Chunks[i].Metadata, KnowledgeMetadataLastErrorCode)
+		} else {
+			document.Chunks[i].Metadata[KnowledgeMetadataLastErrorCode] = lastErrorCode
+		}
+	}
 }
 
 func validateKnowledgeID(value string) error {

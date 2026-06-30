@@ -36,11 +36,23 @@ func TestKnowledgeServiceUploadsChunksAndRunsCitationTest(t *testing.T) {
 	if doc.UpdatedAt.IsZero() {
 		t.Fatalf("updated at should be set")
 	}
+	if doc.Metadata[KnowledgeMetadataLexicalReady] != "true" {
+		t.Fatalf("lexical_ready = %q, want true", doc.Metadata[KnowledgeMetadataLexicalReady])
+	}
+	if doc.Metadata[KnowledgeMetadataVectorStatus] != KnowledgeVectorMissing {
+		t.Fatalf("vector_status = %q, want %q", doc.Metadata[KnowledgeMetadataVectorStatus], KnowledgeVectorMissing)
+	}
+	if doc.Metadata[KnowledgeMetadataIndexedAt] == "" {
+		t.Fatalf("indexed_at should be set")
+	}
 	if len(doc.Chunks) > 0 && doc.Chunks[0].Ordinal != 1 {
 		t.Fatalf("first chunk ordinal = %d, want 1", doc.Chunks[0].Ordinal)
 	}
 	if len(doc.Chunks) > 0 && doc.Chunks[0].DocumentID != doc.ID {
 		t.Fatalf("first chunk document id = %q, want %q", doc.Chunks[0].DocumentID, doc.ID)
+	}
+	if len(doc.Chunks) > 0 && doc.Chunks[0].Metadata[KnowledgeMetadataVectorStatus] != KnowledgeVectorMissing {
+		t.Fatalf("chunk vector_status = %q, want %q", doc.Chunks[0].Metadata[KnowledgeMetadataVectorStatus], KnowledgeVectorMissing)
 	}
 
 	citation, err := service.CitationTest("tenant-1", "digital human UI")
@@ -191,6 +203,12 @@ func TestFileKnowledgeStoreSupportsLifecycleAcrossReopen(t *testing.T) {
 	if loaded.ChunkCount != 1 {
 		t.Fatalf("chunk count after reopen = %d, want 1", loaded.ChunkCount)
 	}
+	if loaded.Metadata[KnowledgeMetadataLexicalReady] != "true" {
+		t.Fatalf("lexical_ready after reopen = %q, want true", loaded.Metadata[KnowledgeMetadataLexicalReady])
+	}
+	if loaded.Metadata[KnowledgeMetadataVectorStatus] != KnowledgeVectorMissing {
+		t.Fatalf("vector_status after reopen = %q, want %q", loaded.Metadata[KnowledgeMetadataVectorStatus], KnowledgeVectorMissing)
+	}
 
 	if err := second.Delete("tenant-1", doc.ID); err != nil {
 		t.Fatalf("Delete after reopen returned error: %v", err)
@@ -199,6 +217,26 @@ func TestFileKnowledgeStoreSupportsLifecycleAcrossReopen(t *testing.T) {
 	third := NewKnowledgeService(NewFileKnowledgeStore(dir))
 	if _, err := third.Get("tenant-1", doc.ID); err == nil {
 		t.Fatalf("expected deleted document to stay deleted after reopen")
+	}
+}
+
+func TestFileKnowledgeStoreLoadsLegacyDocumentWithoutIndexMetadata(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `[{"id":"kb-legacy","tenant_id":"tenant-1","name":"legacy.md","source_type":"markdown","status":"ready","content_hash":"abc","chunk_count":1,"chunks":[{"id":"kb-legacy:chunk-0001","document_id":"kb-legacy","ordinal":1,"text":"legacy content"}],"created_at":"2026-06-30T00:00:00Z","updated_at":"2026-06-30T00:00:00Z"}]`
+	if err := os.WriteFile(filepath.Join(dir, "knowledge.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy knowledge.json: %v", err)
+	}
+
+	service := NewKnowledgeService(NewFileKnowledgeStore(dir))
+	document, err := service.Get("tenant-1", "kb-legacy")
+	if err != nil {
+		t.Fatalf("Get legacy document: %v", err)
+	}
+	if document.Metadata != nil && document.Metadata[KnowledgeMetadataVectorStatus] != "" {
+		t.Fatalf("legacy vector_status = %q, want empty", document.Metadata[KnowledgeMetadataVectorStatus])
+	}
+	if len(document.Chunks) != 1 {
+		t.Fatalf("legacy chunk count = %d, want 1", len(document.Chunks))
 	}
 }
 

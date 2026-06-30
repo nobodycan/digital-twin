@@ -15,6 +15,7 @@ import (
 	"github.com/nobodycan/digital-twin/internal/app"
 	"github.com/nobodycan/digital-twin/internal/avatar"
 	"github.com/nobodycan/digital-twin/internal/config"
+	"github.com/nobodycan/digital-twin/internal/knowledge"
 	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/internal/observability"
 	"github.com/nobodycan/digital-twin/internal/presentation"
@@ -112,6 +113,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(adminDataDir))
 	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(adminDataDir))
 	knowledgeAdmin := admin.NewKnowledgeService(knowledgeStore)
+	knowledgeRetriever := knowledge.NewService(knowledgeStore)
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{
@@ -136,16 +138,17 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 			GenerationModeHint: runtimeStatusModeHint(cfg.LLM.Provider),
 			BaseURL:            config.SafeURLSummary(cfg.LLM.BaseURL),
 		},
-		PersonaAdmin:      &personaAdmin,
-		MemoryAdmin:       &memoryAdmin,
-		KnowledgeAdmin:    &knowledgeAdmin,
-		ToolPolicyAdmin:   &toolPolicyAdmin,
-		AuditAdmin:        &auditAdmin,
-		StaticDir:         defaultStaticDir(),
-		APIKeys:           apiKeys,
-		RateLimitRequests: cfg.Server.RateLimitRequests,
-		DefaultTenantID:   cfg.Tenant.DefaultID,
-		DefaultUserID:     cfg.Tenant.DefaultUserID,
+		PersonaAdmin:       &personaAdmin,
+		MemoryAdmin:        &memoryAdmin,
+		KnowledgeAdmin:     &knowledgeAdmin,
+		KnowledgeRetriever: &knowledgeRetriever,
+		ToolPolicyAdmin:    &toolPolicyAdmin,
+		AuditAdmin:         &auditAdmin,
+		StaticDir:          defaultStaticDir(),
+		APIKeys:            apiKeys,
+		RateLimitRequests:  cfg.Server.RateLimitRequests,
+		DefaultTenantID:    cfg.Tenant.DefaultID,
+		DefaultUserID:      cfg.Tenant.DefaultUserID,
 	}), nil
 }
 
