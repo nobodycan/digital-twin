@@ -119,8 +119,8 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 
 	shouldRunVector := mode == RetrievalModeVector || mode == RetrievalModeHybrid || mode == RetrievalModeAuto
 	if shouldRunVector {
-		switch {
-		case p.vector == nil:
+		switch p.vector {
+		case nil:
 			response.StagesSkipped = append(response.StagesSkipped, "vector_unavailable")
 			markIndexStatus(candidates, "vector_missing")
 		default:
