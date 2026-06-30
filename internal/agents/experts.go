@@ -23,6 +23,8 @@ type GroundingCitation struct {
 
 type Grounding struct {
 	RetrievalMode  string
+	SpaceID        string
+	SpaceName      string
 	Citations      []GroundingCitation
 	NoSourceReason string
 	MemoryUsed     bool
@@ -477,6 +479,12 @@ func applyGroundingMetadata(metadata types.Metadata, grounding Grounding) {
 	metadata["knowledge_result_count"] = len(grounding.Citations)
 	metadata["memory_used"] = grounding.MemoryUsed
 	metadata["memory_result_count"] = grounding.MemoryCount
+	if grounding.SpaceID != "" {
+		metadata["knowledge_space_id"] = grounding.SpaceID
+	}
+	if grounding.SpaceName != "" {
+		metadata["knowledge_space_name"] = grounding.SpaceName
+	}
 	if grounding.NoSourceReason != "" {
 		metadata["knowledge_no_source_reason"] = grounding.NoSourceReason
 	}

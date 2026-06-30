@@ -229,6 +229,45 @@ func TestPipelineMarksVectorFailureWithoutBreakingLexicalResults(t *testing.T) {
 	}
 }
 
+func TestPipelineSearchScopesResultsToRequestedSpace(t *testing.T) {
+	pipeline := NewPipeline(PipelineConfig{})
+	documents := []admin.KnowledgeDocument{
+		{
+			ID:       "doc-a",
+			TenantID: "tenant-1",
+			SpaceID:  "product",
+			Name:     "product.md",
+			Status:   admin.KnowledgeReady,
+			Chunks: []admin.KnowledgeChunk{
+				{ID: "doc-a:chunk-0001", DocumentID: "doc-a", Ordinal: 1, Text: "shared release checklist"},
+			},
+		},
+		{
+			ID:       "doc-b",
+			TenantID: "tenant-1",
+			SpaceID:  "ops",
+			Name:     "ops.md",
+			Status:   admin.KnowledgeReady,
+			Chunks: []admin.KnowledgeChunk{
+				{ID: "doc-b:chunk-0001", DocumentID: "doc-b", Ordinal: 1, Text: "shared release checklist"},
+			},
+		},
+	}
+
+	response := pipeline.Search(context.Background(), documents, SearchRequest{
+		Query:   "shared release checklist",
+		Limit:   3,
+		Mode:    RetrievalModeLexical,
+		SpaceID: "ops",
+	})
+	if len(response.Results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(response.Results))
+	}
+	if response.Results[0].DocumentID != "doc-b" {
+		t.Fatalf("result = %#v, want ops-scoped document", response.Results[0])
+	}
+}
+
 func TestPipelineVectorModeReturnsUnavailableReasonWhenVectorSearcherMissing(t *testing.T) {
 	pipeline := NewPipeline(PipelineConfig{})
 	documents := []admin.KnowledgeDocument{

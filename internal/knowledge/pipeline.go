@@ -22,6 +22,7 @@ type SearchRequest struct {
 	Query    string
 	Limit    int
 	Mode     RetrievalMode
+	SpaceID  string
 	MinScore float64
 }
 
@@ -94,6 +95,9 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 	}
 
 	readyDocuments := readyKnowledgeDocuments(documents)
+	if request.SpaceID != "" {
+		readyDocuments = filterKnowledgeDocumentsBySpace(readyDocuments, request.SpaceID)
+	}
 	if len(readyDocuments) == 0 {
 		response.NoSourceReason = "no_ready_documents"
 		return response
@@ -209,6 +213,16 @@ func readyKnowledgeDocuments(documents []admin.KnowledgeDocument) []admin.Knowle
 		}
 	}
 	return ready
+}
+
+func filterKnowledgeDocumentsBySpace(documents []admin.KnowledgeDocument, spaceID string) []admin.KnowledgeDocument {
+	filtered := make([]admin.KnowledgeDocument, 0, len(documents))
+	for _, document := range documents {
+		if document.SpaceID == spaceID {
+			filtered = append(filtered, document)
+		}
+	}
+	return filtered
 }
 
 func indexDocuments(documents []admin.KnowledgeDocument) map[string]admin.KnowledgeChunk {

@@ -4,6 +4,9 @@ const saveDraftButton = document.querySelector("#persona-save-draft");
 const publishButton = document.querySelector("#persona-publish");
 const rollbackButton = document.querySelector("#persona-rollback");
 const memoryTableBody = document.querySelector("#memory-table-body");
+const knowledgeSpaceSelect = document.querySelector("#knowledge-space-select");
+const knowledgeSpaceCreate = document.querySelector("#knowledge-space-create");
+const knowledgeSpaceCreateButton = document.querySelector("#knowledge-space-create-button");
 const knowledgeUpload = document.querySelector("#knowledge-upload");
 const knowledgeUploadMock = document.querySelector("#knowledge-upload-mock");
 const knowledgeQuery = document.querySelector("#knowledge-query");
@@ -18,9 +21,11 @@ const toolStatus = document.querySelector("#tool-status");
 const auditRefresh = document.querySelector("#audit-refresh");
 const auditTableBody = document.querySelector("#audit-table-body");
 const knowledgeDetailPathPrefix = "/admin/knowledge/";
+const knowledgeListPath = "/admin/knowledge";
 
 let currentDraftId = "";
 let activeVersionId = "";
+let selectedKnowledgeSpaceId = "default";
 
 function setPersonaStatus(text) {
   personaStatus.textContent = text;
@@ -146,7 +151,7 @@ function renderMemoryRow(record) {
 }
 
 async function loadKnowledge() {
-  const response = await fetch("/admin/knowledge");
+  const response = await fetch(`${knowledgeListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
   if (!response.ok) return;
   const documents = await response.json();
   knowledgeTableBody.textContent = "";
@@ -162,6 +167,27 @@ async function loadKnowledge() {
   }
   for (const documentRecord of documents) {
     knowledgeTableBody.append(renderKnowledgeRow(documentRecord));
+  }
+}
+
+async function loadKnowledgeSpaces() {
+  const response = await fetch("/admin/knowledge/spaces");
+  if (!response.ok) return;
+  const spaces = await response.json();
+  knowledgeSpaceSelect.textContent = "";
+  for (const space of spaces) {
+    const option = document.createElement("option");
+    option.value = space.id;
+    option.textContent = space.name;
+    if (space.id === selectedKnowledgeSpaceId) {
+      option.selected = true;
+    }
+    knowledgeSpaceSelect.append(option);
+  }
+  if (spaces.length > 0) {
+    const selected = spaces.find((space) => space.id === selectedKnowledgeSpaceId) || spaces[0];
+    selectedKnowledgeSpaceId = selected.id;
+    knowledgeSpaceSelect.value = selected.id;
   }
 }
 
@@ -226,6 +252,7 @@ knowledgeUploadMock?.addEventListener("click", async () => {
   try {
     const uploaded = await postJSON("/admin/knowledge/upload", {
       id: `kb-${Date.now()}`,
+      space_id: selectedKnowledgeSpaceId,
       name: "mock.md",
       content: "Phase 4 adds a digital human UI.\n\nIt includes persona, memory, and knowledge admin controls."
     });
@@ -242,6 +269,7 @@ knowledgeQueryRun?.addEventListener("click", async () => {
     const diagnostics = await postJSON("/admin/knowledge/retrieval-diagnostics", {
       query: knowledgeQuery?.value || "",
       mode: knowledgeQueryMode?.value || "auto",
+      space_id: selectedKnowledgeSpaceId,
       limit: 3
     });
     const topResult = diagnostics.results?.[0];
@@ -253,6 +281,34 @@ knowledgeQueryRun?.addEventListener("click", async () => {
       setKnowledgeStatus("No retrieval results");
     }
     knowledgeDetail.textContent = renderKnowledgeDiagnostics(diagnostics);
+  } catch (error) {
+    setKnowledgeStatus(`Knowledge error: ${error.message}`);
+  }
+});
+
+knowledgeSpaceSelect?.addEventListener("change", async () => {
+  selectedKnowledgeSpaceId = knowledgeSpaceSelect.value || "default";
+  await loadKnowledge();
+});
+
+knowledgeSpaceCreateButton?.addEventListener("click", async () => {
+  const rawName = (knowledgeSpaceCreate?.value || "").trim();
+  const id = rawName.toLowerCase().replace(/\s+/g, "-");
+  if (!id) {
+    setKnowledgeStatus("Knowledge error: missing space name");
+    return;
+  }
+  try {
+    await postJSON("/admin/knowledge/spaces/create", {
+      id,
+      name: rawName
+    });
+    selectedKnowledgeSpaceId = id;
+    if (knowledgeSpaceCreate) {
+      knowledgeSpaceCreate.value = "";
+    }
+    await loadKnowledgeSpaces();
+    await loadKnowledge();
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }
@@ -335,6 +391,7 @@ rollbackButton?.addEventListener("click", async () => {
 loadActivePersona().catch((error) => {
   setPersonaStatus(`Active error: ${error.message}`);
 });
+loadKnowledgeSpaces().catch(() => {});
 loadMemory().catch(() => {});
 loadKnowledge().catch(() => {});
 auditRefresh?.addEventListener("click", () => {

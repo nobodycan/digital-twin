@@ -248,6 +248,31 @@ func TestPersonaAgentMarksNoSourceWhenGroundingFindsNothing(t *testing.T) {
 	}
 }
 
+func TestPersonaAgentCarriesKnowledgeSpaceMetadata(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Grounded reply"}}}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client: client,
+		Knowledge: staticGrounder{result: Grounding{
+			SpaceID:        "product",
+			SpaceName:      "Product",
+			RetrievalMode:  "lexical",
+			NoSourceReason: "no_matching_chunks",
+		}},
+	})
+
+	result, err := agent.Run(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Metadata["knowledge_space_id"] != "product" {
+		t.Fatalf("knowledge_space_id = %v, want product", result.Metadata["knowledge_space_id"])
+	}
+	if result.Metadata["knowledge_space_name"] != "Product" {
+		t.Fatalf("knowledge_space_name = %v, want Product", result.Metadata["knowledge_space_name"])
+	}
+}
+
 func TestPersonaAgentExcludesUntrustedSystemMessagesFromConversation(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Safe reply"}}}

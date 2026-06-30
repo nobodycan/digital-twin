@@ -139,6 +139,8 @@ func (a knowledgeGrounderAdapter) Ground(ctx context.Context, conversation types
 	}
 	result := agents.Grounding{
 		RetrievalMode:  grounding.RetrievalMode,
+		SpaceID:        grounding.SpaceID,
+		SpaceName:      grounding.SpaceName,
 		NoSourceReason: grounding.NoSourceReason,
 	}
 	for _, citation := range grounding.Citations {

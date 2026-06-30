@@ -73,3 +73,44 @@ func TestServiceGroundReturnsNoSourceReasonWhenNothingMatches(t *testing.T) {
 		t.Fatalf("StagesRun = %#v, want lexical only", grounding.StagesRun)
 	}
 }
+
+func TestServiceGroundScopesResultsToConversationKnowledgeSpace(t *testing.T) {
+	store := admin.NewInMemoryKnowledgeStore()
+	service := admin.NewKnowledgeService(store)
+	if _, err := service.CreateSpace("tenant-1", admin.KnowledgeSpaceInput{ID: "product", Name: "Product"}); err != nil {
+		t.Fatalf("CreateSpace(product) error = %v", err)
+	}
+	if _, err := service.CreateSpace("tenant-1", admin.KnowledgeSpaceInput{ID: "ops", Name: "Ops"}); err != nil {
+		t.Fatalf("CreateSpace(ops) error = %v", err)
+	}
+	for _, upload := range []admin.KnowledgeUpload{
+		{ID: "kb-product", Name: "product.md", SpaceID: "product", Content: "release checklist for product launch"},
+		{ID: "kb-ops", Name: "ops.md", SpaceID: "ops", Content: "release checklist for ops handoff"},
+	} {
+		if _, err := service.Upload("tenant-1", upload); err != nil {
+			t.Fatalf("Upload(%s) error = %v", upload.ID, err)
+		}
+	}
+
+	grounding, err := NewService(store).Ground(context.Background(), types.Conversation{
+		ID:       "conv-1",
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Metadata: types.Metadata{"knowledge_space_id": "product"},
+	}, "release checklist", 3)
+	if err != nil {
+		t.Fatalf("Ground() error = %v", err)
+	}
+	if len(grounding.Citations) != 1 {
+		t.Fatalf("citations len = %d, want 1", len(grounding.Citations))
+	}
+	if grounding.Citations[0].DocumentID != "kb-product" {
+		t.Fatalf("citation document = %q, want kb-product", grounding.Citations[0].DocumentID)
+	}
+	if grounding.SpaceID != "product" {
+		t.Fatalf("SpaceID = %q, want product", grounding.SpaceID)
+	}
+	if grounding.SpaceName != "Product" {
+		t.Fatalf("SpaceName = %q, want Product", grounding.SpaceName)
+	}
+}

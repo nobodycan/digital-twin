@@ -1,4 +1,25 @@
 # Release Notes
+## Unreleased - Phase 12 Knowledge Space Management and Grounded Answering
+
+### Added
+
+- Added `KnowledgeSpace` lifecycle support in `internal/admin`, including a guaranteed `default` space, active/disabled/archived states, and document-to-space membership through `space_id`.
+- Added backward-compatible file-store migration from the legacy flat `knowledge.json` document array into a local envelope that persists spaces plus documents.
+- Added scoped retrieval support so `internal/knowledge` can filter results by `space_id` before ranking and grounding.
+- Added grounding metadata propagation for `knowledge_space_id` and `knowledge_space_name` so `/app` can show which knowledge scope shaped an answer.
+- Added `/admin/knowledge/spaces` lifecycle endpoints and space-aware `/admin/knowledge` listing and retrieval diagnostics requests.
+- Added `/admin` and `/app` UI controls for selecting a knowledge space and running upload/diagnostic/chat flows inside that scope.
+
+### Documented
+
+- README now reflects Phase 12 status, the knowledge-space workflow, the new knowledge-space endpoints, and the selected-space grounding behavior.
+- Added Phase 12 spec, design, and plan docs for scoped knowledge management and grounded answering.
+
+### Notes
+
+- Phase 12 keeps one primary `space_id` per document in the first slice; many-to-many document membership is still deferred.
+- The implementation remains local-first and deterministic: no SQLite, no external vector database, and no mandatory provider calls in CI.
+
 ## Unreleased - Phase 11 Knowledge Retrieval Quality and RAG Evaluation
 
 ### Added

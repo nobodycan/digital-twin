@@ -30,6 +30,8 @@ func TestAppScriptPostsToExperienceStreamAndRendersPresentationEvents(t *testing
 		"done",
 		"conversationId",
 		"knowledge_used",
+		"knowledge_space_id",
+		"knowledge_space_name",
 		"knowledge_citations",
 		"memory_used",
 		"Knowledge grounded",
@@ -37,6 +39,8 @@ func TestAppScriptPostsToExperienceStreamAndRendersPresentationEvents(t *testing
 		"Memory considered",
 		"renderGroundingState",
 		"renderCitationSummary",
+		"knowledgeSpaceSelect",
+		"selectedKnowledgeSpaceId",
 		"clearTranscriptMeta",
 		"const completedLine = activeAssistantLine",
 		"finalizeAssistantLine(completedLine, metadata)",
@@ -125,6 +129,8 @@ func TestAppShellIncludesStopButton(t *testing.T) {
 	for _, want := range []string{
 		`id="runtime-status"`,
 		`id="provider-strip"`,
+		`id="knowledge-space-select"`,
+		`id="knowledge-space-status"`,
 		`id="session-provider"`,
 		`id="session-model"`,
 		`id="status-chip"`,
@@ -153,6 +159,8 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 	}
 	source := string(script)
 	for _, want := range []string{
+		`"/admin/knowledge/spaces"`,
+		`"/admin/knowledge/spaces/create"`,
 		`"/admin/persona/drafts"`,
 		`"/admin/persona/publish"`,
 		`"/admin/persona/rollback"`,
@@ -168,6 +176,11 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		`"/admin/knowledge/reindex"`,
 		`"/admin/knowledge/citation-test"`,
 		`"/admin/knowledge/retrieval-diagnostics"`,
+		"selectedKnowledgeSpaceId",
+		"loadKnowledgeSpaces",
+		"knowledge-space-select",
+		"knowledge-space-create",
+		"space_id",
 		`"/admin/tools/policy"`,
 		`"/admin/tools/authorize"`,
 		`"/admin/audit"`,
@@ -195,6 +208,9 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 	}
 	source := string(html)
 	for _, want := range []string{
+		`id="knowledge-space-select"`,
+		`id="knowledge-space-create"`,
+		`id="knowledge-space-create-button"`,
 		`id="knowledge-upload"`,
 		`id="knowledge-upload-mock"`,
 		`id="knowledge-query"`,

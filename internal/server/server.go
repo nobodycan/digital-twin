@@ -133,6 +133,12 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /admin/persona/active", handler.handlePersonaActive)
 	handler.mux.HandleFunc("GET /admin/memory", handler.handleMemoryList)
 	handler.mux.HandleFunc("POST /admin/memory/disable", handler.handleMemoryDisable)
+	handler.mux.HandleFunc("GET /admin/knowledge/spaces", handler.handleKnowledgeSpaceList)
+	handler.mux.HandleFunc("POST /admin/knowledge/spaces/create", handler.handleKnowledgeSpaceCreate)
+	handler.mux.HandleFunc("POST /admin/knowledge/spaces/update", handler.handleKnowledgeSpaceUpdate)
+	handler.mux.HandleFunc("POST /admin/knowledge/spaces/disable", handler.handleKnowledgeSpaceDisable)
+	handler.mux.HandleFunc("POST /admin/knowledge/spaces/enable", handler.handleKnowledgeSpaceEnable)
+	handler.mux.HandleFunc("POST /admin/knowledge/spaces/archive", handler.handleKnowledgeSpaceArchive)
 	handler.mux.HandleFunc("GET /admin/knowledge", handler.handleKnowledgeList)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}", handler.handleKnowledgeGet)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
@@ -449,6 +455,7 @@ type knowledgeCitationRequest struct {
 type knowledgeDiagnosticsRequest struct {
 	Query    string                  `json:"query"`
 	Mode     knowledge.RetrievalMode `json:"mode"`
+	SpaceID  string                  `json:"space_id,omitempty"`
 	Limit    int                     `json:"limit"`
 	MinScore float64                 `json:"min_score"`
 }
@@ -456,14 +463,32 @@ type knowledgeDiagnosticsRequest struct {
 type knowledgeDocumentRequest struct {
 	DocumentID string `json:"document_id"`
 	Content    string `json:"content,omitempty"`
+	SpaceID    string `json:"space_id,omitempty"`
 }
 
-func (h *Handler) handleKnowledgeList(w http.ResponseWriter, _ *http.Request) {
+type knowledgeSpaceRequest struct {
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name,omitempty"`
+	Description          string   `json:"description,omitempty"`
+	DefaultRetrievalMode string   `json:"default_retrieval_mode,omitempty"`
+	Tags                 []string `json:"tags,omitempty"`
+}
+
+func (h *Handler) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 	if h.knowledgeAdmin == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
 		return
 	}
-	documents, err := h.knowledgeAdmin.List("tenant-1")
+	spaceID := strings.TrimSpace(r.URL.Query().Get("space_id"))
+	var (
+		documents []admin.KnowledgeDocument
+		err       error
+	)
+	if spaceID != "" {
+		documents, err = h.knowledgeAdmin.ListBySpace("tenant-1", spaceID)
+	} else {
+		documents, err = h.knowledgeAdmin.List("tenant-1")
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_list_failed", "cause": err.Error()})
 		return
@@ -502,6 +527,61 @@ func (h *Handler) handleKnowledgeCitationTest(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, citation)
 }
 
+func (h *Handler) handleKnowledgeSpaceList(w http.ResponseWriter, _ *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	spaces, err := h.knowledgeAdmin.ListSpaces("tenant-1")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_space_list_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, spaces)
+}
+
+func (h *Handler) handleKnowledgeSpaceCreate(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_create_failed", func(request knowledgeSpaceRequest) (any, error) {
+		return h.knowledgeAdmin.CreateSpace("tenant-1", admin.KnowledgeSpaceInput{
+			ID:                   request.ID,
+			Name:                 request.Name,
+			Description:          request.Description,
+			DefaultRetrievalMode: request.DefaultRetrievalMode,
+			Tags:                 request.Tags,
+		})
+	})
+}
+
+func (h *Handler) handleKnowledgeSpaceUpdate(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_update_failed", func(request knowledgeSpaceRequest) (any, error) {
+		return h.knowledgeAdmin.UpdateSpace("tenant-1", admin.KnowledgeSpaceInput{
+			ID:                   request.ID,
+			Name:                 request.Name,
+			Description:          request.Description,
+			DefaultRetrievalMode: request.DefaultRetrievalMode,
+			Tags:                 request.Tags,
+		})
+	})
+}
+
+func (h *Handler) handleKnowledgeSpaceDisable(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_disable_failed", func(request knowledgeSpaceRequest) (any, error) {
+		return h.knowledgeAdmin.DisableSpace("tenant-1", request.ID)
+	})
+}
+
+func (h *Handler) handleKnowledgeSpaceEnable(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_enable_failed", func(request knowledgeSpaceRequest) (any, error) {
+		return h.knowledgeAdmin.EnableSpace("tenant-1", request.ID)
+	})
+}
+
+func (h *Handler) handleKnowledgeSpaceArchive(w http.ResponseWriter, r *http.Request) {
+	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_archive_failed", func(request knowledgeSpaceRequest) (any, error) {
+		return h.knowledgeAdmin.ArchiveSpace("tenant-1", request.ID)
+	})
+}
+
 func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *http.Request) {
 	if h.knowledgeRetriever == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_retriever_unavailable"})
@@ -516,6 +596,7 @@ func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *
 		Query:    request.Query,
 		Limit:    request.Limit,
 		Mode:     request.Mode,
+		SpaceID:  request.SpaceID,
 		MinScore: request.MinScore,
 	})
 	if err != nil {
@@ -558,6 +639,24 @@ func (h *Handler) handleKnowledgeMutation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var request knowledgeDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	result, err := apply(request)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": code, "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) handleKnowledgeSpaceMutation(w http.ResponseWriter, r *http.Request, code string, apply func(knowledgeSpaceRequest) (any, error)) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	var request knowledgeSpaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
@@ -882,6 +981,7 @@ func protectedRoute(path string) bool {
 		path == "/experience/mock-voice/stream" ||
 		strings.HasPrefix(path, "/admin/persona/") ||
 		strings.HasPrefix(path, "/admin/memory") ||
+		path == "/admin/knowledge" ||
 		strings.HasPrefix(path, "/admin/knowledge/") ||
 		strings.HasPrefix(path, "/admin/tools/") ||
 		path == "/admin/audit"

@@ -16,6 +16,9 @@ import (
 var ErrKnowledgeUploadEmpty = errors.New("knowledge upload is empty")
 var ErrKnowledgeCitationMissing = errors.New("knowledge citation missing")
 var ErrKnowledgeDocumentNotFound = errors.New("knowledge document not found")
+var ErrKnowledgeSpaceNotFound = errors.New("knowledge space not found")
+var ErrKnowledgeSpaceDisabled = errors.New("knowledge space disabled")
+var ErrKnowledgeSpaceArchived = errors.New("knowledge space archived")
 
 var safeKnowledgeIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
@@ -32,7 +35,38 @@ type KnowledgeUpload struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Content string   `json:"content"`
+	SpaceID string   `json:"space_id,omitempty"`
 	Tags    []string `json:"tags,omitempty"`
+}
+
+type KnowledgeSpaceStatus string
+
+const (
+	KnowledgeSpaceActive   KnowledgeSpaceStatus = "active"
+	KnowledgeSpaceDisabled KnowledgeSpaceStatus = "disabled"
+	KnowledgeSpaceArchived KnowledgeSpaceStatus = "archived"
+)
+
+const DefaultKnowledgeSpaceID = "default"
+
+type KnowledgeSpace struct {
+	ID                   string               `json:"id"`
+	TenantID             string               `json:"tenant_id"`
+	Name                 string               `json:"name"`
+	Description          string               `json:"description,omitempty"`
+	Status               KnowledgeSpaceStatus `json:"status"`
+	DefaultRetrievalMode string               `json:"default_retrieval_mode,omitempty"`
+	Tags                 []string             `json:"tags,omitempty"`
+	CreatedAt            time.Time            `json:"created_at"`
+	UpdatedAt            time.Time            `json:"updated_at"`
+}
+
+type KnowledgeSpaceInput struct {
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Description          string   `json:"description,omitempty"`
+	DefaultRetrievalMode string   `json:"default_retrieval_mode,omitempty"`
+	Tags                 []string `json:"tags,omitempty"`
 }
 
 type KnowledgeSourceType string
@@ -45,6 +79,7 @@ const (
 type KnowledgeDocument struct {
 	ID          string              `json:"id"`
 	TenantID    string              `json:"tenant_id"`
+	SpaceID     string              `json:"space_id,omitempty"`
 	Name        string              `json:"name"`
 	SourceType  KnowledgeSourceType `json:"source_type"`
 	Status      KnowledgeStatus     `json:"status"`
@@ -91,6 +126,9 @@ type KnowledgeStore interface {
 	ListKnowledge(tenantID string) ([]KnowledgeDocument, error)
 	GetKnowledge(tenantID, documentID string) (KnowledgeDocument, error)
 	DeleteKnowledge(tenantID, documentID string) error
+	SaveKnowledgeSpace(KnowledgeSpace) (KnowledgeSpace, error)
+	ListKnowledgeSpaces(tenantID string) ([]KnowledgeSpace, error)
+	GetKnowledgeSpace(tenantID, spaceID string) (KnowledgeSpace, error)
 }
 
 type KnowledgeService struct {
@@ -106,6 +144,10 @@ func (s KnowledgeService) Upload(tenantID string, upload KnowledgeUpload) (Knowl
 	if err := validateKnowledgeID(upload.ID); err != nil {
 		return KnowledgeDocument{}, err
 	}
+	space, err := s.requireWritableSpace(tenantID, upload.SpaceID)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
 	chunks := chunkKnowledge(upload.ID, upload.Content)
 	if len(chunks) == 0 {
 		return KnowledgeDocument{}, ErrKnowledgeUploadEmpty
@@ -114,6 +156,7 @@ func (s KnowledgeService) Upload(tenantID string, upload KnowledgeUpload) (Knowl
 	document := KnowledgeDocument{
 		ID:          upload.ID,
 		TenantID:    tenantID,
+		SpaceID:     space.ID,
 		Name:        upload.Name,
 		SourceType:  sourceTypeFromName(upload.Name),
 		Status:      KnowledgeReady,
@@ -134,6 +177,24 @@ func (s KnowledgeService) Get(tenantID, documentID string) (KnowledgeDocument, e
 
 func (s KnowledgeService) List(tenantID string) ([]KnowledgeDocument, error) {
 	return s.store.ListKnowledge(tenantID)
+}
+
+func (s KnowledgeService) ListBySpace(tenantID, spaceID string) ([]KnowledgeDocument, error) {
+	space, err := s.GetSpace(tenantID, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	documents, err := s.store.ListKnowledge(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]KnowledgeDocument, 0, len(documents))
+	for _, document := range documents {
+		if normalizeDocumentSpaceID(document.SpaceID) == space.ID {
+			filtered = append(filtered, document)
+		}
+	}
+	return filtered, nil
 }
 
 func (s KnowledgeService) Disable(tenantID, documentID string) (KnowledgeDocument, error) {
@@ -161,6 +222,9 @@ func (s KnowledgeService) Reindex(tenantID, documentID, content string) (Knowled
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
+	if _, err := s.requireWritableSpace(tenantID, document.SpaceID); err != nil {
+		return KnowledgeDocument{}, err
+	}
 	chunks := chunkKnowledge(document.ID, content)
 	if len(chunks) == 0 {
 		return KnowledgeDocument{}, ErrKnowledgeUploadEmpty
@@ -176,6 +240,82 @@ func (s KnowledgeService) Reindex(tenantID, documentID, content string) (Knowled
 
 func (s KnowledgeService) Delete(tenantID, documentID string) error {
 	return s.store.DeleteKnowledge(tenantID, documentID)
+}
+
+func (s KnowledgeService) ListSpaces(tenantID string) ([]KnowledgeSpace, error) {
+	return s.store.ListKnowledgeSpaces(tenantID)
+}
+
+func (s KnowledgeService) CreateSpace(tenantID string, input KnowledgeSpaceInput) (KnowledgeSpace, error) {
+	if err := validateKnowledgeID(input.ID); err != nil {
+		return KnowledgeSpace{}, err
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return KnowledgeSpace{}, fmt.Errorf("knowledge space name is required")
+	}
+	if _, err := s.store.GetKnowledgeSpace(tenantID, input.ID); err == nil {
+		return KnowledgeSpace{}, fmt.Errorf("knowledge space already exists")
+	} else if !errors.Is(err, ErrKnowledgeSpaceNotFound) {
+		return KnowledgeSpace{}, err
+	}
+	now := s.now()
+	return s.store.SaveKnowledgeSpace(KnowledgeSpace{
+		ID:                   input.ID,
+		TenantID:             tenantID,
+		Name:                 strings.TrimSpace(input.Name),
+		Description:          strings.TrimSpace(input.Description),
+		Status:               KnowledgeSpaceActive,
+		DefaultRetrievalMode: strings.TrimSpace(input.DefaultRetrievalMode),
+		Tags:                 slices.Clone(input.Tags),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	})
+}
+
+func (s KnowledgeService) GetSpace(tenantID, spaceID string) (KnowledgeSpace, error) {
+	return s.store.GetKnowledgeSpace(tenantID, normalizeDocumentSpaceID(spaceID))
+}
+
+func (s KnowledgeService) UpdateSpace(tenantID string, input KnowledgeSpaceInput) (KnowledgeSpace, error) {
+	space, err := s.GetSpace(tenantID, input.ID)
+	if err != nil {
+		return KnowledgeSpace{}, err
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return KnowledgeSpace{}, fmt.Errorf("knowledge space name is required")
+	}
+	space.Name = strings.TrimSpace(input.Name)
+	space.Description = strings.TrimSpace(input.Description)
+	space.DefaultRetrievalMode = strings.TrimSpace(input.DefaultRetrievalMode)
+	space.Tags = slices.Clone(input.Tags)
+	space.UpdatedAt = s.now()
+	return s.store.SaveKnowledgeSpace(space)
+}
+
+func (s KnowledgeService) DisableSpace(tenantID, spaceID string) (KnowledgeSpace, error) {
+	return s.updateSpaceStatus(tenantID, spaceID, KnowledgeSpaceDisabled)
+}
+
+func (s KnowledgeService) EnableSpace(tenantID, spaceID string) (KnowledgeSpace, error) {
+	return s.updateSpaceStatus(tenantID, spaceID, KnowledgeSpaceActive)
+}
+
+func (s KnowledgeService) ArchiveSpace(tenantID, spaceID string) (KnowledgeSpace, error) {
+	return s.updateSpaceStatus(tenantID, spaceID, KnowledgeSpaceArchived)
+}
+
+func (s KnowledgeService) MoveDocument(tenantID, documentID, spaceID string) (KnowledgeDocument, error) {
+	space, err := s.requireWritableSpace(tenantID, spaceID)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	document, err := s.store.GetKnowledge(tenantID, documentID)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	document.SpaceID = space.ID
+	document.UpdatedAt = s.now()
+	return s.store.SaveKnowledge(document)
 }
 
 func (s KnowledgeService) CitationTest(tenantID, query string) (KnowledgeCitation, error) {
@@ -264,18 +404,69 @@ func sourceTypeFromName(name string) KnowledgeSourceType {
 	return KnowledgeSourceText
 }
 
+func (s KnowledgeService) updateSpaceStatus(tenantID, spaceID string, status KnowledgeSpaceStatus) (KnowledgeSpace, error) {
+	space, err := s.GetSpace(tenantID, spaceID)
+	if err != nil {
+		return KnowledgeSpace{}, err
+	}
+	space.Status = status
+	space.UpdatedAt = s.now()
+	return s.store.SaveKnowledgeSpace(space)
+}
+
+func (s KnowledgeService) requireWritableSpace(tenantID, spaceID string) (KnowledgeSpace, error) {
+	space, err := s.GetSpace(tenantID, spaceID)
+	if err != nil {
+		return KnowledgeSpace{}, err
+	}
+	switch space.Status {
+	case KnowledgeSpaceDisabled:
+		return KnowledgeSpace{}, ErrKnowledgeSpaceDisabled
+	case KnowledgeSpaceArchived:
+		return KnowledgeSpace{}, ErrKnowledgeSpaceArchived
+	default:
+		return space, nil
+	}
+}
+
+func normalizeDocumentSpaceID(spaceID string) string {
+	spaceID = strings.TrimSpace(spaceID)
+	if spaceID == "" {
+		return DefaultKnowledgeSpaceID
+	}
+	return spaceID
+}
+
+func defaultKnowledgeSpace(tenantID string, now time.Time) KnowledgeSpace {
+	return KnowledgeSpace{
+		ID:                   DefaultKnowledgeSpaceID,
+		TenantID:             tenantID,
+		Name:                 "Default",
+		Status:               KnowledgeSpaceActive,
+		DefaultRetrievalMode: "auto",
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+}
+
 type InMemoryKnowledgeStore struct {
 	mu        sync.Mutex
 	documents map[string]map[string]KnowledgeDocument
+	spaces    map[string]map[string]KnowledgeSpace
 }
 
 func NewInMemoryKnowledgeStore() *InMemoryKnowledgeStore {
-	return &InMemoryKnowledgeStore{documents: make(map[string]map[string]KnowledgeDocument)}
+	return &InMemoryKnowledgeStore{
+		documents: make(map[string]map[string]KnowledgeDocument),
+		spaces:    make(map[string]map[string]KnowledgeSpace),
+	}
 }
 
 func (s *InMemoryKnowledgeStore) SaveKnowledge(document KnowledgeDocument) (KnowledgeDocument, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	document.SpaceID = normalizeDocumentSpaceID(document.SpaceID)
+	s.ensureDefaultSpaceLocked(document.TenantID)
 	if _, ok := s.documents[document.TenantID]; !ok {
 		s.documents[document.TenantID] = make(map[string]KnowledgeDocument)
 	}
@@ -286,6 +477,7 @@ func (s *InMemoryKnowledgeStore) SaveKnowledge(document KnowledgeDocument) (Know
 func (s *InMemoryKnowledgeStore) ListKnowledge(tenantID string) ([]KnowledgeDocument, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ensureDefaultSpaceLocked(tenantID)
 	documents := s.documents[tenantID]
 	out := make([]KnowledgeDocument, 0, len(documents))
 	for _, document := range documents {
@@ -303,6 +495,7 @@ func (s *InMemoryKnowledgeStore) ListKnowledge(tenantID string) ([]KnowledgeDocu
 func (s *InMemoryKnowledgeStore) GetKnowledge(tenantID, documentID string) (KnowledgeDocument, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ensureDefaultSpaceLocked(tenantID)
 	document, ok := s.documents[tenantID][documentID]
 	if !ok {
 		return KnowledgeDocument{}, ErrKnowledgeDocumentNotFound
@@ -313,9 +506,71 @@ func (s *InMemoryKnowledgeStore) GetKnowledge(tenantID, documentID string) (Know
 func (s *InMemoryKnowledgeStore) DeleteKnowledge(tenantID, documentID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ensureDefaultSpaceLocked(tenantID)
 	if _, ok := s.documents[tenantID][documentID]; !ok {
 		return ErrKnowledgeDocumentNotFound
 	}
 	delete(s.documents[tenantID], documentID)
 	return nil
+}
+
+func (s *InMemoryKnowledgeStore) SaveKnowledgeSpace(space KnowledgeSpace) (KnowledgeSpace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.spaces[space.TenantID]; !ok {
+		s.spaces[space.TenantID] = make(map[string]KnowledgeSpace)
+	}
+	s.ensureDefaultSpaceLocked(space.TenantID)
+	s.spaces[space.TenantID][space.ID] = space
+	return space, nil
+}
+
+func (s *InMemoryKnowledgeStore) ListKnowledgeSpaces(tenantID string) ([]KnowledgeSpace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureDefaultSpaceLocked(tenantID)
+	spaces := s.spaces[tenantID]
+	out := make([]KnowledgeSpace, 0, len(spaces))
+	for _, space := range spaces {
+		out = append(out, space)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
+func (s *InMemoryKnowledgeStore) GetKnowledgeSpace(tenantID, spaceID string) (KnowledgeSpace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureDefaultSpaceLocked(tenantID)
+	space, ok := s.spaces[tenantID][normalizeDocumentSpaceID(spaceID)]
+	if !ok {
+		return KnowledgeSpace{}, ErrKnowledgeSpaceNotFound
+	}
+	return space, nil
+}
+
+func (s *InMemoryKnowledgeStore) ensureDefaultSpaceLocked(tenantID string) {
+	if tenantID == "" {
+		return
+	}
+	if _, ok := s.spaces[tenantID]; !ok {
+		s.spaces[tenantID] = make(map[string]KnowledgeSpace)
+	}
+	if _, ok := s.spaces[tenantID][DefaultKnowledgeSpaceID]; !ok {
+		now := time.Now().UTC()
+		s.spaces[tenantID][DefaultKnowledgeSpaceID] = defaultKnowledgeSpace(tenantID, now)
+	}
+	if _, ok := s.documents[tenantID]; ok {
+		for id, document := range s.documents[tenantID] {
+			if document.SpaceID == "" {
+				document.SpaceID = DefaultKnowledgeSpaceID
+				s.documents[tenantID][id] = document
+			}
+		}
+	}
 }
