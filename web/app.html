@@ -43,9 +43,26 @@
       <aside id="presence-panel" class="presence-panel" aria-label="Presence and status">
         <section id="avatar-stage" class="avatar-stage" aria-label="Avatar state">
           <div class="presence-card">
-            <p class="eyebrow">Presence</p>
-            <div id="avatar-face" class="avatar-face" data-state="idle">idle</div>
-            <div id="subtitle-line" class="subtitle-line"></div>
+            <div class="presence-header">
+              <div>
+                <p class="eyebrow">Presence</p>
+                <strong class="presence-label">Live state</strong>
+              </div>
+              <strong id="presence-live-state" class="presence-live-state">idle</strong>
+            </div>
+            <div class="presence-visual-slot">
+              <div id="avatar-face" class="avatar-face" data-state="idle">idle</div>
+            </div>
+            <section id="presence-summary" class="presence-summary" aria-label="Latest takeaway">
+              <span class="diagnostic-label">Latest takeaway</span>
+              <p id="presence-summary-text" class="presence-summary-text">Ready for the next turn</p>
+              <div id="subtitle-line" class="subtitle-line"></div>
+            </section>
+            <div id="presence-signal-strip" class="presence-signal-strip" aria-label="Presence signals">
+              <span id="presence-grounding-signal" class="presence-signal">Knowledge: pending</span>
+              <span id="presence-memory-signal" class="presence-signal">Memory: idle</span>
+              <span id="presence-fallback-signal" class="presence-signal">Mode: trusted</span>
+            </div>
           </div>
         </section>
 

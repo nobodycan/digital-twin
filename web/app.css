@@ -317,19 +317,56 @@ input:disabled {
 
 .presence-card {
   display: grid;
-  grid-template-rows: auto minmax(240px, 1fr) auto;
+  grid-template-rows: auto auto auto auto;
   gap: 12px;
   padding: 18px;
   min-height: 100%;
+  align-content: start;
 }
 
 .avatar-stage {
   min-height: 100%;
 }
 
+.presence-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.presence-label,
+.presence-live-state {
+  display: block;
+}
+
+.presence-label {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.presence-live-state {
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 109, 102, 0.12);
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1.5;
+  text-transform: lowercase;
+}
+
+.presence-visual-slot {
+  display: grid;
+  min-height: 0;
+}
+
 .avatar-face {
   display: grid;
   place-items: center;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  max-height: 220px;
   border-radius: 8px;
   background:
     radial-gradient(circle at center, rgba(255, 255, 255, 0.22), transparent 56%),
@@ -366,11 +403,56 @@ input:disabled {
   background: linear-gradient(180deg, #4d586b 0%, #242c38 100%);
 }
 
+.presence-summary {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  padding-top: 2px;
+}
+
+.presence-summary-text {
+  margin: 0;
+  min-height: 72px;
+  max-height: 72px;
+  overflow: hidden;
+  color: var(--text);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .subtitle-line {
-  min-height: 48px;
+  min-height: 20px;
+  max-height: 42px;
+  overflow: hidden;
   padding-top: 10px;
   border-top: 1px solid rgba(120, 105, 89, 0.12);
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.presence-signal-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.presence-signal {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid rgba(120, 105, 89, 0.14);
+  border-radius: 999px;
+  background: rgba(247, 243, 236, 0.9);
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .diagnostic-panel {
