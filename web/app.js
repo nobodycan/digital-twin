@@ -3,6 +3,13 @@ const input = document.querySelector("#message-input");
 const transcript = document.querySelector("#transcript");
 const avatarFace = document.querySelector("#avatar-face");
 const subtitleLine = document.querySelector("#subtitle-line");
+const presenceSummary = document.querySelector("#presence-summary");
+const presenceSummaryText = document.querySelector("#presence-summary-text");
+const presenceLiveState = document.querySelector("#presence-live-state");
+const presenceSignalStrip = document.querySelector("#presence-signal-strip");
+const presenceGroundingSignal = document.querySelector("#presence-grounding-signal");
+const presenceMemorySignal = document.querySelector("#presence-memory-signal");
+const presenceFallbackSignal = document.querySelector("#presence-fallback-signal");
 const mockVoice = document.querySelector("#mock-voice-button");
 const audioStatus = document.querySelector("#audio-status");
 const stopButton = document.querySelector("#stop-button");
@@ -31,6 +38,16 @@ let activeAssistantLine = null;
 let latestAssistantText = "";
 let selectedKnowledgeSpaceId = "default";
 let selectedKnowledgeSpaceName = "Default";
+
+const presenceSummaryCopy = {
+  idle: "Ready for the next turn",
+  listening: "Listening for the next request",
+  thinking: "Thinking through the request",
+  speaking: "Responding now",
+  fallback: "Used a local fallback reply",
+  error: "Provider response could not be trusted",
+  interrupted: "Request was interrupted"
+};
 
 function transcriptLineClass(role, extraClass) {
   const classes = [`transcript-line`, `transcript-line-${role}`];
@@ -133,6 +150,7 @@ function renderGroundingState(line, metadata) {
   if (!line || !metadata) {
     return;
   }
+  renderPresenceSignals(metadata);
   const meta = clearTranscriptMeta(line);
   const state = document.createElement("span");
   state.className = "transcript-citation";
@@ -150,6 +168,75 @@ function renderGroundingState(line, metadata) {
     memory.className = "transcript-citation";
     memory.textContent = "Memory considered";
     meta.append(memory);
+  }
+}
+
+function setPresenceSummary(text) {
+  if (!presenceSummaryText) {
+    return;
+  }
+  presenceSummaryText.textContent = text || presenceSummaryCopy.idle;
+}
+
+function normalizedSummaryText(text) {
+  return (text || "").replace(/\s+/g, " ").trim();
+}
+
+function firstMeaningfulSentence(text) {
+  const normalized = normalizedSummaryText(text);
+  if (!normalized) {
+    return "";
+  }
+  const sentenceMatch = normalized.match(/^(.{1,160}?[.!?。！？])(?:\s|$)/);
+  if (sentenceMatch) {
+    return sentenceMatch[1].trim();
+  }
+  const clause = normalized.split(/[,:;，；]/, 1)[0].trim();
+  if (clause && clause.length >= 24) {
+    return clause;
+  }
+  return normalized;
+}
+
+function clampSummaryText(text, maxLength = 160) {
+  const normalized = normalizedSummaryText(text);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+function derivePresenceSummary(text, state) {
+  if (state === "fallback" || state === "error" || state === "interrupted") {
+    return presenceSummaryCopy[state];
+  }
+  if (state === "thinking" || state === "listening" || state === "speaking") {
+    return presenceSummaryCopy[state];
+  }
+  const candidate = clampSummaryText(firstMeaningfulSentence(text));
+  return candidate || presenceSummaryCopy.idle;
+}
+
+function renderPresenceSignals(metadata = {}) {
+  const activeSpaceName = metadata.knowledge_space_name || selectedKnowledgeSpaceName;
+  if (presenceGroundingSignal) {
+    presenceGroundingSignal.textContent = metadata.knowledge_used
+      ? `Knowledge: grounded (${activeSpaceName})`
+      : `Knowledge: not used (${activeSpaceName})`;
+  }
+  if (presenceMemorySignal) {
+    presenceMemorySignal.textContent = metadata.memory_used
+      ? "Memory: considered"
+      : "Memory: not used";
+  }
+  if (presenceFallbackSignal) {
+    if (metadata.generation_mode === "fallback") {
+      presenceFallbackSignal.textContent = "Mode: local fallback";
+    } else if (metadata.generation_mode === "transparency") {
+      presenceFallbackSignal.textContent = "Mode: transparent";
+    } else {
+      presenceFallbackSignal.textContent = "Mode: trusted";
+    }
   }
 }
 
@@ -180,7 +267,13 @@ function markActiveAssistantLineNotSaved(reason) {
 function setAvatar(state, subtitle) {
   avatarFace.dataset.state = state;
   avatarFace.textContent = state;
+  if (presenceLiveState) {
+    presenceLiveState.textContent = state;
+  }
   subtitleLine.textContent = subtitle || "";
+  if (presenceSummary) {
+    presenceSummary.dataset.state = state;
+  }
 }
 
 function appendStatus(text) {
@@ -288,6 +381,7 @@ async function sendMessage(text) {
   latestAssistantText = "";
   setStatusChip("thinking", "thinking");
   setAvatar("thinking", "Preparing response...");
+  setPresenceSummary(derivePresenceSummary("", "thinking"));
   activeRequestController = new AbortController();
   setRequestActive(true);
   try {
@@ -310,11 +404,13 @@ async function sendMessage(text) {
       appendStatus("canceled");
       setStatusChip("interrupted", "interrupted");
       setAvatar("interrupted", "Request canceled.");
+      setPresenceSummary(derivePresenceSummary("", "interrupted"));
       return;
     }
     appendStatus(`error: ${error.message}`);
     setStatusChip("error", "error");
     setAvatar("error", "Request failed.");
+    setPresenceSummary(derivePresenceSummary("", "error"));
   } finally {
     setRequestActive(false);
   }
@@ -325,6 +421,7 @@ async function sendMockVoice(audioText) {
   latestAssistantText = "";
   setStatusChip("listening", "ready");
   setAvatar("listening", "Mock voice input captured");
+  setPresenceSummary(derivePresenceSummary("", "listening"));
   activeRequestController = new AbortController();
   setRequestActive(true);
   try {
@@ -347,11 +444,13 @@ async function sendMockVoice(audioText) {
       appendStatus("canceled");
       setStatusChip("interrupted", "interrupted");
       setAvatar("interrupted", "Mock voice canceled.");
+      setPresenceSummary(derivePresenceSummary("", "interrupted"));
       return;
     }
     appendStatus(`error: ${error.message}`);
     setStatusChip("error", "error");
     setAvatar("error", "Mock voice failed.");
+    setPresenceSummary(derivePresenceSummary("", "error"));
   } finally {
     setRequestActive(false);
   }
@@ -418,6 +517,7 @@ function renderPresentationEvent(eventName, rawData) {
     case "assistant_text_delta":
       setStatusChip("speaking", "ready");
       updateActiveAssistantLine(latestAssistantText + (payload.text || ""), false);
+      setPresenceSummary(derivePresenceSummary(latestAssistantText + (payload.text || ""), "speaking"));
       break;
     case "asr_final":
       appendLine("voice", payload.text || "");
@@ -431,6 +531,9 @@ function renderPresentationEvent(eventName, rawData) {
     }
     case "avatar_state":
       setAvatar(payload.state || "idle", subtitleLine.textContent);
+      if (payload.state && payload.state !== "idle" && presenceSummaryCopy[payload.state]) {
+        setPresenceSummary(derivePresenceSummary("", payload.state));
+      }
       break;
     case "audio_chunk":
       audioStatus.textContent = `${payload.provider || "mock"} audio ready`;
@@ -440,6 +543,7 @@ function renderPresentationEvent(eventName, rawData) {
       appendStatus(`error: ${payload.problem || "unknown"}; ${payload.fix || "retry"}`);
       setStatusChip("error", "error");
       setAvatar("error", payload.problem || "error");
+      setPresenceSummary(derivePresenceSummary("", "error"));
       break;
     case "done": {
       const finalAssistantText = latestAssistantText || subtitleLine.textContent.trim();
@@ -465,10 +569,12 @@ function renderPresentationEvent(eventName, rawData) {
       if (metadata.generation_mode === "fallback") {
         appendStatus(`fallback: ${metadata.fallback_category || "provider issue"}; local response shown`);
         setAvatar("fallback", "Local fallback reply displayed.");
+        setPresenceSummary(derivePresenceSummary(finalAssistantText, "fallback"));
       } else if (payload.status === "completed") {
         appendStatus("done");
         setAvatar("idle", subtitleLine.textContent);
         setStatusChip("ready", "ready");
+        setPresenceSummary(derivePresenceSummary(finalAssistantText, "idle"));
       }
       break;
     }
@@ -516,6 +622,8 @@ stopButton?.addEventListener("click", () => {
 setRequestActive(false);
 setProviderStatus(providerStatus);
 setStatusChip("ready", "ready");
+setPresenceSummary(presenceSummaryCopy.idle);
+renderPresenceSignals();
 fetchRuntimeStatus().catch(() => {});
 loadKnowledgeSpaces().catch(() => {});
 
@@ -524,4 +632,5 @@ knowledgeSpaceSelect?.addEventListener("change", () => {
   selectedKnowledgeSpaceId = knowledgeSpaceSelect.value || "default";
   selectedKnowledgeSpaceName = selectedOption?.textContent || "Default";
   knowledgeSpaceStatus.textContent = selectedKnowledgeSpaceName;
+  renderPresenceSignals();
 });
