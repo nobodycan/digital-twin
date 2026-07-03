@@ -18,6 +18,33 @@ $errorLog = Join-Path $logDir ("server-{0}.err.log" -f $Port)
 $browserUrl = "http://localhost:$Port/app"
 $conversationUrl = "http://localhost:$Port"
 $smokeCommand = ".\scripts\smoke-conversation.ps1 -BaseUrl $conversationUrl"
+$healthUrl = "http://localhost:$Port/health"
+
+function Wait-ServerReady {
+    param(
+        [int]$ServerPort,
+        [string]$Url,
+        [System.Diagnostics.Process]$Process,
+        [int]$Attempts = 40,
+        [int]$DelayMilliseconds = 250
+    )
+
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        if ($Process.HasExited) {
+            return $false
+        }
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 2
+            if ($response.StatusCode -eq 200) {
+                return $true
+            }
+        } catch {
+        }
+        Start-Sleep -Milliseconds $DelayMilliseconds
+    }
+
+    return $false
+}
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
     throw "Missing API key. Set DIGITAL_TWIN_LLM_API_KEY or pass -ApiKey."
@@ -79,29 +106,42 @@ if ($DryRun) {
     exit 0
 }
 
-$command = @"
-Set-Location '$repoRoot'
-`$env:DIGITAL_TWIN_SERVER_PORT='$Port'
-`$env:DIGITAL_TWIN_LLM_PROVIDER='openai-compatible'
-`$env:DIGITAL_TWIN_LLM_BASE_URL='$BaseUrl'
-`$env:DIGITAL_TWIN_LLM_MODEL='$Model'
-`$env:DIGITAL_TWIN_LLM_API_KEY='$ApiKey'
-`$env:DIGITAL_TWIN_LLM_FALLBACK_POLICY='$FallbackPolicy'
-go run ./cmd/server
-"@
+@{
+    DIGITAL_TWIN_SERVER_PORT = "$Port"
+    DIGITAL_TWIN_LLM_PROVIDER = "openai-compatible"
+    DIGITAL_TWIN_LLM_BASE_URL = $BaseUrl
+    DIGITAL_TWIN_LLM_MODEL = $Model
+    DIGITAL_TWIN_LLM_API_KEY = $ApiKey
+    DIGITAL_TWIN_LLM_FALLBACK_POLICY = $FallbackPolicy
+} | ForEach-Object {
+    $script:originalEnv = @{}
+    foreach ($entry in $_.GetEnumerator()) {
+        $script:originalEnv[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, "Process")
+        [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, "Process")
+    }
+}
 
-$process = Start-Process -FilePath "powershell" `
-    -ArgumentList @("-NoProfile", "-Command", $command) `
-    -WorkingDirectory $repoRoot `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $serverLog `
-    -RedirectStandardError $errorLog `
-    -PassThru
+try {
+    $process = Start-Process -FilePath "go" `
+        -ArgumentList @("run", "./cmd/server") `
+        -WorkingDirectory $repoRoot `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $serverLog `
+        -RedirectStandardError $errorLog `
+        -PassThru
+} finally {
+    foreach ($entry in $originalEnv.GetEnumerator()) {
+        [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, "Process")
+    }
+}
 
-Start-Sleep -Milliseconds 800
-if ($process.HasExited) {
+if (-not (Wait-ServerReady -ServerPort $Port -Url $healthUrl -Process $process)) {
     $stderr = if (Test-Path -LiteralPath $errorLog) { Get-Content -LiteralPath $errorLog -Raw -Encoding UTF8 } else { "" }
-    throw "digital-twin server exited early. See $errorLog`n$stderr"
+    $stdout = if (Test-Path -LiteralPath $serverLog) { Get-Content -LiteralPath $serverLog -Raw -Encoding UTF8 } else { "" }
+    if (-not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+    throw "digital-twin server failed readiness on $healthUrl. See $errorLog`n$stderr`n$stdout"
 }
 
 $record = [PSCustomObject]@{

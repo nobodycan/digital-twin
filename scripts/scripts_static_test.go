@@ -21,9 +21,19 @@ func TestStartDeepSeekScriptPrintsPhase9RuntimeHints(t *testing.T) {
 		"fail_closed",
 		"ConversationUrl",
 		"Start-Process",
+		"Wait-ServerReady",
+		"-FilePath \"go\"",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("start-deepseek.ps1 missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"DIGITAL_TWIN_LLM_API_KEY='$ApiKey'",
+		"-FilePath \"powershell\"",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("start-deepseek.ps1 unexpectedly contains %q", forbidden)
 		}
 	}
 }
