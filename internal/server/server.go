@@ -1017,6 +1017,12 @@ func (h *Handler) captureKnowledgeGap(conversation types.Conversation, result ty
 	if result.Metadata == nil {
 		return
 	}
+	answerState, _ := result.Metadata["knowledge_answer_state"].(string)
+	switch strings.TrimSpace(answerState) {
+	case "unsupported", "partially_supported":
+	default:
+		return
+	}
 	if result.Metadata["knowledge_used"] == true {
 		return
 	}
