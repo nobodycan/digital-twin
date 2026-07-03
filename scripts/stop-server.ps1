@@ -18,8 +18,21 @@ function Stop-TrackedProcess {
     }
 
     $tracked = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
-    $process = Get-Process -Id $tracked.ServerPid -ErrorAction SilentlyContinue
-    if (-not $process) {
+    $trackedPids = @()
+    if ($tracked.ServerPid) {
+        $trackedPids += [int]$tracked.ServerPid
+    }
+    if ($tracked.ServerListenerPid) {
+        $trackedPids += [int]$tracked.ServerListenerPid
+    }
+    $trackedPids = $trackedPids | Sort-Object -Unique
+
+    $processes = @(
+        foreach ($processId in $trackedPids) {
+            Get-Process -Id $processId -ErrorAction SilentlyContinue
+        }
+    )
+    if ($processes.Count -eq 0) {
         Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
         return $false
     }
@@ -30,10 +43,12 @@ function Stop-TrackedProcess {
         return $true
     }
 
-    Stop-Process -Id $tracked.ServerPid -Force
+    foreach ($processId in $trackedPids) {
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    }
     Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
     $tracked | Format-List | Out-String | Write-Output
-    Write-Output ("Stopped tracked ServerPid: {0}" -f $tracked.ServerPid)
+    Write-Output ("Stopped tracked PID(s): {0}" -f ($trackedPids -join ", "))
     return $true
 }
 

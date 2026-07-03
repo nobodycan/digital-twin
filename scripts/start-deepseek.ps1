@@ -144,8 +144,12 @@ if (-not (Wait-ServerReady -ServerPort $Port -Url $healthUrl -Process $process))
     throw "digital-twin server failed readiness on $healthUrl. See $errorLog`n$stderr`n$stdout"
 }
 
+$listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
+$listenerPid = if ($listener) { $listener.OwningProcess } else { $process.Id }
+
 $record = [PSCustomObject]@{
     ServerPid = $process.Id
+    ServerListenerPid = $listenerPid
     Port = $Port
     BrowserUrl = $browserUrl
     ConversationUrl = $conversationUrl
