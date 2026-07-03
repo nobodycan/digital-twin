@@ -13,8 +13,16 @@ const knowledgeQuery = document.querySelector("#knowledge-query");
 const knowledgeQueryMode = document.querySelector("#knowledge-query-mode");
 const knowledgeQueryRun = document.querySelector("#knowledge-query-run");
 const knowledgeStatus = document.querySelector("#knowledge-status");
+const knowledgeHealthSummary = document.querySelector("#knowledge-health-summary");
+const knowledgeHealthStatus = document.querySelector("#knowledge-health-status");
+const knowledgeHealthMetrics = document.querySelector("#knowledge-health-metrics");
+const knowledgeAttentionReasons = document.querySelector("#knowledge-attention-reasons");
 const knowledgeTableBody = document.querySelector("#knowledge-table-body");
 const knowledgeDetail = document.querySelector("#knowledge-detail");
+const knowledgeDetailFlags = document.querySelector("#knowledge-detail-flags");
+const knowledgeDetailBody = document.querySelector("#knowledge-detail-body");
+const knowledgeDebugResults = document.querySelector("#knowledge-debug-results");
+const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
 const toolKnowledgeSearch = document.querySelector("#tool-knowledge-search");
 const toolSavePolicy = document.querySelector("#tool-save-policy");
 const toolStatus = document.querySelector("#tool-status");
@@ -22,6 +30,9 @@ const auditRefresh = document.querySelector("#audit-refresh");
 const auditTableBody = document.querySelector("#audit-table-body");
 const knowledgeDetailPathPrefix = "/admin/knowledge/";
 const knowledgeListPath = "/admin/knowledge";
+const knowledgeHealthPath = "/admin/knowledge/health";
+const knowledgeGapListPath = "/admin/knowledge/gaps";
+const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
 
 let currentDraftId = "";
 let activeVersionId = "";
@@ -33,6 +44,54 @@ function setPersonaStatus(text) {
 
 function setKnowledgeStatus(text) {
   knowledgeStatus.textContent = text;
+}
+
+function clearElement(element) {
+  if (element) {
+    element.textContent = "";
+  }
+}
+
+function renderKnowledgeMetric(label, value) {
+  const item = document.createElement("span");
+  item.className = "knowledge-metric";
+  item.textContent = `${label} ${value}`;
+  return item;
+}
+
+function renderKnowledgeFlag(flag) {
+  const item = document.createElement("span");
+  item.className = "knowledge-flag";
+  item.textContent = flag.replaceAll("_", " ");
+  return item;
+}
+
+function renderKnowledgeHealth(summary) {
+  if (!summary) {
+    knowledgeHealthStatus.textContent = "Health summary unavailable";
+    clearElement(knowledgeHealthMetrics);
+    knowledgeAttentionReasons.textContent = "No attention reasons";
+    return;
+  }
+  knowledgeHealthStatus.textContent = `${summary.space_name || "Knowledge"}: ${summary.status || "unknown"}`;
+  clearElement(knowledgeHealthMetrics);
+  for (const [label, value] of [
+    ["active", summary.active_document_count ?? 0],
+    ["disabled", summary.disabled_document_count ?? 0],
+    ["failed", summary.failed_document_count ?? 0],
+    ["chunks", summary.chunk_count ?? 0]
+  ]) {
+    knowledgeHealthMetrics.append(renderKnowledgeMetric(label, value));
+  }
+  const reasons = summary.attention_reasons || [];
+  knowledgeAttentionReasons.textContent = reasons.length > 0 ? reasons.join(" | ") : "No attention reasons";
+}
+
+async function loadKnowledgeHealth() {
+  const response = await fetch(`${knowledgeHealthPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  if (!response.ok) throw new Error(`health failed (${response.status})`);
+  const summary = await response.json();
+  renderKnowledgeHealth(summary);
 }
 
 function formatStageSummary(result) {
@@ -71,6 +130,145 @@ function renderKnowledgeDiagnostics(result) {
   }
 
   return sections.join("\n\n");
+}
+
+function renderKnowledgeDebugResults(result) {
+  clearElement(knowledgeDebugResults);
+  const header = document.createElement("div");
+  header.className = "knowledge-debug-header";
+  header.textContent = `mode ${result.mode || "unknown"}`;
+  knowledgeDebugResults.append(header);
+
+  if (result.no_source_reason) {
+    const empty = document.createElement("div");
+    empty.className = "knowledge-debug-empty";
+    empty.textContent = `no source: ${result.no_source_reason}`;
+    knowledgeDebugResults.append(empty);
+  }
+
+  const stageSummary = document.createElement("div");
+  stageSummary.className = "knowledge-debug-stages";
+  stageSummary.textContent = formatStageSummary(result);
+  knowledgeDebugResults.append(stageSummary);
+
+  const explanations = result.explanations || [];
+  if (explanations.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "knowledge-debug-empty";
+    empty.textContent = "No ranked chunks";
+    knowledgeDebugResults.append(empty);
+    return;
+  }
+
+  for (const explanation of explanations) {
+    knowledgeDebugResults.append(renderKnowledgeDebugRow(explanation));
+  }
+}
+
+function renderKnowledgeDetail(detail) {
+  const documentRecord = detail.document || {};
+  const qualityFlags = detail.quality_flags || [];
+  const chunks = (documentRecord.chunks || []).map((chunk) => chunk.text).join("\n\n") || "Chunk preview";
+  const indexState = documentRecord.metadata?.vector_status || "unknown";
+  const lastErrorCode = documentRecord.metadata?.last_error_code || "none";
+  clearElement(knowledgeDetailFlags);
+  if (qualityFlags.length === 0) {
+    knowledgeDetailFlags.append(renderKnowledgeFlag("healthy"));
+  } else {
+    for (const flag of qualityFlags) {
+      knowledgeDetailFlags.append(renderKnowledgeFlag(flag));
+    }
+  }
+  knowledgeDetailBody.textContent = [
+    `document: ${documentRecord.name || documentRecord.id || "unknown"}`,
+    `status: ${documentRecord.status || "unknown"}`,
+    `space_id: ${documentRecord.space_id || selectedKnowledgeSpaceId}`,
+    `index_state: ${indexState}`,
+    `last_error_code: ${lastErrorCode}`,
+    "",
+    chunks
+  ].join("\n");
+}
+
+function renderKnowledgeDebugRow(explanation) {
+  const row = document.createElement("div");
+  row.className = "knowledge-debug-row";
+
+  const title = document.createElement("strong");
+  title.textContent = `${explanation.document_id} / ${explanation.chunk_id}`;
+  row.append(title);
+
+  const body = document.createElement("div");
+  body.className = "knowledge-debug-body";
+  body.textContent = formatExplanation(explanation);
+  row.append(body);
+  return row;
+}
+
+function renderKnowledgeGapRow(gap) {
+  const row = document.createElement("div");
+  row.className = "knowledge-gap-row";
+  const summary = document.createElement("div");
+  summary.className = "knowledge-gap-summary";
+  summary.textContent = `${gap.status}: ${gap.question} (${gap.no_source_reason})`;
+  row.append(summary);
+
+  const actions = document.createElement("div");
+  actions.className = "knowledge-gap-actions";
+
+  if (gap.status !== "resolved") {
+    const resolveButton = document.createElement("button");
+    resolveButton.type = "button";
+    resolveButton.textContent = "Resolve";
+    resolveButton.addEventListener("click", async () => {
+      await postJSON(knowledgeGapUpdatePath, {
+        gap_id: gap.id,
+        status: "resolved"
+      });
+      await refreshKnowledgeWorkspace();
+    });
+    actions.append(resolveButton);
+  }
+
+  if (gap.status === "open") {
+    const ignoreButton = document.createElement("button");
+    ignoreButton.type = "button";
+    ignoreButton.textContent = "Ignore";
+    ignoreButton.addEventListener("click", async () => {
+      await postJSON(knowledgeGapUpdatePath, {
+        gap_id: gap.id,
+        status: "ignored"
+      });
+      await refreshKnowledgeWorkspace();
+    });
+    actions.append(ignoreButton);
+  }
+
+  if (actions.childNodes.length > 0) {
+    row.append(actions);
+  }
+
+  return row;
+}
+
+async function loadKnowledgeGaps() {
+  const response = await fetch(`${knowledgeGapListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  if (!response.ok) throw new Error(`knowledge gaps failed (${response.status})`);
+  const gaps = await response.json() || [];
+  clearElement(knowledgeGapQueue);
+  if (gaps.length === 0) {
+    knowledgeGapQueue.textContent = "Knowledge gaps";
+    return;
+  }
+  for (const gap of gaps) {
+    knowledgeGapQueue.append(renderKnowledgeGapRow(gap));
+  }
+}
+
+async function refreshKnowledgeWorkspace() {
+  await loadKnowledge();
+  await loadKnowledgeHealth();
+  await loadKnowledgeGaps();
 }
 
 function draftPayload() {
@@ -158,11 +356,12 @@ async function loadKnowledge() {
   if (documents.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.textContent = "No knowledge loaded";
     row.append(cell);
     knowledgeTableBody.append(row);
-    knowledgeDetail.textContent = "Chunk preview";
+    knowledgeDetailBody.textContent = "Chunk preview";
+    clearElement(knowledgeDetailFlags);
     return;
   }
   for (const documentRecord of documents) {
@@ -203,16 +402,19 @@ function renderKnowledgeRow(documentRecord) {
   const chunkCountCell = document.createElement("td");
   chunkCountCell.textContent = String(documentRecord.chunk_count ?? documentRecord.chunks?.length ?? 0);
 
+  const qualityCell = document.createElement("td");
+  qualityCell.textContent = documentRecord.metadata?.vector_status || "pending";
+
   const actionCell = document.createElement("td");
   const inspectButton = document.createElement("button");
   inspectButton.type = "button";
   inspectButton.textContent = "Inspect";
   inspectButton.addEventListener("click", async () => {
-    const detailURL = `${knowledgeDetailPathPrefix}${documentRecord.id}`;
+    const detailURL = `${knowledgeDetailPathPrefix}${documentRecord.id}/detail`;
     const detail = await fetch(detailURL);
     if (!detail.ok) throw new Error(`${detailURL} failed (${detail.status})`);
     const loaded = await detail.json();
-    knowledgeDetail.textContent = (loaded.chunks || []).map((chunk) => chunk.text).join("\n\n") || "Chunk preview";
+    renderKnowledgeDetail(loaded);
   });
 
   const toggleButton = document.createElement("button");
@@ -221,7 +423,7 @@ function renderKnowledgeRow(documentRecord) {
   toggleButton.addEventListener("click", async () => {
     const url = documentRecord.status === "disabled" ? "/admin/knowledge/enable" : "/admin/knowledge/disable";
     await postJSON(url, { document_id: documentRecord.id });
-    await loadKnowledge();
+    await refreshKnowledgeWorkspace();
   });
 
   const reindexButton = document.createElement("button");
@@ -232,7 +434,7 @@ function renderKnowledgeRow(documentRecord) {
       document_id: documentRecord.id,
       content: (documentRecord.chunks || []).map((chunk) => chunk.text).join("\n\n")
     });
-    await loadKnowledge();
+    await refreshKnowledgeWorkspace();
   });
 
   const deleteButton = document.createElement("button");
@@ -240,11 +442,11 @@ function renderKnowledgeRow(documentRecord) {
   deleteButton.textContent = "Delete";
   deleteButton.addEventListener("click", async () => {
     await postJSON("/admin/knowledge/delete", { document_id: documentRecord.id });
-    await loadKnowledge();
+    await refreshKnowledgeWorkspace();
   });
 
   actionCell.append(inspectButton, toggleButton, reindexButton, deleteButton);
-  row.append(nameCell, statusCell, chunkCountCell, actionCell);
+  row.append(nameCell, statusCell, chunkCountCell, qualityCell, actionCell);
   return row;
 }
 
@@ -258,7 +460,7 @@ knowledgeUploadMock?.addEventListener("click", async () => {
     });
     const citation = await postJSON("/admin/knowledge/citation-test", { query: "digital human UI" });
     setKnowledgeStatus(`Uploaded ${uploaded.chunk_count ?? uploaded.chunks.length} chunks; citation ${citation.chunk_id}`);
-    await loadKnowledge();
+    await refreshKnowledgeWorkspace();
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }
@@ -280,7 +482,7 @@ knowledgeQueryRun?.addEventListener("click", async () => {
     } else {
       setKnowledgeStatus("No retrieval results");
     }
-    knowledgeDetail.textContent = renderKnowledgeDiagnostics(diagnostics);
+    renderKnowledgeDebugResults(diagnostics);
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }
@@ -288,7 +490,7 @@ knowledgeQueryRun?.addEventListener("click", async () => {
 
 knowledgeSpaceSelect?.addEventListener("change", async () => {
   selectedKnowledgeSpaceId = knowledgeSpaceSelect.value || "default";
-  await loadKnowledge();
+  await refreshKnowledgeWorkspace();
 });
 
 knowledgeSpaceCreateButton?.addEventListener("click", async () => {
@@ -308,7 +510,7 @@ knowledgeSpaceCreateButton?.addEventListener("click", async () => {
       knowledgeSpaceCreate.value = "";
     }
     await loadKnowledgeSpaces();
-    await loadKnowledge();
+    await refreshKnowledgeWorkspace();
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }
@@ -393,7 +595,7 @@ loadActivePersona().catch((error) => {
 });
 loadKnowledgeSpaces().catch(() => {});
 loadMemory().catch(() => {});
-loadKnowledge().catch(() => {});
+refreshKnowledgeWorkspace().catch(() => {});
 auditRefresh?.addEventListener("click", () => {
   loadAudit().catch(() => {});
 });

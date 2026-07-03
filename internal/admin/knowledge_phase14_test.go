@@ -1,0 +1,237 @@
+package admin
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestKnowledgeServiceHealthSummaryEmptySpace(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	summary, err := service.HealthSummary("tenant-1", DefaultKnowledgeSpaceID)
+	if err != nil {
+		t.Fatalf("HealthSummary returned error: %v", err)
+	}
+	if summary.Status != KnowledgeHealthEmpty {
+		t.Fatalf("status = %q, want %q", summary.Status, KnowledgeHealthEmpty)
+	}
+	if summary.ActiveDocumentCount != 0 || summary.ChunkCount != 0 {
+		t.Fatalf("summary = %#v, want zero counts", summary)
+	}
+	if len(summary.AttentionReasons) == 0 || summary.AttentionReasons[0] != "no_active_documents" {
+		t.Fatalf("attention reasons = %#v, want no_active_documents", summary.AttentionReasons)
+	}
+}
+
+func TestKnowledgeServiceHealthSummaryNeedsAttention(t *testing.T) {
+	store := NewInMemoryKnowledgeStore()
+	service := NewKnowledgeService(store)
+
+	if _, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-ready",
+		Name:    "ready.md",
+		Content: "ready content",
+	}); err != nil {
+		t.Fatalf("Upload(ready) returned error: %v", err)
+	}
+	if _, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-failed",
+		Name:    "failed.md",
+		Content: "failed content",
+	}); err != nil {
+		t.Fatalf("Upload(failed) returned error: %v", err)
+	}
+	failed, err := service.Get("tenant-1", "kb-failed")
+	if err != nil {
+		t.Fatalf("Get(failed) returned error: %v", err)
+	}
+	failed.Status = KnowledgeFailed
+	applyIndexMetadata(&failed, time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC), KnowledgeVectorFailed, "embed_failed")
+	if _, err := store.SaveKnowledge(failed); err != nil {
+		t.Fatalf("SaveKnowledge(failed) returned error: %v", err)
+	}
+
+	summary, err := service.HealthSummary("tenant-1", DefaultKnowledgeSpaceID)
+	if err != nil {
+		t.Fatalf("HealthSummary returned error: %v", err)
+	}
+	if summary.Status != KnowledgeHealthNeedsAttention {
+		t.Fatalf("status = %q, want %q", summary.Status, KnowledgeHealthNeedsAttention)
+	}
+	if summary.ActiveDocumentCount != 1 || summary.FailedDocumentCount != 1 {
+		t.Fatalf("summary counts = %#v", summary)
+	}
+	if summary.ChunkCount != 2 {
+		t.Fatalf("chunk count = %d, want 2", summary.ChunkCount)
+	}
+	if !containsString(summary.AttentionReasons, "failed_documents_present") {
+		t.Fatalf("attention reasons = %#v, want failed_documents_present", summary.AttentionReasons)
+	}
+}
+
+func TestKnowledgeServiceDocumentDetailFlagsQualitySignals(t *testing.T) {
+	store := NewInMemoryKnowledgeStore()
+	service := NewKnowledgeService(store)
+
+	for _, upload := range []KnowledgeUpload{
+		{ID: "kb-a", Name: "a.md", Content: "shared content"},
+		{ID: "kb-b", Name: "b.md", Content: "shared content"},
+	} {
+		if _, err := service.Upload("tenant-1", upload); err != nil {
+			t.Fatalf("Upload(%s) returned error: %v", upload.ID, err)
+		}
+	}
+
+	document, err := service.Get("tenant-1", "kb-a")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	document.Status = KnowledgeDisabled
+	applyIndexMetadata(&document, time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC), KnowledgeVectorFailed, "embed_failed")
+	if _, err := store.SaveKnowledge(document); err != nil {
+		t.Fatalf("SaveKnowledge returned error: %v", err)
+	}
+
+	detail, err := service.DocumentDetail("tenant-1", "kb-a")
+	if err != nil {
+		t.Fatalf("DocumentDetail returned error: %v", err)
+	}
+	for _, want := range []string{"disabled", "index_failed", "duplicate_content_hash", "last_error_present"} {
+		if !containsString(detail.QualityFlags, want) {
+			t.Fatalf("quality flags = %#v, want %q", detail.QualityFlags, want)
+		}
+	}
+	if detail.Document.ID != "kb-a" {
+		t.Fatalf("document id = %q, want kb-a", detail.Document.ID)
+	}
+}
+
+func TestKnowledgeGapServiceLifecycleWithFileStore(t *testing.T) {
+	dir := t.TempDir()
+	service := NewKnowledgeGapService(NewFileKnowledgeGapStore(dir))
+
+	created, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "What is our refund window?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if created.Status != KnowledgeGapOpen {
+		t.Fatalf("status = %q, want %q", created.Status, KnowledgeGapOpen)
+	}
+
+	listed, err := service.List("tenant-1", DefaultKnowledgeSpaceID)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != created.ID {
+		t.Fatalf("listed = %#v, want one created gap", listed)
+	}
+
+	updated, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapResolved, "kb-policy")
+	if err != nil {
+		t.Fatalf("UpdateStatus returned error: %v", err)
+	}
+	if updated.Status != KnowledgeGapResolved || updated.ResolvedByDocumentID != "kb-policy" {
+		t.Fatalf("updated = %#v", updated)
+	}
+
+	reopened := NewKnowledgeGapService(NewFileKnowledgeGapStore(dir))
+	reloaded, err := reopened.List("tenant-1", DefaultKnowledgeSpaceID)
+	if err != nil {
+		t.Fatalf("List after reopen returned error: %v", err)
+	}
+	if len(reloaded) != 1 || reloaded[0].Status != KnowledgeGapResolved {
+		t.Fatalf("reloaded = %#v", reloaded)
+	}
+}
+
+func TestKnowledgeGapServiceDedupesOpenGapByQuestionAndReason(t *testing.T) {
+	service := NewKnowledgeGapService(NewInMemoryKnowledgeGapStore())
+	times := []time.Time{
+		time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 2, 10, 0, 1, 0, time.UTC),
+	}
+	service.now = func() time.Time {
+		current := times[0]
+		if len(times) > 1 {
+			times = times[1:]
+		}
+		return current
+	}
+
+	first, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "What is our refund window?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("first Create returned error: %v", err)
+	}
+	second, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "What is our refund window?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("second Create returned error: %v", err)
+	}
+
+	if second.ID != first.ID {
+		t.Fatalf("second id = %q, want %q", second.ID, first.ID)
+	}
+	listed, err := service.List("tenant-1", DefaultKnowledgeSpaceID)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("gap count = %d, want 1", len(listed))
+	}
+}
+
+func TestFileKnowledgeGapStoreLeavesNoTemporaryFilesBehind(t *testing.T) {
+	dir := t.TempDir()
+	service := NewKnowledgeGapService(NewFileKnowledgeGapStore(dir))
+
+	if _, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "Why is pricing missing?",
+		NoSourceReason: "no_matching_chunks",
+	}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	if err != nil {
+		t.Fatalf("Glob returned error: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary files left behind: %v", matches)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "knowledge_gaps.json"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var decoded []KnowledgeGap
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("gap count = %d, want 1", len(decoded))
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

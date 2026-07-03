@@ -35,6 +35,7 @@ type Config struct {
 	PersonaAdmin        *admin.PersonaService
 	MemoryAdmin         *admin.MemoryService
 	KnowledgeAdmin      *admin.KnowledgeService
+	KnowledgeGapAdmin   *admin.KnowledgeGapService
 	KnowledgeRetriever  *knowledge.Service
 	ToolPolicyAdmin     *admin.ToolPolicyService
 	AuditAdmin          *admin.AuditService
@@ -74,6 +75,7 @@ type Handler struct {
 	personaAdmin        *admin.PersonaService
 	memoryAdmin         *admin.MemoryService
 	knowledgeAdmin      *admin.KnowledgeService
+	knowledgeGapAdmin   *admin.KnowledgeGapService
 	knowledgeRetriever  *knowledge.Service
 	toolPolicyAdmin     *admin.ToolPolicyService
 	auditAdmin          *admin.AuditService
@@ -103,6 +105,7 @@ func NewHandler(config Config) http.Handler {
 		personaAdmin:        config.PersonaAdmin,
 		memoryAdmin:         config.MemoryAdmin,
 		knowledgeAdmin:      config.KnowledgeAdmin,
+		knowledgeGapAdmin:   config.KnowledgeGapAdmin,
 		knowledgeRetriever:  config.KnowledgeRetriever,
 		toolPolicyAdmin:     config.ToolPolicyAdmin,
 		auditAdmin:          config.AuditAdmin,
@@ -140,11 +143,15 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/spaces/enable", handler.handleKnowledgeSpaceEnable)
 	handler.mux.HandleFunc("POST /admin/knowledge/spaces/archive", handler.handleKnowledgeSpaceArchive)
 	handler.mux.HandleFunc("GET /admin/knowledge", handler.handleKnowledgeList)
+	handler.mux.HandleFunc("GET /admin/knowledge/health", handler.handleKnowledgeHealth)
+	handler.mux.HandleFunc("GET /admin/knowledge/gaps", handler.handleKnowledgeGapList)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}", handler.handleKnowledgeGet)
+	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}/detail", handler.handleKnowledgeDetail)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
 	handler.mux.HandleFunc("POST /admin/knowledge/disable", handler.handleKnowledgeDisable)
 	handler.mux.HandleFunc("POST /admin/knowledge/enable", handler.handleKnowledgeEnable)
 	handler.mux.HandleFunc("POST /admin/knowledge/delete", handler.handleKnowledgeDelete)
+	handler.mux.HandleFunc("POST /admin/knowledge/gaps/update", handler.handleKnowledgeGapUpdate)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -340,7 +347,7 @@ func (h *Handler) handlePersonaDraft(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	version, err := h.personaAdmin.SaveDraft("tenant-1", draft)
+	version, err := h.personaAdmin.SaveDraft(h.adminTenantID(), draft)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "persona_draft_failed", "cause": err.Error()})
 		return
@@ -374,7 +381,7 @@ func (h *Handler) handlePersonaVersionAction(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	version, err := apply("tenant-1", request.VersionID)
+	version, err := apply(h.adminTenantID(), request.VersionID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "persona_" + action + "_failed", "cause": err.Error()})
 		return
@@ -387,7 +394,7 @@ func (h *Handler) handlePersonaActive(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "persona_admin_unavailable"})
 		return
 	}
-	version, err := h.personaAdmin.Active("tenant-1")
+	version, err := h.personaAdmin.Active(h.adminTenantID())
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "none"})
 		return
@@ -400,7 +407,7 @@ func (h *Handler) handleMemoryList(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "memory_admin_unavailable"})
 		return
 	}
-	records, err := h.memoryAdmin.List("tenant-1")
+	records, err := h.memoryAdmin.List(h.adminTenantID())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "memory_list_failed", "cause": err.Error()})
 		return
@@ -422,7 +429,7 @@ func (h *Handler) handleMemoryDisable(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	record, err := h.memoryAdmin.Disable("tenant-1", request.MemoryID)
+	record, err := h.memoryAdmin.Disable(h.adminTenantID(), request.MemoryID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "memory_disable_failed", "cause": err.Error()})
 		return
@@ -440,7 +447,7 @@ func (h *Handler) handleKnowledgeUpload(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	document, err := h.knowledgeAdmin.Upload("tenant-1", upload)
+	document, err := h.knowledgeAdmin.Upload(h.adminTenantID(), upload)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_upload_failed", "cause": err.Error()})
 		return
@@ -485,9 +492,9 @@ func (h *Handler) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		err       error
 	)
 	if spaceID != "" {
-		documents, err = h.knowledgeAdmin.ListBySpace("tenant-1", spaceID)
+		documents, err = h.knowledgeAdmin.ListBySpace(h.adminTenantID(), spaceID)
 	} else {
-		documents, err = h.knowledgeAdmin.List("tenant-1")
+		documents, err = h.knowledgeAdmin.List(h.adminTenantID())
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_list_failed", "cause": err.Error()})
@@ -501,12 +508,25 @@ func (h *Handler) handleKnowledgeGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
 		return
 	}
-	document, err := h.knowledgeAdmin.Get("tenant-1", r.PathValue("documentID"))
+	document, err := h.knowledgeAdmin.Get(h.adminTenantID(), r.PathValue("documentID"))
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "knowledge_document_missing", "cause": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, document)
+}
+
+func (h *Handler) handleKnowledgeDetail(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	detail, err := h.knowledgeAdmin.DocumentDetail(h.adminTenantID(), r.PathValue("documentID"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_detail_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *Handler) handleKnowledgeCitationTest(w http.ResponseWriter, r *http.Request) {
@@ -519,7 +539,7 @@ func (h *Handler) handleKnowledgeCitationTest(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	citation, err := h.knowledgeAdmin.CitationTest("tenant-1", request.Query)
+	citation, err := h.knowledgeAdmin.CitationTest(h.adminTenantID(), request.Query)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "knowledge_citation_missing", "cause": err.Error()})
 		return
@@ -532,7 +552,7 @@ func (h *Handler) handleKnowledgeSpaceList(w http.ResponseWriter, _ *http.Reques
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
 		return
 	}
-	spaces, err := h.knowledgeAdmin.ListSpaces("tenant-1")
+	spaces, err := h.knowledgeAdmin.ListSpaces(h.adminTenantID())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_space_list_failed", "cause": err.Error()})
 		return
@@ -542,7 +562,7 @@ func (h *Handler) handleKnowledgeSpaceList(w http.ResponseWriter, _ *http.Reques
 
 func (h *Handler) handleKnowledgeSpaceCreate(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_create_failed", func(request knowledgeSpaceRequest) (any, error) {
-		return h.knowledgeAdmin.CreateSpace("tenant-1", admin.KnowledgeSpaceInput{
+		return h.knowledgeAdmin.CreateSpace(h.adminTenantID(), admin.KnowledgeSpaceInput{
 			ID:                   request.ID,
 			Name:                 request.Name,
 			Description:          request.Description,
@@ -554,7 +574,7 @@ func (h *Handler) handleKnowledgeSpaceCreate(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) handleKnowledgeSpaceUpdate(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_update_failed", func(request knowledgeSpaceRequest) (any, error) {
-		return h.knowledgeAdmin.UpdateSpace("tenant-1", admin.KnowledgeSpaceInput{
+		return h.knowledgeAdmin.UpdateSpace(h.adminTenantID(), admin.KnowledgeSpaceInput{
 			ID:                   request.ID,
 			Name:                 request.Name,
 			Description:          request.Description,
@@ -566,20 +586,33 @@ func (h *Handler) handleKnowledgeSpaceUpdate(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) handleKnowledgeSpaceDisable(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_disable_failed", func(request knowledgeSpaceRequest) (any, error) {
-		return h.knowledgeAdmin.DisableSpace("tenant-1", request.ID)
+		return h.knowledgeAdmin.DisableSpace(h.adminTenantID(), request.ID)
 	})
 }
 
 func (h *Handler) handleKnowledgeSpaceEnable(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_enable_failed", func(request knowledgeSpaceRequest) (any, error) {
-		return h.knowledgeAdmin.EnableSpace("tenant-1", request.ID)
+		return h.knowledgeAdmin.EnableSpace(h.adminTenantID(), request.ID)
 	})
 }
 
 func (h *Handler) handleKnowledgeSpaceArchive(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeSpaceMutation(w, r, "knowledge_space_archive_failed", func(request knowledgeSpaceRequest) (any, error) {
-		return h.knowledgeAdmin.ArchiveSpace("tenant-1", request.ID)
+		return h.knowledgeAdmin.ArchiveSpace(h.adminTenantID(), request.ID)
 	})
+}
+
+func (h *Handler) handleKnowledgeHealth(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	summary, err := h.knowledgeAdmin.HealthSummary(h.adminTenantID(), r.URL.Query().Get("space_id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_health_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -592,7 +625,7 @@ func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	response, err := h.knowledgeRetriever.Diagnostics(r.Context(), "tenant-1", knowledge.SearchRequest{
+	response, err := h.knowledgeRetriever.Diagnostics(r.Context(), h.adminTenantID(), knowledge.SearchRequest{
 		Query:    request.Query,
 		Limit:    request.Limit,
 		Mode:     request.Mode,
@@ -606,21 +639,58 @@ func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, response)
 }
 
+type knowledgeGapRequest struct {
+	GapID                string                  `json:"gap_id"`
+	Status               admin.KnowledgeGapStatus `json:"status"`
+	ResolvedByDocumentID string                  `json:"resolved_by_document_id,omitempty"`
+}
+
+func (h *Handler) handleKnowledgeGapList(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeGapAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_gap_admin_unavailable"})
+		return
+	}
+	records, err := h.knowledgeGapAdmin.List(h.adminTenantID(), r.URL.Query().Get("space_id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_gap_list_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, records)
+}
+
+func (h *Handler) handleKnowledgeGapUpdate(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeGapAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_gap_admin_unavailable"})
+		return
+	}
+	var request knowledgeGapRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	record, err := h.knowledgeGapAdmin.UpdateStatus(h.adminTenantID(), request.GapID, request.Status, request.ResolvedByDocumentID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_gap_update_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, record)
+}
+
 func (h *Handler) handleKnowledgeDisable(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeMutation(w, r, "knowledge_disable_failed", func(request knowledgeDocumentRequest) (any, error) {
-		return h.knowledgeAdmin.Disable("tenant-1", request.DocumentID)
+		return h.knowledgeAdmin.Disable(h.adminTenantID(), request.DocumentID)
 	})
 }
 
 func (h *Handler) handleKnowledgeEnable(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeMutation(w, r, "knowledge_enable_failed", func(request knowledgeDocumentRequest) (any, error) {
-		return h.knowledgeAdmin.Enable("tenant-1", request.DocumentID)
+		return h.knowledgeAdmin.Enable(h.adminTenantID(), request.DocumentID)
 	})
 }
 
 func (h *Handler) handleKnowledgeDelete(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeMutation(w, r, "knowledge_delete_failed", func(request knowledgeDocumentRequest) (any, error) {
-		if err := h.knowledgeAdmin.Delete("tenant-1", request.DocumentID); err != nil {
+		if err := h.knowledgeAdmin.Delete(h.adminTenantID(), request.DocumentID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"status": "deleted", "document_id": request.DocumentID}, nil
@@ -629,7 +699,7 @@ func (h *Handler) handleKnowledgeDelete(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) handleKnowledgeReindex(w http.ResponseWriter, r *http.Request) {
 	h.handleKnowledgeMutation(w, r, "knowledge_reindex_failed", func(request knowledgeDocumentRequest) (any, error) {
-		return h.knowledgeAdmin.Reindex("tenant-1", request.DocumentID, request.Content)
+		return h.knowledgeAdmin.Reindex(h.adminTenantID(), request.DocumentID, request.Content)
 	})
 }
 
@@ -679,7 +749,7 @@ func (h *Handler) handleToolPolicySave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	saved, err := h.toolPolicyAdmin.Save("tenant-1", policy)
+	saved, err := h.toolPolicyAdmin.Save(h.adminTenantID(), policy)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tool_policy_save_failed", "cause": err.Error()})
 		return
@@ -702,7 +772,7 @@ func (h *Handler) handleToolAuthorize(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	if err := h.toolPolicyAdmin.Authorize("tenant-1", request.PersonaID, request.ToolName); err != nil {
+	if err := h.toolPolicyAdmin.Authorize(h.adminTenantID(), request.PersonaID, request.ToolName); err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "tool_denied", "cause": err.Error()})
 		return
 	}
@@ -714,7 +784,7 @@ func (h *Handler) handleAuditRecent(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "audit_admin_unavailable"})
 		return
 	}
-	records, err := h.auditAdmin.Recent("tenant-1")
+	records, err := h.auditAdmin.Recent(h.adminTenantID())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "audit_recent_failed", "cause": err.Error()})
 		return
@@ -797,6 +867,7 @@ func (h *Handler) handleExperienceStream(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		h.recordAudit(conversation, result, presentationSink.events, admin.AuditStatusCompleted, 0)
+		h.captureKnowledgeGap(conversation, result)
 		return
 	}
 	result, err := h.orchestrator.Handle(r.Context(), conversation)
@@ -818,6 +889,7 @@ func (h *Handler) handleExperienceStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.recordAudit(conversation, result, events, admin.AuditStatusCompleted, 0)
+	h.captureKnowledgeGap(conversation, result)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	for _, event := range events {
@@ -881,6 +953,7 @@ func (h *Handler) handleMockVoiceStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.recordAudit(conversation, result, events, admin.AuditStatusCompleted, 0)
+	h.captureKnowledgeGap(conversation, result)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
@@ -935,6 +1008,44 @@ func (h *Handler) recordAudit(conversation types.Conversation, result types.Agen
 		LatencyMS:      latencyMS,
 		EventSummary:   summary,
 	})
+}
+
+func (h *Handler) captureKnowledgeGap(conversation types.Conversation, result types.AgentResult) {
+	if h.knowledgeGapAdmin == nil {
+		return
+	}
+	if result.Metadata == nil {
+		return
+	}
+	if result.Metadata["knowledge_used"] == true {
+		return
+	}
+	reason, _ := result.Metadata["knowledge_no_source_reason"].(string)
+	if strings.TrimSpace(reason) == "" {
+		return
+	}
+	spaceID, _ := result.Metadata["knowledge_space_id"].(string)
+	if strings.TrimSpace(spaceID) == "" && conversation.Metadata != nil {
+		spaceID, _ = conversation.Metadata["knowledge_space_id"].(string)
+	}
+	question := lastUserQuestion(conversation)
+	if strings.TrimSpace(question) == "" {
+		return
+	}
+	_, _ = h.knowledgeGapAdmin.Create(conversation.TenantID, admin.KnowledgeGapInput{
+		SpaceID:        spaceID,
+		Question:       question,
+		NoSourceReason: reason,
+	})
+}
+
+func lastUserQuestion(conversation types.Conversation) string {
+	for i := len(conversation.Messages) - 1; i >= 0; i-- {
+		if conversation.Messages[i].Role == types.RoleUser {
+			return strings.TrimSpace(conversation.Messages[i].Content)
+		}
+	}
+	return ""
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -1027,6 +1138,10 @@ func (h *Handler) authoritativeTenantID(fallback string) string {
 	return fallback
 }
 
+func (h *Handler) adminTenantID() string {
+	return h.authoritativeTenantID("tenant-1")
+}
+
 func (h *Handler) authoritativeUserID(fallback string) string {
 	if h.defaultUserID != "" {
 		return h.defaultUserID
@@ -1092,6 +1207,7 @@ func turnRequestFromConversation(conversation types.Conversation) (types.TurnReq
 			TurnID:         message.ID,
 			AttemptID:      message.ID + "-attempt-1",
 			Message:        message,
+			Metadata:       copyConversationMetadata(conversation.Metadata),
 		}
 		if err := request.Validate(); err != nil {
 			return types.TurnRequest{}, err
@@ -1099,4 +1215,15 @@ func turnRequestFromConversation(conversation types.Conversation) (types.TurnReq
 		return request, nil
 	}
 	return types.TurnRequest{}, fmt.Errorf("conversation requires one user message")
+}
+
+func copyConversationMetadata(metadata types.Metadata) types.Metadata {
+	if len(metadata) == 0 {
+		return nil
+	}
+	cloned := make(types.Metadata, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
 }

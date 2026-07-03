@@ -113,6 +113,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	personaAdmin := admin.NewPersonaService(admin.NewFilePersonaStore(adminDataDir))
 	memoryAdmin := admin.NewMemoryService(admin.NewFileMemoryStore(adminDataDir))
 	knowledgeAdmin := admin.NewKnowledgeService(knowledgeStore)
+	knowledgeGapAdmin := admin.NewKnowledgeGapService(admin.NewFileKnowledgeGapStore(adminDataDir))
 	knowledgeRetriever := knowledge.NewService(knowledgeStore)
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
@@ -141,6 +142,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		PersonaAdmin:       &personaAdmin,
 		MemoryAdmin:        &memoryAdmin,
 		KnowledgeAdmin:     &knowledgeAdmin,
+		KnowledgeGapAdmin:  &knowledgeGapAdmin,
 		KnowledgeRetriever: &knowledgeRetriever,
 		ToolPolicyAdmin:    &toolPolicyAdmin,
 		AuditAdmin:         &auditAdmin,

@@ -2,7 +2,7 @@
 
 Date: 2026-07-02
 
-Status: Draft, waiting for user approval
+Status: Shipped on 2026-07-02 via PR #14
 
 Spec: [Phase 13 Spec](../specs/phase-13-presence-summary-panel.md)
 
