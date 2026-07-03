@@ -23,6 +23,8 @@ func TestStartDeepSeekScriptPrintsPhase9RuntimeHints(t *testing.T) {
 		"Start-Process",
 		"Wait-ServerReady",
 		"-FilePath \"go\"",
+		"http://127.0.0.1:$Port/health",
+		"http://127.0.0.1:$Port/app",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("start-deepseek.ps1 missing %q", want)

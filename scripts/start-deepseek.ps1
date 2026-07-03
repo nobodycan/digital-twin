@@ -15,10 +15,10 @@ $logDir = Join-Path $dataDir "logs"
 $pidFile = Join-Path $dataDir "server.pid.json"
 $serverLog = Join-Path $logDir ("server-{0}.log" -f $Port)
 $errorLog = Join-Path $logDir ("server-{0}.err.log" -f $Port)
-$browserUrl = "http://localhost:$Port/app"
-$conversationUrl = "http://localhost:$Port"
+$browserUrl = "http://127.0.0.1:$Port/app"
+$conversationUrl = "http://127.0.0.1:$Port"
 $smokeCommand = ".\scripts\smoke-conversation.ps1 -BaseUrl $conversationUrl"
-$healthUrl = "http://localhost:$Port/health"
+$healthUrl = "http://127.0.0.1:$Port/health"
 
 function Wait-ServerReady {
     param(
