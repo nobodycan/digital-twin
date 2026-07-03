@@ -53,6 +53,8 @@ func TestSmokeConversationScriptPrintsProviderDiagnostics(t *testing.T) {
 		"generation_mode_hint",
 		"fallback_policy",
 		"sanitized",
+		"curl.exe",
+		"--data-binary",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("smoke-conversation.ps1 missing %q", want)

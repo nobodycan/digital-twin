@@ -17,6 +17,9 @@ $BaseUrl = $BaseUrl.TrimEnd("/")
 if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) {
     $RuntimeDataDir = Join-Path (Split-Path -Parent $PSScriptRoot) "data\runtime"
 }
+if (-not $PSBoundParameters.ContainsKey("ConversationID") -and $ConversationID -eq "smoke-conversation") {
+    $ConversationID = "smoke-conversation-{0}" -f ([DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))
+}
 
 $headers = @{
     "Content-Type" = "application/json"
@@ -62,10 +65,14 @@ function Assert-Contains {
 }
 
 function Load-ConversationDocument {
-    $path = Join-Path $RuntimeDataDir "tenants\tenant-1\users\user-1\conversations\$ConversationID.json"
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "Conversation file not found: $path"
+    $matches = @(Get-ChildItem -Path $RuntimeDataDir -Recurse -Filter "$ConversationID.json" -ErrorAction SilentlyContinue)
+    if ($matches.Count -eq 0) {
+        throw "Conversation file not found: $ConversationID.json under $RuntimeDataDir"
     }
+    if ($matches.Count -gt 1) {
+        throw "Conversation file is ambiguous: found $($matches.Count) matches for $ConversationID.json under $RuntimeDataDir"
+    }
+    $path = $matches[0].FullName
     $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
     return [PSCustomObject]@{
         Path = $path
@@ -90,15 +97,49 @@ function Invoke-StreamTurn {
     )
 
     $body = New-TurnBody -TurnID $TurnID -AttemptID $AttemptID -MessageID $MessageID -Content $Content
+    $bodyFile = [System.IO.Path]::GetTempFileName()
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllText($bodyFile, $body, [System.Text.UTF8Encoding]::new($false))
+    $arguments = @(
+        "--silent",
+        "--show-error",
+        "--no-buffer",
+        "-X", "POST",
+        "-H", "Content-Type: application/json"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
+        $arguments += @("-H", "Authorization: Bearer $ApiKey")
+    }
+    $arguments += @(
+        "--data-binary", "@$bodyFile",
+        "$BaseUrl/chat/stream"
+    )
     try {
-        $response = Invoke-WebRequest -Method Post -Uri "$BaseUrl/chat/stream" -Headers $headers -Body $body
+        $process = Start-Process -FilePath "curl.exe" `
+            -ArgumentList $arguments `
+            -NoNewWindow `
+            -Wait `
+            -PassThru `
+            -RedirectStandardOutput $stdoutFile `
+            -RedirectStandardError $stderrFile
+        $response = Get-Content -LiteralPath $stdoutFile -Raw -Encoding UTF8
     } catch {
         throw "Provider diagnostic failed while opening the stream. Output is sanitized; check runtime status, API key, base URL, model, and fallback_policy."
+    } finally {
+        Remove-Item -LiteralPath $bodyFile -ErrorAction SilentlyContinue
+        $stderr = if (Test-Path -LiteralPath $stderrFile) {
+            Get-Content -LiteralPath $stderrFile -Raw -Encoding UTF8
+        } else {
+            ""
+        }
+        Remove-Item -LiteralPath $stdoutFile -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stderrFile -ErrorAction SilentlyContinue
     }
-    if ($response.StatusCode -ne 200) {
-        throw "Turn $TurnID/$AttemptID failed with status $($response.StatusCode)"
+    if ($process.ExitCode -ne 0) {
+        throw "Turn $TurnID/$AttemptID failed to stream; curl exited with code $($process.ExitCode). $stderr"
     }
-    return [string]$response.Content
+    return $response.Trim()
 }
 
 $summary = [PSCustomObject]@{
