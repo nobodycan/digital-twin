@@ -2,7 +2,7 @@
 
 Date: 2026-07-02
 
-Status: Draft, waiting for spec approval
+Status: Shipped on 2026-07-02 via PR #14
 
 Source request: user feedback on `/app` Presence panel growing indefinitely because
 the left-side module keeps stretching with accumulated visual output instead of

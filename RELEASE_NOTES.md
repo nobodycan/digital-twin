@@ -1,4 +1,41 @@
 # Release Notes
+
+## Unreleased - Phase 14 Knowledge Operations Console
+
+### Added
+
+- Added `KnowledgeHealthSummary` and `KnowledgeDocumentDetail` projections in `internal/admin` for selected-space health counts, attention reasons, and document quality flags.
+- Added local `KnowledgeGap` persistence and lifecycle support, including open/ignored/resolved states and file-backed `knowledge_gaps.json` storage.
+- Added `/admin/knowledge/health`, `/admin/knowledge/{document_id}/detail`, `/admin/knowledge/gaps`, and `/admin/knowledge/gaps/update` endpoints.
+- Added automatic local gap capture for knowledge-scoped no-source turns on `/experience/stream`.
+- Added richer `/admin` knowledge rendering for health summary, structured detail, retrieval debug, and gap queue workflows.
+
+### Documented
+
+- Added Phase 14 spec, design, and plan docs for the Knowledge Operations Console.
+- README now reflects Phase 14 as the current stage and explains the knowledge operations workflow.
+
+### Notes
+
+- Phase 14 remains local-first and deterministic: no SQLite, no new ingestion formats, and no mandatory provider calls in CI.
+
+## Unreleased - Phase 13 Presence Summary Panel
+
+### Added
+
+- Added a summary-first Presence panel in `/app` with a bounded avatar slot, latest-turn takeaway, and compact grounding/memory/fallback signals.
+- Added frontend summary derivation for successful, fallback, error, and interrupted turns without adding a new backend summary contract.
+- Added static web coverage for the Presence summary DOM, CSS hooks, copy, and idle-state behavior.
+
+### Documented
+
+- Added Phase 13 spec and plan docs for the Presence summary panel.
+- README now reflects Phase 13 as the current shipped phase and describes the summary-first Presence behavior.
+
+### Notes
+
+- Phase 13 is a focused UI/experience slice. It does not add real avatar rendering, image generation, or server-side semantic summary generation.
+
 ## Unreleased - Phase 12 Knowledge Space Management and Grounded Answering
 
 ### Added

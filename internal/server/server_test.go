@@ -1057,6 +1057,179 @@ func TestHandlerKnowledgeAdminServesLifecycleEndpoints(t *testing.T) {
 	}
 }
 
+func TestHandlerKnowledgeHealthSummaryEndpoint(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	if _, err := knowledgeService.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-health",
+		Name:    "health.md",
+		Content: "knowledge health summary",
+	}); err != nil {
+		t.Fatalf("seed upload: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:        observability.NewMemoryMetrics(),
+		KnowledgeAdmin: &knowledgeService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/knowledge/health?space_id=default", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`"space_id":"default"`,
+		`"status":"healthy"`,
+		`"active_document_count":1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestHandlerKnowledgeDetailEndpoint(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	if _, err := knowledgeService.Upload("tenant-1", admin.KnowledgeUpload{
+		ID:      "kb-detail",
+		Name:    "detail.md",
+		Content: "detail body",
+	}); err != nil {
+		t.Fatalf("seed upload: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:        observability.NewMemoryMetrics(),
+		KnowledgeAdmin: &knowledgeService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/knowledge/kb-detail/detail", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"document":{"id":"kb-detail"`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeGapEndpoints(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	created, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
+		SpaceID:        "default",
+		Question:       "What is the refund window?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"id":"`+created.ID+`"`) {
+		t.Fatalf("list body = %s", listResponse.Body.String())
+	}
+
+	updateResponse := httptest.NewRecorder()
+	handler.ServeHTTP(updateResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/gaps/update", strings.NewReader(`{"gap_id":"`+created.ID+`","status":"resolved","resolved_by_document_id":"kb-policy"}`)))
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("update status = %d, body = %s", updateResponse.Code, updateResponse.Body.String())
+	}
+	if !strings.Contains(updateResponse.Body.String(), `"status":"resolved"`) {
+		t.Fatalf("update body = %s", updateResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeGapEndpointsReturnEmptyArrayWhenNoGapsExist(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if strings.TrimSpace(listResponse.Body.String()) != "[]" {
+		t.Fatalf("list body = %s, want []", listResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeGapEndpointsRequireService(t *testing.T) {
+	handler := NewHandler(Config{Metrics: observability.NewMemoryMetrics()})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `knowledge_gap_admin_unavailable`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeEndpointsUseAuthoritativeTenant(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	if _, err := knowledgeService.CreateSpace("default", admin.KnowledgeSpaceInput{ID: "qa-phase14", Name: "QA Phase 14"}); err != nil {
+		t.Fatalf("CreateSpace returned error: %v", err)
+	}
+	if _, err := knowledgeService.Upload("default", admin.KnowledgeUpload{
+		ID:      "kb-default",
+		SpaceID: "qa-phase14",
+		Name:    "qa.md",
+		Content: "authoritative tenant knowledge",
+	}); err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	if _, err := gapService.Create("default", admin.KnowledgeGapInput{
+		SpaceID:        "qa-phase14",
+		Question:       "What is the refund window?",
+		NoSourceReason: "no_ready_documents",
+	}); err != nil {
+		t.Fatalf("Create gap returned error: %v", err)
+	}
+	knowledgeRetriever := knowledge.NewService(knowledgeStore)
+	handler := NewHandler(Config{
+		Metrics:            observability.NewMemoryMetrics(),
+		DefaultTenantID:    "default",
+		KnowledgeAdmin:     &knowledgeService,
+		KnowledgeGapAdmin:  &gapService,
+		KnowledgeRetriever: &knowledgeRetriever,
+	})
+
+	spacesResponse := httptest.NewRecorder()
+	handler.ServeHTTP(spacesResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/spaces", nil))
+	if spacesResponse.Code != http.StatusOK || !strings.Contains(spacesResponse.Body.String(), `"id":"qa-phase14"`) {
+		t.Fatalf("spaces response = %d %s", spacesResponse.Code, spacesResponse.Body.String())
+	}
+
+	docsResponse := httptest.NewRecorder()
+	handler.ServeHTTP(docsResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge?space_id=qa-phase14", nil))
+	if docsResponse.Code != http.StatusOK || !strings.Contains(docsResponse.Body.String(), `"id":"kb-default"`) {
+		t.Fatalf("docs response = %d %s", docsResponse.Code, docsResponse.Body.String())
+	}
+
+	gapsResponse := httptest.NewRecorder()
+	handler.ServeHTTP(gapsResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=qa-phase14", nil))
+	if gapsResponse.Code != http.StatusOK || !strings.Contains(gapsResponse.Body.String(), `"question":"What is the refund window?"`) {
+		t.Fatalf("gaps response = %d %s", gapsResponse.Code, gapsResponse.Body.String())
+	}
+}
+
 func TestHandlerToolPolicyAdminSavesAndAuthorizesTools(t *testing.T) {
 	toolPolicyService := admin.NewToolPolicyService(admin.NewInMemoryToolPolicyStore())
 	handler := NewHandler(Config{
@@ -1107,6 +1280,79 @@ func TestHandlerRecordsExperienceStreamAudit(t *testing.T) {
 	}
 	if !strings.Contains(auditResponse.Body.String(), `"conversation_id":"conv-1"`) || !strings.Contains(auditResponse.Body.String(), `"agent_name":"persona-agent"`) {
 		t.Fatalf("audit body = %s", auditResponse.Body.String())
+	}
+}
+
+func TestHandlerExperienceStreamCreatesKnowledgeGapForNoSourceTurn(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "I do not have support for that."},
+			Metadata: types.Metadata{
+			"knowledge_space_id":        "default",
+			"knowledge_space_name":      "Default",
+			"knowledge_used":            false,
+			"knowledge_no_source_reason": "no_matching_chunks",
+		}}},
+		KnowledgeGapAdmin: &gapService,
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON())))
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	body := listResponse.Body.String()
+	if !strings.Contains(body, `"question":"hello"`) || !strings.Contains(body, `"no_source_reason":"no_matching_chunks"`) {
+		t.Fatalf("gap list body = %s", body)
+	}
+}
+
+func TestHandlerExperienceStreamCapturesKnowledgeGapInConversationSpaceWhenResultOmitsSpaceID(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "I need more context."},
+			Metadata: types.Metadata{
+				"knowledge_used":             false,
+				"knowledge_no_source_reason": "no_ready_documents",
+			},
+		}},
+		KnowledgeGapAdmin: &gapService,
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+
+	body := `{"id":"conv-gap-space","tenant_id":"tenant-1","user_id":"user-1","messages":[{"id":"msg-1","role":"user","content":"What is the refund window?","created_at":"2026-06-16T12:00:00Z"}],"metadata":{"knowledge_space_id":"qa-phase14","knowledge_space_name":"QA Phase 14"},"created_at":"2026-06-16T12:00:00Z","updated_at":"2026-06-16T12:00:00Z"}`
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(body)))
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=qa-phase14", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"question":"What is the refund window?"`) {
+		t.Fatalf("gap list body = %s", listResponse.Body.String())
 	}
 }
 
@@ -1186,6 +1432,29 @@ func TestHandlerEscapesMultilineChatStreamData(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestTurnRequestFromConversationCarriesMetadata(t *testing.T) {
+	request, err := turnRequestFromConversation(types.Conversation{
+		ID:       "conv-1",
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Messages: []types.Message{{
+			ID:      "msg-1",
+			Role:    types.RoleUser,
+			Content: "hello",
+		}},
+		Metadata: types.Metadata{
+			"knowledge_space_id":   "qa-phase14",
+			"knowledge_space_name": "QA Phase 14",
+		},
+	})
+	if err != nil {
+		t.Fatalf("turnRequestFromConversation returned error: %v", err)
+	}
+	if request.Metadata["knowledge_space_id"] != "qa-phase14" {
+		t.Fatalf("request metadata = %#v, want knowledge space metadata copied", request.Metadata)
 	}
 }
 

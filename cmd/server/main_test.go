@@ -114,6 +114,25 @@ func TestBuildHandlerServesHealth(t *testing.T) {
 	}
 }
 
+func TestBuildHandlerServesKnowledgeGapsEndpoint(t *testing.T) {
+	isolateRuntimeData(t)
+	handler, err := buildHandler(config.AppConfig{})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil)
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	if strings.TrimSpace(response.Body.String()) != "[]" {
+		t.Fatalf("body = %s, want empty knowledge gaps list", response.Body.String())
+	}
+}
+
 func TestBuildHandlerServesRuntimeStatusForConfiguredProvider(t *testing.T) {
 	isolateRuntimeData(t)
 	handler, err := buildHandler(config.AppConfig{
@@ -713,6 +732,7 @@ func validServerChatJSON() string {
 
 func isolateRuntimeData(t *testing.T) {
 	t.Helper()
+	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", t.TempDir())
 	t.Setenv("DIGITAL_TWIN_RUNTIME_DATA", t.TempDir())
 }
 

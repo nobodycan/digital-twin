@@ -10,7 +10,7 @@
     <main class="admin-shell">
       <header class="surface-header">
         <h1>Operations Console</h1>
-        <p class="status-line">Local-first controls for Phase 4</p>
+        <p class="status-line">Local-first controls for Phase 14</p>
       </header>
 
       <section id="persona-admin" class="admin-section" aria-label="Persona editor">
@@ -39,6 +39,11 @@
           <input id="knowledge-space-create" type="text" placeholder="Create knowledge space">
           <button id="knowledge-space-create-button" type="button">Create space</button>
         </div>
+        <section id="knowledge-health-summary" aria-label="Health summary">
+          <strong id="knowledge-health-status">Health summary pending</strong>
+          <div id="knowledge-health-metrics" class="knowledge-health-metrics"></div>
+          <div id="knowledge-attention-reasons">No attention reasons</div>
+        </section>
         <input type="file" id="knowledge-upload">
         <button id="knowledge-upload-mock" type="button">Upload mock</button>
         <div class="action-row">
@@ -53,10 +58,15 @@
         </div>
         <output id="knowledge-status">No knowledge uploaded</output>
         <table>
-          <thead><tr><th>Name</th><th>Status</th><th>Chunks</th><th>Action</th></tr></thead>
-          <tbody id="knowledge-table-body"><tr><td colspan="4">No knowledge loaded</td></tr></tbody>
+          <thead><tr><th>Name</th><th>Status</th><th>Chunks</th><th>Quality</th><th>Action</th></tr></thead>
+          <tbody id="knowledge-table-body"><tr><td colspan="5">No knowledge loaded</td></tr></tbody>
         </table>
-        <section id="knowledge-detail" aria-label="Chunk preview">Chunk preview</section>
+        <section id="knowledge-detail" aria-label="Chunk preview">
+          <div id="knowledge-detail-flags" class="knowledge-detail-flags"></div>
+          <div id="knowledge-detail-body">Chunk preview</div>
+        </section>
+        <section id="knowledge-debug-results" aria-label="Retrieval debug results">Retrieval debug</section>
+        <section id="knowledge-gap-queue" aria-label="Knowledge gaps">Knowledge gaps</section>
       </section>
 
       <section id="tool-admin" class="admin-section" aria-label="Tool permissions">

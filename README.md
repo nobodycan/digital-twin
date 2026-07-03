@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 12 - Knowledge Space Management and Grounded Answering`
+Current stage: `Phase 14 - Knowledge Operations Console`
 
 What is already working:
 
@@ -19,6 +19,8 @@ What is already working:
 - retrieval diagnostics pipeline with lexical, vector, hybrid, and auto modes
 - no-source and below-threshold grounding decisions with explainable ranking metadata
 - grounded persona replies that can surface knowledge-space usage and citation summaries in `/app`
+- summary-first Presence panel in `/app` with bounded latest-turn takeaway and trust signals
+- knowledge-space health summaries, document quality detail, retrieval debug, and local knowledge-gap queues in `/admin`
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -64,13 +66,17 @@ flowchart TD
 - `GET /metrics`
 - `GET /runtime/status`
 - `GET /admin/knowledge`
+- `GET /admin/knowledge/health`
 - `GET /admin/knowledge/{document_id}`
+- `GET /admin/knowledge/{document_id}/detail`
+- `GET /admin/knowledge/gaps`
 - `GET /admin/knowledge/spaces`
 - `POST /chat`
 - `POST /chat/stream`
 - `POST /experience/stream`
 - `POST /experience/mock-voice/stream`
 - `POST /admin/knowledge/upload`
+- `POST /admin/knowledge/gaps/update`
 - `POST /admin/knowledge/spaces/create`
 - `POST /admin/knowledge/spaces/update`
 - `POST /admin/knowledge/spaces/disable`
@@ -157,14 +163,16 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 12 extends the local knowledge loop into scoped knowledge operations:
+Phase 14 extends the local knowledge loop into a small operations console:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
 3. Use the default knowledge space or create a new one.
 4. Upload a mock or text/Markdown knowledge document into the selected space.
-5. Run retrieval diagnostics in `auto` or `lexical` mode from `/admin`.
-6. Ask a related question in `/app` with the same selected space.
+5. Check the selected space health summary and inspect document detail/quality flags.
+6. Run retrieval diagnostics in `auto` or `lexical` mode from `/admin`.
+7. Ask a related or unsupported question in `/app` with the same selected space.
+8. Return to `/admin` and inspect the local knowledge-gap queue.
 
 When grounding succeeds, `/app` can now show:
 
@@ -173,7 +181,7 @@ When grounding succeeds, `/app` can now show:
 - `Memory considered` when memory metadata is present
 - `No source used (Space Name)` when retrieval found nothing relevant in the selected scope
 
-Local verification for Phase 12:
+Local verification for Phase 14:
 
 ```powershell
 go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web
@@ -207,6 +215,24 @@ go build ./cmd/smoke
 - [docs/design](./docs/design): design docs
 - [docs/plans](./docs/plans): implementation plans and test matrices
 - [RELEASE_NOTES.md](./RELEASE_NOTES.md): document and implementation release history
+
+## Phase 14 highlights
+
+Phase 14 focuses on turning knowledge management into an operator workflow:
+
+- `/admin` now exposes selected-space health summaries with deterministic counts and attention reasons
+- document inspection now includes quality flags such as disabled, index failed, vector missing, and duplicate content hash
+- retrieval diagnostics are rendered as a structured debug workbench instead of only raw text dumps
+- unsupported knowledge-scoped turns can become local knowledge-gap records that operators can ignore or resolve
+
+## Phase 13 highlights
+
+Phase 13 focuses on making the `/app` Presence rail more useful and less visually noisy:
+
+- Presence now summarizes the latest assistant turn instead of behaving like a growing visual/history area
+- the avatar slot is bounded so long replies do not stretch the side rail
+- grounding, memory, and fallback signals remain visible as compact operational cues
+- transcript remains the canonical full conversation record
 
 ## Phase 12 highlights
 
