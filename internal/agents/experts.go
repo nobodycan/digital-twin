@@ -31,6 +31,17 @@ type Grounding struct {
 	MemoryCount    int
 }
 
+type KnowledgeAnswerState = string
+
+const (
+	KnowledgeAnswerStateGrounded           KnowledgeAnswerState = "grounded"
+	KnowledgeAnswerStatePartiallySupported KnowledgeAnswerState = "partially_supported"
+	KnowledgeAnswerStateUnsupported        KnowledgeAnswerState = "unsupported"
+	KnowledgeAnswerStateProviderFallback   KnowledgeAnswerState = "provider_fallback"
+	KnowledgeAnswerStateGuardRejected      KnowledgeAnswerState = "guard_rejected"
+	KnowledgeAnswerStateLocalMode          KnowledgeAnswerState = "local_mode"
+)
+
 type KnowledgeGrounder interface {
 	Ground(context.Context, types.Conversation, string, int) (Grounding, error)
 }
@@ -362,6 +373,7 @@ func (a PersonaAgent) generatedResult(intent types.Intent, content string, gener
 		"generation_mode": generationMode,
 	}
 	applyGroundingMetadata(metadata, grounding)
+	metadata["knowledge_answer_state"] = string(classifyKnowledgeAnswerState(generationMode, "", grounding))
 	if usage.PromptTokens > 0 {
 		metadata["prompt_tokens"] = usage.PromptTokens
 	}
@@ -387,6 +399,7 @@ func (a PersonaAgent) fallbackResult(intent types.Intent, content, reason, categ
 	if category != "" {
 		metadata["fallback_category"] = category
 	}
+	metadata["knowledge_answer_state"] = string(classifyKnowledgeAnswerState("fallback", category, Grounding{}))
 	return a.Result(content, confidenceOrDefault(intent), metadata)
 }
 
@@ -510,5 +523,28 @@ func applyGroundingMetadata(metadata types.Metadata, grounding Grounding) {
 func localMetadata(intent types.Intent, grounding Grounding) types.Metadata {
 	metadata := types.Metadata{"intent": intent.Name, "generation_mode": "local"}
 	applyGroundingMetadata(metadata, grounding)
+	metadata["knowledge_answer_state"] = string(classifyKnowledgeAnswerState("local", "", grounding))
 	return metadata
+}
+
+func classifyKnowledgeAnswerState(generationMode string, fallbackCategory string, grounding Grounding) KnowledgeAnswerState {
+	if fallbackCategory == "guard_rejected" {
+		return KnowledgeAnswerStateGuardRejected
+	}
+	if fallbackCategory != "" {
+		return KnowledgeAnswerStateProviderFallback
+	}
+	if generationMode == "local" {
+		return KnowledgeAnswerStateLocalMode
+	}
+	if len(grounding.Citations) > 0 && generationMode == "llm" {
+		return KnowledgeAnswerStateGrounded
+	}
+	if grounding.NoSourceReason == "below_threshold" {
+		return KnowledgeAnswerStatePartiallySupported
+	}
+	if grounding.NoSourceReason != "" {
+		return KnowledgeAnswerStateUnsupported
+	}
+	return KnowledgeAnswerStateUnsupported
 }

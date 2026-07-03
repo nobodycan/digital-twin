@@ -486,6 +486,7 @@ func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testin
 			AgentName: "persona-agent",
 			Message:   types.Message{Role: types.RoleAssistant, Content: "Grounded answer"},
 			Metadata: types.Metadata{
+				"knowledge_answer_state":     "partially_supported",
 				"knowledge_used":             true,
 				"knowledge_result_count":     1,
 				"knowledge_space_id":         "product",
@@ -518,6 +519,7 @@ func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testin
 
 	event := findStreamEvent(t, sink.events, types.StreamEventMessageCompleted)
 	for key, want := range map[string]any{
+		"knowledge_answer_state":     "partially_supported",
 		"knowledge_used":             true,
 		"knowledge_result_count":     1,
 		"knowledge_space_id":         "product",
@@ -550,6 +552,10 @@ func TestOrchestratorStreamReplaysCompletedTurnWithoutCallingAgent(t *testing.T)
 			return types.AgentResult{
 				AgentName: "persona-agent",
 				Message:   types.Message{ID: "msg-assistant-1", Role: types.RoleAssistant, Content: "Hello there."},
+				Metadata: types.Metadata{
+					"knowledge_answer_state": "grounded",
+					"knowledge_used":         true,
+				},
 			}, nil
 		},
 	}
@@ -602,6 +608,9 @@ func TestOrchestratorStreamReplaysCompletedTurnWithoutCallingAgent(t *testing.T)
 	}
 	if sink.events[len(sink.events)-2].Metadata["replayed"] != true {
 		t.Fatalf("message_completed metadata = %#v, want replayed=true", sink.events[len(sink.events)-2].Metadata)
+	}
+	if sink.events[len(sink.events)-2].Metadata["knowledge_answer_state"] != "grounded" {
+		t.Fatalf("message_completed metadata = %#v, want knowledge_answer_state=grounded", sink.events[len(sink.events)-2].Metadata)
 	}
 }
 

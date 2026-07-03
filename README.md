@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 14 - Knowledge Operations Console`
+Current stage: `Phase 15 - Knowledge-Grounded Answer Loop`
 
 What is already working:
 
@@ -21,6 +21,7 @@ What is already working:
 - grounded persona replies that can surface knowledge-space usage and citation summaries in `/app`
 - summary-first Presence panel in `/app` with bounded latest-turn takeaway and trust signals
 - knowledge-space health summaries, document quality detail, retrieval debug, and local knowledge-gap queues in `/admin`
+- deterministic `knowledge_answer_state` metadata for grounded, partially supported, unsupported, provider fallback, guard-rejected, and local-mode turns
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -163,7 +164,7 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 14 extends the local knowledge loop into a small operations console:
+Phase 15 extends the local knowledge loop into an auditable answer loop:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
@@ -174,14 +175,16 @@ Phase 14 extends the local knowledge loop into a small operations console:
 7. Ask a related or unsupported question in `/app` with the same selected space.
 8. Return to `/admin` and inspect the local knowledge-gap queue.
 
-When grounding succeeds, `/app` can now show:
+When a turn completes, `/app` can now show:
 
 - `Knowledge grounded (Space Name)`
+- `Partially supported (Space Name)` when retrieval is below threshold
+- `No supporting source (Space Name)` when the selected space cannot support the question
+- `Provider fallback` or `Guardrail fallback` when the final answer is not a normal provider-backed grounded turn
 - source citation chips
 - `Memory considered` when memory metadata is present
-- `No source used (Space Name)` when retrieval found nothing relevant in the selected scope
 
-Local verification for Phase 14:
+Local verification for Phase 15:
 
 ```powershell
 go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web
@@ -215,6 +218,15 @@ go build ./cmd/smoke
 - [docs/design](./docs/design): design docs
 - [docs/plans](./docs/plans): implementation plans and test matrices
 - [RELEASE_NOTES.md](./RELEASE_NOTES.md): document and implementation release history
+
+## Phase 15 highlights
+
+Phase 15 focuses on turning knowledge grounding into a visible answer-state loop:
+
+- `PersonaAgent` now emits deterministic `knowledge_answer_state` metadata
+- runtime streaming and replay allowlist the answer state for `/app`
+- unsupported and partially supported turns can create one local gap without duplicate open-gap spam
+- `/app` now distinguishes grounded, partial, unsupported, provider fallback, guardrail fallback, and local mode states
 
 ## Phase 14 highlights
 

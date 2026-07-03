@@ -337,6 +337,7 @@ func allowlistedGenerationMetadata(metadata types.Metadata) types.Metadata {
 		"fallback_category",
 		"llm_provider",
 		"llm_model",
+		"knowledge_answer_state",
 		"knowledge_used",
 		"knowledge_space_id",
 		"knowledge_space_name",

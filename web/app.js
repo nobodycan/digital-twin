@@ -49,6 +49,15 @@ const presenceSummaryCopy = {
   interrupted: "Request was interrupted"
 };
 
+const answerStateCopy = {
+  grounded: "Knowledge grounded",
+  partially_supported: "Partially supported",
+  unsupported: "No supporting source",
+  provider_fallback: "Provider fallback",
+  guard_rejected: "Guardrail fallback",
+  local_mode: "Local mode"
+};
+
 function transcriptLineClass(role, extraClass) {
   const classes = [`transcript-line`, `transcript-line-${role}`];
   if (extraClass) {
@@ -146,6 +155,28 @@ function renderCitationSummary(line, citations) {
   }
 }
 
+function renderAnswerState(metadata = {}, activeSpaceName = selectedKnowledgeSpaceName) {
+  const answerState = metadata.knowledge_answer_state || "";
+  switch (answerState) {
+    case "grounded":
+      return `${answerStateCopy.grounded} (${activeSpaceName})`;
+    case "partially_supported":
+      return `${answerStateCopy.partially_supported} (${activeSpaceName})`;
+    case "unsupported":
+      return `${answerStateCopy.unsupported} (${activeSpaceName})`;
+    case "provider_fallback":
+      return answerStateCopy.provider_fallback;
+    case "guard_rejected":
+      return answerStateCopy.guard_rejected;
+    case "local_mode":
+      return answerStateCopy.local_mode;
+    default:
+      return metadata.knowledge_used
+        ? `${answerStateCopy.grounded} (${activeSpaceName})`
+        : `No source used (${activeSpaceName})`;
+  }
+}
+
 function renderGroundingState(line, metadata) {
   if (!line || !metadata) {
     return;
@@ -155,13 +186,10 @@ function renderGroundingState(line, metadata) {
   const state = document.createElement("span");
   state.className = "transcript-citation";
   const activeSpaceName = metadata.knowledge_space_name || selectedKnowledgeSpaceName;
+  state.textContent = renderAnswerState(metadata, activeSpaceName);
+  meta.append(state);
   if (metadata.knowledge_used) {
-    state.textContent = `Knowledge grounded (${activeSpaceName})`;
-    meta.append(state);
     renderCitationSummary(line, metadata.knowledge_citations);
-  } else {
-    state.textContent = `No source used (${activeSpaceName})`;
-    meta.append(state);
   }
   if (metadata.memory_used) {
     const memory = document.createElement("span");
@@ -219,10 +247,19 @@ function derivePresenceSummary(text, state) {
 
 function renderPresenceSignals(metadata = {}) {
   const activeSpaceName = metadata.knowledge_space_name || selectedKnowledgeSpaceName;
+  const answerState = metadata.knowledge_answer_state || "";
   if (presenceGroundingSignal) {
-    presenceGroundingSignal.textContent = metadata.knowledge_used
-      ? `Knowledge: grounded (${activeSpaceName})`
-      : `Knowledge: not used (${activeSpaceName})`;
+    if (answerState === "grounded") {
+      presenceGroundingSignal.textContent = `Knowledge: grounded (${activeSpaceName})`;
+    } else if (answerState === "partially_supported") {
+      presenceGroundingSignal.textContent = `Knowledge: partial (${activeSpaceName})`;
+    } else if (answerState === "unsupported") {
+      presenceGroundingSignal.textContent = `Knowledge: unsupported (${activeSpaceName})`;
+    } else {
+      presenceGroundingSignal.textContent = metadata.knowledge_used
+        ? `Knowledge: grounded (${activeSpaceName})`
+        : `Knowledge: not used (${activeSpaceName})`;
+    }
   }
   if (presenceMemorySignal) {
     presenceMemorySignal.textContent = metadata.memory_used
@@ -230,7 +267,13 @@ function renderPresenceSignals(metadata = {}) {
       : "Memory: not used";
   }
   if (presenceFallbackSignal) {
-    if (metadata.generation_mode === "fallback") {
+    if (answerState === "provider_fallback") {
+      presenceFallbackSignal.textContent = "Mode: provider fallback";
+    } else if (answerState === "guard_rejected") {
+      presenceFallbackSignal.textContent = "Mode: guardrail fallback";
+    } else if (answerState === "local_mode") {
+      presenceFallbackSignal.textContent = "Mode: local mode";
+    } else if (metadata.generation_mode === "fallback") {
       presenceFallbackSignal.textContent = "Mode: local fallback";
     } else if (metadata.generation_mode === "transparency") {
       presenceFallbackSignal.textContent = "Mode: transparent";
@@ -567,7 +610,10 @@ function renderPresentationEvent(eventName, rawData) {
         });
       }
       if (metadata.generation_mode === "fallback") {
-        appendStatus(`fallback: ${metadata.fallback_category || "provider issue"}; local response shown`);
+        const fallbackReason = metadata.knowledge_answer_state === "guard_rejected"
+          ? "guardrail rejected model output"
+          : metadata.fallback_category || "provider issue";
+        appendStatus(`fallback: ${fallbackReason}; local response shown`);
         setAvatar("fallback", "Local fallback reply displayed.");
         setPresenceSummary(derivePresenceSummary(finalAssistantText, "fallback"));
       } else if (payload.status === "completed") {

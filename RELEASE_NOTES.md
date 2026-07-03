@@ -1,5 +1,23 @@
 # Release Notes
 
+## Unreleased - Phase 15 Knowledge-Grounded Answer Loop
+
+### Added
+
+- Added deterministic `knowledge_answer_state` metadata in `internal/agents` for grounded, partially supported, unsupported, provider fallback, guard-rejected, and local-mode persona turns.
+- Added runtime stream/replay allowlisting for `knowledge_answer_state` so `/app` receives the same state in fresh and replayed completions.
+- Added server-side knowledge-gap capture filtering so only unsupported and partially supported knowledge turns create local gaps, while provider fallback turns do not pollute the queue.
+- Added `/app` answer-state rendering for grounded, partial, unsupported, provider fallback, guardrail fallback, and local mode states.
+
+### Documented
+
+- Added Phase 15 spec, design, and plan docs for the Knowledge-Grounded Answer Loop.
+- README now reflects Phase 15 as the current stage and explains the new answer-state workflow.
+
+### Notes
+
+- Phase 15 remains local-first and deterministic: no SQLite, no new ingestion formats, and no mandatory DeepSeek calls in CI.
+
 ## Unreleased - Phase 14 Knowledge Operations Console
 
 ### Added

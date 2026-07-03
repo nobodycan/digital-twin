@@ -15,6 +15,7 @@ func TestStartDeepSeekScriptPrintsPhase9RuntimeHints(t *testing.T) {
 
 	for _, want := range []string{
 		"ServerPid",
+		"ServerListenerPid",
 		"BrowserUrl",
 		"SmokeCommand",
 		"FallbackPolicy",
@@ -23,6 +24,8 @@ func TestStartDeepSeekScriptPrintsPhase9RuntimeHints(t *testing.T) {
 		"Start-Process",
 		"Wait-ServerReady",
 		"-FilePath \"go\"",
+		"http://127.0.0.1:$Port/health",
+		"http://127.0.0.1:$Port/app",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("start-deepseek.ps1 missing %q", want)
@@ -51,9 +54,29 @@ func TestSmokeConversationScriptPrintsProviderDiagnostics(t *testing.T) {
 		"generation_mode_hint",
 		"fallback_policy",
 		"sanitized",
+		"curl.exe",
+		"--data-binary",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("smoke-conversation.ps1 missing %q", want)
+		}
+	}
+}
+
+func TestStopServerScriptSupportsListenerPidCleanup(t *testing.T) {
+	data, err := os.ReadFile("stop-server.ps1")
+	if err != nil {
+		t.Fatalf("read stop-server.ps1: %v", err)
+	}
+	script := string(data)
+
+	for _, want := range []string{
+		"ServerListenerPid",
+		"Stop-Process",
+		"Get-NetTCPConnection",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("stop-server.ps1 missing %q", want)
 		}
 	}
 }

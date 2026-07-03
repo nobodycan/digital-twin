@@ -15,10 +15,10 @@ $logDir = Join-Path $dataDir "logs"
 $pidFile = Join-Path $dataDir "server.pid.json"
 $serverLog = Join-Path $logDir ("server-{0}.log" -f $Port)
 $errorLog = Join-Path $logDir ("server-{0}.err.log" -f $Port)
-$browserUrl = "http://localhost:$Port/app"
-$conversationUrl = "http://localhost:$Port"
+$browserUrl = "http://127.0.0.1:$Port/app"
+$conversationUrl = "http://127.0.0.1:$Port"
 $smokeCommand = ".\scripts\smoke-conversation.ps1 -BaseUrl $conversationUrl"
-$healthUrl = "http://localhost:$Port/health"
+$healthUrl = "http://127.0.0.1:$Port/health"
 
 function Wait-ServerReady {
     param(
@@ -144,8 +144,12 @@ if (-not (Wait-ServerReady -ServerPort $Port -Url $healthUrl -Process $process))
     throw "digital-twin server failed readiness on $healthUrl. See $errorLog`n$stderr`n$stdout"
 }
 
+$listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
+$listenerPid = if ($listener) { $listener.OwningProcess } else { $process.Id }
+
 $record = [PSCustomObject]@{
     ServerPid = $process.Id
+    ServerListenerPid = $listenerPid
     Port = $Port
     BrowserUrl = $browserUrl
     ConversationUrl = $conversationUrl

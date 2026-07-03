@@ -1291,11 +1291,12 @@ func TestHandlerExperienceStreamCreatesKnowledgeGapForNoSourceTurn(t *testing.T)
 			AgentName: "persona-agent",
 			Message:   types.Message{Role: types.RoleAssistant, Content: "I do not have support for that."},
 			Metadata: types.Metadata{
-			"knowledge_space_id":        "default",
-			"knowledge_space_name":      "Default",
-			"knowledge_used":            false,
-			"knowledge_no_source_reason": "no_matching_chunks",
-		}}},
+				"knowledge_answer_state":     "unsupported",
+				"knowledge_space_id":         "default",
+				"knowledge_space_name":       "Default",
+				"knowledge_used":             false,
+				"knowledge_no_source_reason": "no_matching_chunks",
+			}}},
 		KnowledgeGapAdmin: &gapService,
 		PresentationAdapter: presentation.Adapter{
 			TTS: voice.MockTTSClient{},
@@ -1328,6 +1329,7 @@ func TestHandlerExperienceStreamCapturesKnowledgeGapInConversationSpaceWhenResul
 			AgentName: "persona-agent",
 			Message:   types.Message{Role: types.RoleAssistant, Content: "I need more context."},
 			Metadata: types.Metadata{
+				"knowledge_answer_state":     "unsupported",
 				"knowledge_used":             false,
 				"knowledge_no_source_reason": "no_ready_documents",
 			},
@@ -1353,6 +1355,120 @@ func TestHandlerExperienceStreamCapturesKnowledgeGapInConversationSpaceWhenResul
 	}
 	if !strings.Contains(listResponse.Body.String(), `"question":"What is the refund window?"`) {
 		t.Fatalf("gap list body = %s", listResponse.Body.String())
+	}
+}
+
+func TestHandlerExperienceStreamCreatesKnowledgeGapForPartiallySupportedTurn(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "I found related material, but it is weak."},
+			Metadata: types.Metadata{
+				"knowledge_answer_state":     "partially_supported",
+				"knowledge_space_id":         "default",
+				"knowledge_used":             false,
+				"knowledge_no_source_reason": "below_threshold",
+			},
+		}},
+		KnowledgeGapAdmin: &gapService,
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON())))
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"no_source_reason":"below_threshold"`) {
+		t.Fatalf("gap list body = %s", listResponse.Body.String())
+	}
+}
+
+func TestHandlerExperienceStreamDoesNotDuplicateOpenKnowledgeGap(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "I do not have support for that."},
+			Metadata: types.Metadata{
+				"knowledge_answer_state":     "unsupported",
+				"knowledge_space_id":         "default",
+				"knowledge_used":             false,
+				"knowledge_no_source_reason": "no_matching_chunks",
+			},
+		}},
+		KnowledgeGapAdmin: &gapService,
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON()))
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON())))
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if count := strings.Count(listResponse.Body.String(), `"question":"hello"`); count != 1 {
+		t.Fatalf("gap list body = %s, want one open gap", listResponse.Body.String())
+	}
+}
+
+func TestHandlerExperienceStreamSkipsKnowledgeGapForProviderFallbackState(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "Provider fallback reply."},
+			Metadata: types.Metadata{
+				"knowledge_answer_state":     "provider_fallback",
+				"knowledge_space_id":         "default",
+				"knowledge_used":             false,
+				"knowledge_no_source_reason": "no_matching_chunks",
+				"fallback_category":          "provider_status",
+			},
+		}},
+		KnowledgeGapAdmin: &gapService,
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON())))
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if strings.Contains(listResponse.Body.String(), `"question":"hello"`) {
+		t.Fatalf("gap list body = %s, want no knowledge gap for provider fallback", listResponse.Body.String())
 	}
 }
 

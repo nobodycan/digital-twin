@@ -125,7 +125,8 @@ func TestPersonaAgentBuildsSystemPromptForLLM(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Prompted reply"}}}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
-		Client: client,
+		Client:   client,
+		Provider: "openai-compatible",
 		Persona: persona.Persona{
 			ID:            "advisor",
 			Identity:      "Ava",
@@ -158,7 +159,8 @@ func TestPersonaAgentAddsKnowledgeGroundingToPromptAndMetadata(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Grounded reply"}}}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
-		Client: client,
+		Client:   client,
+		Provider: "openai-compatible",
 		Persona: persona.Persona{
 			ID:            "advisor",
 			Identity:      "Ava",
@@ -210,6 +212,9 @@ func TestPersonaAgentAddsKnowledgeGroundingToPromptAndMetadata(t *testing.T) {
 	if result.Metadata["retrieval_mode"] != "lexical" {
 		t.Fatalf("retrieval_mode = %v, want lexical", result.Metadata["retrieval_mode"])
 	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateGrounded {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateGrounded)
+	}
 	citations, ok := result.Metadata["knowledge_citations"].([]map[string]any)
 	if !ok || len(citations) != 1 {
 		t.Fatalf("knowledge_citations = %#v, want 1 citation", result.Metadata["knowledge_citations"])
@@ -223,7 +228,8 @@ func TestPersonaAgentMarksNoSourceWhenGroundingFindsNothing(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Ungrounded reply"}}}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
-		Client: client,
+		Client:   client,
+		Provider: "openai-compatible",
 		Knowledge: staticGrounder{result: Grounding{
 			RetrievalMode:  "lexical",
 			NoSourceReason: "no_matching_chunks",
@@ -243,8 +249,32 @@ func TestPersonaAgentMarksNoSourceWhenGroundingFindsNothing(t *testing.T) {
 	if result.Metadata["knowledge_no_source_reason"] != "no_matching_chunks" {
 		t.Fatalf("knowledge_no_source_reason = %v, want no_matching_chunks", result.Metadata["knowledge_no_source_reason"])
 	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateUnsupported {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateUnsupported)
+	}
 	if _, exists := result.Metadata["knowledge_citations"]; exists {
 		t.Fatalf("knowledge_citations = %#v, want absent when no grounding", result.Metadata["knowledge_citations"])
+	}
+}
+
+func TestPersonaAgentMarksPartialSupportWhenGroundingIsBelowThreshold(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Careful reply"}}}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "openai-compatible",
+		Knowledge: staticGrounder{result: Grounding{
+			RetrievalMode:  "hybrid",
+			NoSourceReason: "below_threshold",
+		}},
+	})
+
+	result, err := agent.Run(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStatePartiallySupported {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStatePartiallySupported)
 	}
 }
 
@@ -252,7 +282,8 @@ func TestPersonaAgentCarriesKnowledgeSpaceMetadata(t *testing.T) {
 	skills := skillRegistryWithDefaults(t, nil)
 	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Grounded reply"}}}
 	agent := NewPersonaAgent(skills, PersonaAgentConfig{
-		Client: client,
+		Client:   client,
+		Provider: "openai-compatible",
 		Knowledge: staticGrounder{result: Grounding{
 			SpaceID:        "product",
 			SpaceName:      "Product",
@@ -364,6 +395,9 @@ func TestPersonaAgentConfiguredLocalClientUsesLocalGenerationMode(t *testing.T) 
 	if result.Metadata["generation_mode"] != "local" {
 		t.Fatalf("generation_mode = %v, want local", result.Metadata["generation_mode"])
 	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateLocalMode {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateLocalMode)
+	}
 }
 
 func TestPersonaAgentReturnsErrorWhenFallbackPolicyIsFailClosed(t *testing.T) {
@@ -403,6 +437,9 @@ func TestPersonaAgentFallsBackWhenLLMReturnsEmptyContent(t *testing.T) {
 	}
 	if result.Metadata["fallback_category"] != "empty_response" {
 		t.Fatalf("fallback_category = %v, want empty_response", result.Metadata["fallback_category"])
+	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateProviderFallback {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateProviderFallback)
 	}
 }
 
@@ -505,6 +542,9 @@ func TestPersonaAgentNoClientUsesLocalGenerationMetadata(t *testing.T) {
 	if result.Metadata["generation_mode"] != "local" {
 		t.Fatalf("generation_mode = %v, want local", result.Metadata["generation_mode"])
 	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateLocalMode {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateLocalMode)
+	}
 }
 
 func TestPersonaAgentFallsBackWhenGuardRejectsGeneratedOutput(t *testing.T) {
@@ -528,6 +568,9 @@ func TestPersonaAgentFallsBackWhenGuardRejectsGeneratedOutput(t *testing.T) {
 	}
 	if result.Metadata["guard_reason"] != "forbidden_claim" {
 		t.Fatalf("guard_reason = %v, want forbidden_claim", result.Metadata["guard_reason"])
+	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateGuardRejected {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateGuardRejected)
 	}
 	if result.Message.Content == "I guarantee secret launch approval." {
 		t.Fatalf("Run() content = %q, want safe fallback", result.Message.Content)
@@ -627,6 +670,9 @@ func TestPersonaAgentStreamFallsBackWhenProviderFailsBeforeVisibleOutput(t *test
 	if result.Metadata["fallback_category"] != llm.ProviderStatusCategory {
 		t.Fatalf("fallback_category = %v, want %s", result.Metadata["fallback_category"], llm.ProviderStatusCategory)
 	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateProviderFallback {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateProviderFallback)
+	}
 }
 
 func TestPersonaAgentStreamReturnsErrorWhenProviderFailsAfterVisibleOutput(t *testing.T) {
@@ -679,6 +725,9 @@ func TestPersonaAgentStreamFallsBackWhenProviderEmitsNoVisibleText(t *testing.T)
 	}
 	if result.Metadata["fallback_category"] != "empty_response" {
 		t.Fatalf("fallback_category = %v, want empty_response", result.Metadata["fallback_category"])
+	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateProviderFallback {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateProviderFallback)
 	}
 }
 
