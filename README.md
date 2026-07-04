@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 17 - Knowledge Curation and Source Management`
+Current stage: `Phase 18 - Knowledge Source Ingestion`
 
 What is already working:
 
@@ -25,6 +25,7 @@ What is already working:
 - knowledge workbench actions in `/admin`: investigate gaps, create local note documents, run gap-centered diagnostics, and resolve with evidence
 - knowledge curation controls in `/admin`: filter documents by space, source type, status, gap linkage, and free-text query
 - knowledge document detail with source-gap and resolved-gap relationships, plus in-place local editing for curated notes and uploaded text content
+- local-first knowledge import jobs for text/Markdown files and pasted URL snapshots, with deterministic dedupe and import history
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -74,6 +75,7 @@ flowchart TD
 - `GET /admin/knowledge/{document_id}`
 - `GET /admin/knowledge/{document_id}/detail`
 - `GET /admin/knowledge/gaps`
+- `GET /admin/knowledge/imports`
 - `GET /admin/knowledge/spaces`
 - `POST /chat`
 - `POST /chat/stream`
@@ -81,6 +83,7 @@ flowchart TD
 - `POST /experience/mock-voice/stream`
 - `POST /admin/knowledge/upload`
 - `POST /admin/knowledge/notes/create`
+- `POST /admin/knowledge/import`
 - `POST /admin/knowledge/update`
 - `POST /admin/knowledge/gaps/update`
 - `POST /admin/knowledge/spaces/create`
@@ -169,19 +172,21 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 17 extends the local knowledge loop into a curation workspace:
+Phase 18 extends the local knowledge loop into a source-ingestion workspace:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
 3. Use the default knowledge space or create a new one.
-4. Upload a mock or text/Markdown knowledge document into the selected space.
-5. Filter the document table by source type, status, free-text query, or whether a document is linked to a knowledge gap.
-6. Inspect document detail to see quality flags, source metadata, and source/resolution relationships.
-7. Edit a local document title, source label, or content in place when curation is needed.
-8. Ask a related or unsupported question in `/app` with the same selected space.
-9. Return to `/admin` and inspect the local knowledge-gap queue.
-10. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
-11. Resolve the gap with an optional document ID and resolution note once evidence is visible.
+4. Use `Knowledge import` to ingest either local `.txt` / `.md` files or a pasted URL text snapshot into the selected space.
+5. Check `Recent imports` to see imported, skipped, and failed sources for each job.
+6. Inspect an imported document directly from the import history.
+7. Filter the document table by source type, status, free-text query, or whether a document is linked to a knowledge gap.
+8. Inspect document detail to see quality flags, source metadata, and source/resolution relationships.
+9. Edit a local document title, source label, or content in place when curation is needed.
+10. Ask a related or unsupported question in `/app` with the same selected space.
+11. Return to `/admin` and inspect the local knowledge-gap queue.
+12. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
+13. Resolve the gap with an optional document ID and resolution note once evidence is visible.
 
 When a turn completes, `/app` can now show:
 
@@ -192,7 +197,7 @@ When a turn completes, `/app` can now show:
 - source citation chips
 - `Memory considered` when memory metadata is present
 
-Local verification for Phase 17:
+Local verification for Phase 18:
 
 ```powershell
 go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web
@@ -207,12 +212,20 @@ The retrieval pipeline is still local-first:
 - CI does not require DeepSeek, embeddings, or an external vector database
 - `internal/knowledge/testdata` contains deterministic RAG eval fixtures
 
+## Phase 18 highlights
+
+Phase 18 focuses on turning curation into a small but real ingestion loop:
+
+- `/admin` now supports import jobs for local text/Markdown files and pasted URL snapshots
+- imports persist job history in the local file-backed knowledge store, including imported document IDs plus skipped and failed sources
+- ingestion is deterministic and local-first: no crawler, no remote fetch, no binary parser, and exact duplicate-content skipping inside a space
+
 ## Phase 17 highlights
 
 Phase 17 focuses on turning the knowledge workbench into a curation surface:
 
-- `/admin` now supports knowledge list filtering across space, document status, source type, gap-linked state, and free-text query
-- document detail now projects source-gap and resolved-gap relationships so operators can see why a note exists and what evidence it closed
+- `/admin` supports knowledge list filtering across space, document status, source type, gap-linked state, and free-text query
+- document detail projects source-gap and resolved-gap relationships so operators can see why a note exists and what evidence it closed
 - local knowledge documents can be edited in place for title, source label, and content, then reindexed through the existing deterministic pipeline
 
 ## Developer workflow

@@ -145,6 +145,8 @@ type KnowledgeStore interface {
 	SaveKnowledgeSpace(KnowledgeSpace) (KnowledgeSpace, error)
 	ListKnowledgeSpaces(tenantID string) ([]KnowledgeSpace, error)
 	GetKnowledgeSpace(tenantID, spaceID string) (KnowledgeSpace, error)
+	SaveKnowledgeImportJob(KnowledgeImportJob) (KnowledgeImportJob, error)
+	ListKnowledgeImportJobs(tenantID, spaceID string) ([]KnowledgeImportJob, error)
 }
 
 type KnowledgeService struct {
@@ -499,9 +501,16 @@ func matchesKnowledgeSourceType(document KnowledgeDocument, want string) bool {
 		return strings.TrimSpace(document.Metadata["source_type"]) == "workbench_note"
 	case "upload":
 		return strings.TrimSpace(document.Metadata["source_type"]) == ""
+	case string(KnowledgeImportSourceLocalTextFile):
+		return strings.TrimSpace(document.Metadata["source_type"]) == string(KnowledgeImportSourceLocalTextFile)
+	case string(KnowledgeImportSourceURLTextSnapshot):
+		return strings.TrimSpace(document.Metadata["source_type"]) == string(KnowledgeImportSourceURLTextSnapshot)
 	case "unknown":
 		sourceType := strings.TrimSpace(document.Metadata["source_type"])
-		return sourceType != "" && sourceType != "workbench_note"
+		return sourceType != "" &&
+			sourceType != "workbench_note" &&
+			sourceType != string(KnowledgeImportSourceLocalTextFile) &&
+			sourceType != string(KnowledgeImportSourceURLTextSnapshot)
 	default:
 		return false
 	}
@@ -563,12 +572,14 @@ type InMemoryKnowledgeStore struct {
 	mu        sync.Mutex
 	documents map[string]map[string]KnowledgeDocument
 	spaces    map[string]map[string]KnowledgeSpace
+	imports   map[string]map[string]KnowledgeImportJob
 }
 
 func NewInMemoryKnowledgeStore() *InMemoryKnowledgeStore {
 	return &InMemoryKnowledgeStore{
 		documents: make(map[string]map[string]KnowledgeDocument),
 		spaces:    make(map[string]map[string]KnowledgeSpace),
+		imports:   make(map[string]map[string]KnowledgeImportJob),
 	}
 }
 
@@ -633,6 +644,37 @@ func (s *InMemoryKnowledgeStore) SaveKnowledgeSpace(space KnowledgeSpace) (Knowl
 	s.ensureDefaultSpaceLocked(space.TenantID)
 	s.spaces[space.TenantID][space.ID] = space
 	return space, nil
+}
+
+func (s *InMemoryKnowledgeStore) SaveKnowledgeImportJob(job KnowledgeImportJob) (KnowledgeImportJob, error) {
+	if err := validateKnowledgeID(job.ID); err != nil {
+		return KnowledgeImportJob{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job.SpaceID = normalizeDocumentSpaceID(job.SpaceID)
+	s.ensureDefaultSpaceLocked(job.TenantID)
+	if _, ok := s.imports[job.TenantID]; !ok {
+		s.imports[job.TenantID] = make(map[string]KnowledgeImportJob)
+	}
+	s.imports[job.TenantID][job.ID] = job
+	return job, nil
+}
+
+func (s *InMemoryKnowledgeStore) ListKnowledgeImportJobs(tenantID, spaceID string) ([]KnowledgeImportJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureDefaultSpaceLocked(tenantID)
+	items := s.imports[tenantID]
+	out := make([]KnowledgeImportJob, 0, len(items))
+	normalizedSpaceID := normalizeDocumentSpaceID(spaceID)
+	for _, job := range items {
+		if spaceID == "" || job.SpaceID == normalizedSpaceID {
+			out = append(out, job)
+		}
+	}
+	sortKnowledgeImportJobs(out)
+	return out, nil
 }
 
 func (s *InMemoryKnowledgeStore) ListKnowledgeSpaces(tenantID string) ([]KnowledgeSpace, error) {

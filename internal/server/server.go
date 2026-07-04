@@ -35,6 +35,7 @@ type Config struct {
 	PersonaAdmin        *admin.PersonaService
 	MemoryAdmin         *admin.MemoryService
 	KnowledgeAdmin      *admin.KnowledgeService
+	KnowledgeImportAdmin *admin.KnowledgeImportService
 	KnowledgeGapAdmin   *admin.KnowledgeGapService
 	KnowledgeRetriever  *knowledge.Service
 	ToolPolicyAdmin     *admin.ToolPolicyService
@@ -75,6 +76,7 @@ type Handler struct {
 	personaAdmin        *admin.PersonaService
 	memoryAdmin         *admin.MemoryService
 	knowledgeAdmin      *admin.KnowledgeService
+	knowledgeImportAdmin *admin.KnowledgeImportService
 	knowledgeGapAdmin   *admin.KnowledgeGapService
 	knowledgeRetriever  *knowledge.Service
 	toolPolicyAdmin     *admin.ToolPolicyService
@@ -105,6 +107,7 @@ func NewHandler(config Config) http.Handler {
 		personaAdmin:        config.PersonaAdmin,
 		memoryAdmin:         config.MemoryAdmin,
 		knowledgeAdmin:      config.KnowledgeAdmin,
+		knowledgeImportAdmin: config.KnowledgeImportAdmin,
 		knowledgeGapAdmin:   config.KnowledgeGapAdmin,
 		knowledgeRetriever:  config.KnowledgeRetriever,
 		toolPolicyAdmin:     config.ToolPolicyAdmin,
@@ -143,11 +146,13 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/spaces/enable", handler.handleKnowledgeSpaceEnable)
 	handler.mux.HandleFunc("POST /admin/knowledge/spaces/archive", handler.handleKnowledgeSpaceArchive)
 	handler.mux.HandleFunc("GET /admin/knowledge", handler.handleKnowledgeList)
+	handler.mux.HandleFunc("GET /admin/knowledge/imports", handler.handleKnowledgeImportList)
 	handler.mux.HandleFunc("GET /admin/knowledge/health", handler.handleKnowledgeHealth)
 	handler.mux.HandleFunc("GET /admin/knowledge/gaps", handler.handleKnowledgeGapList)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}", handler.handleKnowledgeGet)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}/detail", handler.handleKnowledgeDetail)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
+	handler.mux.HandleFunc("POST /admin/knowledge/import", handler.handleKnowledgeImport)
 	handler.mux.HandleFunc("POST /admin/knowledge/notes/create", handler.handleKnowledgeNoteCreate)
 	handler.mux.HandleFunc("POST /admin/knowledge/disable", handler.handleKnowledgeDisable)
 	handler.mux.HandleFunc("POST /admin/knowledge/enable", handler.handleKnowledgeEnable)
@@ -541,6 +546,13 @@ type knowledgeDiagnosticsRequest struct {
 	MinScore float64                 `json:"min_score"`
 }
 
+type knowledgeImportRequest struct {
+	SpaceID     string                    `json:"space_id,omitempty"`
+	SourceType  admin.KnowledgeImportSourceType `json:"source_type"`
+	SourceLabel string                    `json:"source_label,omitempty"`
+	Sources     []admin.KnowledgeImportSource `json:"sources"`
+}
+
 type knowledgeDocumentRequest struct {
 	DocumentID string `json:"document_id"`
 	Content    string `json:"content,omitempty"`
@@ -594,6 +606,42 @@ func (h *Handler) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, documents)
+}
+
+func (h *Handler) handleKnowledgeImportList(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeImportAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_import_admin_unavailable"})
+		return
+	}
+	jobs, err := h.knowledgeImportAdmin.List(h.adminTenantID(), strings.TrimSpace(r.URL.Query().Get("space_id")))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_import_list_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, jobs)
+}
+
+func (h *Handler) handleKnowledgeImport(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeImportAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_import_admin_unavailable"})
+		return
+	}
+	var request knowledgeImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	job, err := h.knowledgeImportAdmin.Import(h.adminTenantID(), admin.KnowledgeImportRequest{
+		SpaceID:     request.SpaceID,
+		SourceType:  request.SourceType,
+		SourceLabel: request.SourceLabel,
+		Sources:     request.Sources,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_import_failed", "cause": err.Error(), "job": job})
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 func (h *Handler) handleKnowledgeGet(w http.ResponseWriter, r *http.Request) {
