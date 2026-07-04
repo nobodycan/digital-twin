@@ -148,6 +148,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}", handler.handleKnowledgeGet)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}/detail", handler.handleKnowledgeDetail)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
+	handler.mux.HandleFunc("POST /admin/knowledge/notes/create", handler.handleKnowledgeNoteCreate)
 	handler.mux.HandleFunc("POST /admin/knowledge/disable", handler.handleKnowledgeDisable)
 	handler.mux.HandleFunc("POST /admin/knowledge/enable", handler.handleKnowledgeEnable)
 	handler.mux.HandleFunc("POST /admin/knowledge/delete", handler.handleKnowledgeDelete)
@@ -455,6 +456,78 @@ func (h *Handler) handleKnowledgeUpload(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, document)
 }
 
+type knowledgeNoteCreateRequest struct {
+	SpaceID     string `json:"space_id,omitempty"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	SourceGapID string `json:"source_gap_id,omitempty"`
+}
+
+func (h *Handler) handleKnowledgeNoteCreate(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	var request knowledgeNoteCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	title := strings.TrimSpace(request.Title)
+	body := strings.TrimSpace(request.Body)
+	if title == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_note_create_failed", "cause": "knowledge note title is required"})
+		return
+	}
+	if body == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_note_create_failed", "cause": "knowledge note body is required"})
+		return
+	}
+	sourceGapID := strings.TrimSpace(request.SourceGapID)
+	if sourceGapID != "" && !isSafeKnowledgeToken(sourceGapID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_note_create_failed", "cause": "invalid source_gap_id"})
+		return
+	}
+	spaceID := strings.TrimSpace(request.SpaceID)
+	if spaceID == "" {
+		spaceID = admin.DefaultKnowledgeSpaceID
+	}
+	if sourceGapID != "" {
+		if h.knowledgeGapAdmin == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_gap_admin_unavailable"})
+			return
+		}
+		gap, err := h.knowledgeGapAdmin.Get(h.adminTenantID(), sourceGapID)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_note_create_failed", "cause": err.Error()})
+			return
+		}
+		if gap.SpaceID != spaceID {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_note_create_failed", "cause": "source_gap_id must belong to the selected knowledge space"})
+			return
+		}
+	}
+	metadata := map[string]string{
+		"source_type":  "workbench_note",
+		"created_from": "knowledge_workbench",
+	}
+	if sourceGapID != "" {
+		metadata["source_gap_id"] = sourceGapID
+	}
+	document, err := h.knowledgeAdmin.Upload(h.adminTenantID(), admin.KnowledgeUpload{
+		ID:       noteIDFromTitle(title),
+		Name:     title + ".md",
+		Content:  body,
+		SpaceID:  spaceID,
+		Metadata: metadata,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_note_create_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
 type knowledgeCitationRequest struct {
 	Query string `json:"query"`
 }
@@ -640,9 +713,49 @@ func (h *Handler) handleKnowledgeRetrievalDiagnostics(w http.ResponseWriter, r *
 }
 
 type knowledgeGapRequest struct {
-	GapID                string                  `json:"gap_id"`
+	GapID                string                   `json:"gap_id"`
 	Status               admin.KnowledgeGapStatus `json:"status"`
-	ResolvedByDocumentID string                  `json:"resolved_by_document_id,omitempty"`
+	ResolvedByDocumentID string                   `json:"resolved_by_document_id,omitempty"`
+	ResolutionNote       string                   `json:"resolution_note,omitempty"`
+}
+
+func noteIDFromTitle(title string) string {
+	slug := strings.ToLower(strings.TrimSpace(title))
+	slug = strings.ReplaceAll(slug, " ", "-")
+	var builder strings.Builder
+	for _, r := range slug {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			builder.WriteRune(r)
+		}
+	}
+	normalized := strings.Trim(builder.String(), "-.")
+	if normalized == "" {
+		normalized = "note"
+	}
+	return fmt.Sprintf("%s-%d", normalized, time.Now().UnixNano())
+}
+
+func isSafeKnowledgeToken(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." || value == ".." || strings.ContainsAny(value, `/\`) {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) handleKnowledgeGapList(w http.ResponseWriter, r *http.Request) {
@@ -668,7 +781,13 @@ func (h *Handler) handleKnowledgeGapUpdate(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	record, err := h.knowledgeGapAdmin.UpdateStatus(h.adminTenantID(), request.GapID, request.Status, request.ResolvedByDocumentID)
+	record, err := h.knowledgeGapAdmin.UpdateStatus(
+		h.adminTenantID(),
+		request.GapID,
+		request.Status,
+		request.ResolvedByDocumentID,
+		request.ResolutionNote,
+	)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_gap_update_failed", "cause": err.Error()})
 		return

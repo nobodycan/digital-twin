@@ -135,9 +135,10 @@ func (s KnowledgeService) DocumentDetail(tenantID, documentID string) (Knowledge
 type KnowledgeGapStatus string
 
 const (
-	KnowledgeGapOpen     KnowledgeGapStatus = "open"
-	KnowledgeGapIgnored  KnowledgeGapStatus = "ignored"
-	KnowledgeGapResolved KnowledgeGapStatus = "resolved"
+	KnowledgeGapOpen          KnowledgeGapStatus = "open"
+	KnowledgeGapInvestigating KnowledgeGapStatus = "investigating"
+	KnowledgeGapIgnored       KnowledgeGapStatus = "ignored"
+	KnowledgeGapResolved      KnowledgeGapStatus = "resolved"
 )
 
 type KnowledgeGap struct {
@@ -150,6 +151,7 @@ type KnowledgeGap struct {
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`
 	ResolvedByDocumentID string             `json:"resolved_by_document_id,omitempty"`
+	ResolutionNote       string             `json:"resolution_note,omitempty"`
 }
 
 type KnowledgeGapInput struct {
@@ -213,12 +215,19 @@ func (s KnowledgeGapService) List(tenantID, spaceID string) ([]KnowledgeGap, err
 	return s.store.ListKnowledgeGaps(tenantID, normalizeDocumentSpaceID(spaceID))
 }
 
-func (s KnowledgeGapService) UpdateStatus(tenantID, gapID string, status KnowledgeGapStatus, resolvedByDocumentID string) (KnowledgeGap, error) {
+func (s KnowledgeGapService) Get(tenantID, gapID string) (KnowledgeGap, error) {
+	if err := validateKnowledgeID(gapID); err != nil {
+		return KnowledgeGap{}, err
+	}
+	return s.store.GetKnowledgeGap(tenantID, gapID)
+}
+
+func (s KnowledgeGapService) UpdateStatus(tenantID, gapID string, status KnowledgeGapStatus, resolvedByDocumentID, resolutionNote string) (KnowledgeGap, error) {
 	if err := validateKnowledgeID(gapID); err != nil {
 		return KnowledgeGap{}, err
 	}
 	switch status {
-	case KnowledgeGapOpen, KnowledgeGapIgnored, KnowledgeGapResolved:
+	case KnowledgeGapOpen, KnowledgeGapInvestigating, KnowledgeGapIgnored, KnowledgeGapResolved:
 	default:
 		return KnowledgeGap{}, fmt.Errorf("invalid knowledge gap status")
 	}
@@ -235,8 +244,10 @@ func (s KnowledgeGapService) UpdateStatus(tenantID, gapID string, status Knowled
 	gap.UpdatedAt = s.now()
 	if status == KnowledgeGapResolved {
 		gap.ResolvedByDocumentID = resolvedByDocumentID
+		gap.ResolutionNote = strings.TrimSpace(resolutionNote)
 	} else {
 		gap.ResolvedByDocumentID = ""
+		gap.ResolutionNote = ""
 	}
 	return s.store.SaveKnowledgeGap(gap)
 }

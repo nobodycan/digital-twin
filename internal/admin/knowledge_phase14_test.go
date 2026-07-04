@@ -133,12 +133,15 @@ func TestKnowledgeGapServiceLifecycleWithFileStore(t *testing.T) {
 		t.Fatalf("listed = %#v, want one created gap", listed)
 	}
 
-	updated, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapResolved, "kb-policy")
+	updated, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapResolved, "kb-policy", "")
 	if err != nil {
 		t.Fatalf("UpdateStatus returned error: %v", err)
 	}
 	if updated.Status != KnowledgeGapResolved || updated.ResolvedByDocumentID != "kb-policy" {
 		t.Fatalf("updated = %#v", updated)
+	}
+	if updated.ResolutionNote != "" {
+		t.Fatalf("resolution note = %q, want empty", updated.ResolutionNote)
 	}
 
 	reopened := NewKnowledgeGapService(NewFileKnowledgeGapStore(dir))
@@ -148,6 +151,82 @@ func TestKnowledgeGapServiceLifecycleWithFileStore(t *testing.T) {
 	}
 	if len(reloaded) != 1 || reloaded[0].Status != KnowledgeGapResolved {
 		t.Fatalf("reloaded = %#v", reloaded)
+	}
+}
+
+func TestKnowledgeGapServiceSupportsInvestigatingAndResolutionNote(t *testing.T) {
+	service := NewKnowledgeGapService(NewInMemoryKnowledgeGapStore())
+	created, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "How do we run smoke tests?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	investigating, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapInvestigating, "", "")
+	if err != nil {
+		t.Fatalf("UpdateStatus(investigating) returned error: %v", err)
+	}
+	if investigating.Status != KnowledgeGapInvestigating {
+		t.Fatalf("status = %q, want %q", investigating.Status, KnowledgeGapInvestigating)
+	}
+	if investigating.ResolvedByDocumentID != "" || investigating.ResolutionNote != "" {
+		t.Fatalf("investigating gap = %#v, want empty resolution fields", investigating)
+	}
+
+	resolved, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapResolved, "kb-smoke", "Covered by the smoke checklist note.")
+	if err != nil {
+		t.Fatalf("UpdateStatus(resolved) returned error: %v", err)
+	}
+	if resolved.Status != KnowledgeGapResolved {
+		t.Fatalf("status = %q, want %q", resolved.Status, KnowledgeGapResolved)
+	}
+	if resolved.ResolvedByDocumentID != "kb-smoke" {
+		t.Fatalf("resolved_by_document_id = %q, want kb-smoke", resolved.ResolvedByDocumentID)
+	}
+	if resolved.ResolutionNote != "Covered by the smoke checklist note." {
+		t.Fatalf("resolution_note = %q", resolved.ResolutionNote)
+	}
+}
+
+func TestKnowledgeGapServiceClearsResolutionFieldsWhenLeavingResolved(t *testing.T) {
+	service := NewKnowledgeGapService(NewInMemoryKnowledgeGapStore())
+	created, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "What is our deployment flow?",
+		NoSourceReason: "below_threshold",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if _, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapResolved, "kb-deploy", "Resolved by deploy note."); err != nil {
+		t.Fatalf("UpdateStatus(resolved) returned error: %v", err)
+	}
+
+	reopened, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapOpen, "", "")
+	if err != nil {
+		t.Fatalf("UpdateStatus(open) returned error: %v", err)
+	}
+	if reopened.ResolvedByDocumentID != "" || reopened.ResolutionNote != "" {
+		t.Fatalf("reopened gap = %#v, want cleared resolution fields", reopened)
+	}
+}
+
+func TestKnowledgeGapServiceRejectsInvalidStatusIncludingUnknownWorkflowState(t *testing.T) {
+	service := NewKnowledgeGapService(NewInMemoryKnowledgeGapStore())
+	created, err := service.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        DefaultKnowledgeSpaceID,
+		Question:       "How does pricing work?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if _, err := service.UpdateStatus("tenant-1", created.ID, KnowledgeGapStatus("triaged"), "", ""); err == nil {
+		t.Fatalf("UpdateStatus accepted invalid status")
 	}
 }
 
