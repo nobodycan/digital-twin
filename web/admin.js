@@ -7,7 +7,15 @@ const memoryTableBody = document.querySelector("#memory-table-body");
 const knowledgeSpaceSelect = document.querySelector("#knowledge-space-select");
 const knowledgeSpaceCreate = document.querySelector("#knowledge-space-create");
 const knowledgeSpaceCreateButton = document.querySelector("#knowledge-space-create-button");
+const knowledgeImportPanel = document.querySelector("#knowledge-import-panel");
+const knowledgeImportSourceType = document.querySelector("#knowledge-import-source-type");
+const knowledgeImportSourceLabel = document.querySelector("#knowledge-import-source-label");
+const knowledgeImportFileFields = document.querySelector("#knowledge-import-file-fields");
+const knowledgeImportURLFields = document.querySelector("#knowledge-import-url-fields");
 const knowledgeUpload = document.querySelector("#knowledge-upload");
+const knowledgeImportURL = document.querySelector("#knowledge-import-url");
+const knowledgeImportContent = document.querySelector("#knowledge-import-content");
+const knowledgeImportRun = document.querySelector("#knowledge-import-run");
 const knowledgeUploadMock = document.querySelector("#knowledge-upload-mock");
 const knowledgeQuery = document.querySelector("#knowledge-query");
 const knowledgeQueryMode = document.querySelector("#knowledge-query-mode");
@@ -39,6 +47,7 @@ const knowledgeEditSave = document.querySelector("#knowledge-edit-save");
 const knowledgeEditCancel = document.querySelector("#knowledge-edit-cancel");
 const knowledgeDebugResults = document.querySelector("#knowledge-debug-results");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
+const knowledgeImportJobs = document.querySelector("#knowledge-import-jobs");
 const knowledgeNoteTitle = document.querySelector("#knowledge-note-title");
 const knowledgeNoteBody = document.querySelector("#knowledge-note-body");
 const knowledgeNoteCreate = document.querySelector("#knowledge-note-create");
@@ -53,6 +62,8 @@ const knowledgeListPath = "/admin/knowledge";
 const knowledgeHealthPath = "/admin/knowledge/health";
 const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
+const knowledgeImportPath = "/admin/knowledge/import";
+const knowledgeImportListPath = "/admin/knowledge/imports";
 const knowledgeNoteCreatePath = "/admin/knowledge/notes/create";
 const knowledgeUpdatePath = "/admin/knowledge/update";
 
@@ -262,6 +273,19 @@ function renderKnowledgeRelations(relations) {
   knowledgeDetailRelations.textContent = lines.join("\n");
 }
 
+async function inspectKnowledgeDocument(documentID) {
+  if (!documentID) {
+    setKnowledgeStatus("Knowledge error: missing document id");
+    return;
+  }
+  const detailURL = `${knowledgeDetailPathPrefix}${documentID}/detail`;
+  const detail = await fetch(detailURL);
+  if (!detail.ok) {
+    throw new Error(`${detailURL} failed (${detail.status})`);
+  }
+  renderKnowledgeDetail(await detail.json());
+}
+
 function renderKnowledgeDebugRow(explanation) {
   const row = document.createElement("div");
   row.className = "knowledge-debug-row";
@@ -352,6 +376,53 @@ function renderKnowledgeGapRow(gap) {
   return row;
 }
 
+function renderKnowledgeImportJob(job) {
+  const row = document.createElement("div");
+  row.className = "knowledge-import-job-row";
+
+  const summary = document.createElement("div");
+  summary.className = "knowledge-import-job-summary";
+  const imported = job.imported_document_ids || [];
+  const skipped = job.skipped_sources || [];
+  const failed = job.failed_sources || [];
+  const warnings = [];
+  for (const documentID of imported) {
+    const documentRecord = (selectedKnowledgeDocument?.document?.id === documentID ? selectedKnowledgeDocument.document : null);
+    if (documentRecord?.metadata?.source_warning) {
+      warnings.push(documentRecord.metadata.source_warning);
+    }
+  }
+  summary.textContent = [
+    `${job.status || "unknown"} | ${job.source_type || "unknown"} | ${job.source_label || "unlabeled"}`,
+    `sources ${job.source_count ?? 0} | imported ${imported.length} | skipped ${skipped.length} | failed ${failed.length}`,
+    skipped.map((item) => `${item.name || item.uri || "source"} skipped ${item.reason || "duplicate_content"}`).join(" | "),
+    failed.map((item) => `${item.name || item.uri || "source"} failed ${item.reason || "unsupported_extension"}`).join(" | "),
+    warnings.length > 0 ? `source_warning ${warnings.join(" | ")}` : "",
+    job.error_code ? `error ${job.error_code}` : "",
+  ].filter(Boolean).join("\n");
+  row.append(summary);
+
+  const actions = document.createElement("div");
+  actions.className = "knowledge-import-job-actions";
+
+  for (const documentID of imported) {
+    const inspectButton = document.createElement("button");
+    inspectButton.type = "button";
+    inspectButton.textContent = `Inspect ${documentID}`;
+    inspectButton.addEventListener("click", async () => {
+      await inspectKnowledgeDocument(documentID);
+      setKnowledgeStatus(`Inspecting imported document ${documentID}`);
+    });
+    actions.append(inspectButton);
+  }
+
+  if (actions.childNodes.length > 0) {
+    row.append(actions);
+  }
+
+  return row;
+}
+
 async function loadKnowledgeGaps() {
   const response = await fetch(`${knowledgeGapListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
   if (!response.ok) throw new Error(`knowledge gaps failed (${response.status})`);
@@ -363,6 +434,25 @@ async function loadKnowledgeGaps() {
   }
   for (const gap of gaps) {
     knowledgeGapQueue.append(renderKnowledgeGapRow(gap));
+  }
+}
+
+async function loadKnowledgeImportJobs() {
+  if (!knowledgeImportJobs) {
+    return;
+  }
+  const response = await fetch(`${knowledgeImportListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  if (!response.ok) {
+    throw new Error(`knowledge imports failed (${response.status})`);
+  }
+  const jobs = await response.json() || [];
+  clearElement(knowledgeImportJobs);
+  if (jobs.length === 0) {
+    knowledgeImportJobs.textContent = "Recent imports";
+    return;
+  }
+  for (const job of jobs) {
+    knowledgeImportJobs.append(renderKnowledgeImportJob(job));
   }
 }
 
@@ -515,6 +605,7 @@ async function refreshKnowledgeWorkspace() {
   await loadKnowledge();
   await loadKnowledgeHealth();
   await loadKnowledgeGaps();
+  await loadKnowledgeImportJobs();
 }
 
 function draftPayload() {
@@ -536,7 +627,15 @@ async function postJSON(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(`${url} failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(`${url} failed (${response.status})`);
+    try {
+      error.data = await response.json();
+    } catch {
+      error.data = null;
+    }
+    throw error;
+  }
   return response.json();
 }
 
@@ -661,6 +760,70 @@ async function loadKnowledgeSpaces() {
   }
 }
 
+function updateKnowledgeImportMode() {
+  const sourceType = knowledgeImportSourceType?.value || "local_text_file";
+  if (sourceType === "url_text_snapshot") {
+    knowledgeImportFileFields?.setAttribute("hidden", "hidden");
+    knowledgeImportURLFields?.removeAttribute("hidden");
+  } else {
+    knowledgeImportURLFields?.setAttribute("hidden", "hidden");
+    knowledgeImportFileFields?.removeAttribute("hidden");
+  }
+}
+
+async function readKnowledgeImportSources() {
+  const sourceType = knowledgeImportSourceType?.value || "local_text_file";
+  if (sourceType === "url_text_snapshot") {
+    return [{
+      uri: (knowledgeImportURL?.value || "").trim(),
+      content: knowledgeImportContent?.value || "",
+    }];
+  }
+
+  const files = Array.from(knowledgeUpload?.files || []);
+  return Promise.all(files.map(async (file) => ({
+    name: file.name,
+    content: await file.text(),
+    size_bytes: file.size,
+  })));
+}
+
+async function importKnowledge() {
+  const sourceType = knowledgeImportSourceType?.value || "local_text_file";
+  const sourceLabel = (knowledgeImportSourceLabel?.value || "").trim();
+  const sources = await readKnowledgeImportSources();
+  if (sources.length === 0) {
+    setKnowledgeStatus("Knowledge import error: select a source first");
+    return;
+  }
+
+  try {
+    const job = await postJSON(knowledgeImportPath, {
+      space_id: selectedKnowledgeSpaceId,
+      source_type: sourceType,
+      source_label: sourceLabel,
+      sources
+    });
+    if (knowledgeUpload) {
+      knowledgeUpload.value = "";
+    }
+    if (knowledgeImportURL) {
+      knowledgeImportURL.value = "";
+    }
+    if (knowledgeImportContent) {
+      knowledgeImportContent.value = "";
+    }
+    setKnowledgeStatus(`Imported ${job.imported_document_ids?.length ?? 0} documents via ${job.id}`);
+    await refreshKnowledgeWorkspace();
+  } catch (error) {
+    if (error.data?.job) {
+      await loadKnowledgeImportJobs();
+    }
+    const cause = error.data?.cause || error.message;
+    setKnowledgeStatus(`Knowledge import error: ${cause}`);
+  }
+}
+
 function renderKnowledgeRow(documentRecord) {
   const row = document.createElement("tr");
 
@@ -681,11 +844,7 @@ function renderKnowledgeRow(documentRecord) {
   inspectButton.type = "button";
   inspectButton.textContent = "Inspect";
   inspectButton.addEventListener("click", async () => {
-    const detailURL = `${knowledgeDetailPathPrefix}${documentRecord.id}/detail`;
-    const detail = await fetch(detailURL);
-    if (!detail.ok) throw new Error(`${detailURL} failed (${detail.status})`);
-    const loaded = await detail.json();
-    renderKnowledgeDetail(loaded);
+    await inspectKnowledgeDocument(documentRecord.id);
   });
 
   const toggleButton = document.createElement("button");
@@ -735,6 +894,14 @@ knowledgeUploadMock?.addEventListener("click", async () => {
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);
   }
+});
+
+knowledgeImportSourceType?.addEventListener("change", () => {
+  updateKnowledgeImportMode();
+});
+
+knowledgeImportRun?.addEventListener("click", async () => {
+  await importKnowledge();
 });
 
 knowledgeNoteCreate?.addEventListener("click", async () => {
@@ -925,6 +1092,7 @@ loadActivePersona().catch((error) => {
 });
 loadKnowledgeSpaces().catch(() => {});
 loadMemory().catch(() => {});
+updateKnowledgeImportMode();
 refreshKnowledgeWorkspace().catch(() => {});
 auditRefresh?.addEventListener("click", () => {
   loadAudit().catch(() => {});

@@ -10,7 +10,7 @@
     <main class="admin-shell">
       <header class="surface-header">
         <h1>Operations Console</h1>
-        <p class="status-line">Local-first controls for Phase 17</p>
+        <p class="status-line">Local-first controls for Phase 18</p>
       </header>
 
       <section id="persona-admin" class="admin-section" aria-label="Persona editor">
@@ -44,8 +44,28 @@
           <div id="knowledge-health-metrics" class="knowledge-health-metrics"></div>
           <div id="knowledge-attention-reasons">No attention reasons</div>
         </section>
-        <input type="file" id="knowledge-upload">
-        <button id="knowledge-upload-mock" type="button">Upload mock</button>
+        <section id="knowledge-import-panel" aria-label="Knowledge import">
+          <strong>Knowledge import</strong>
+          <div class="action-row">
+            <select id="knowledge-import-source-type" aria-label="Knowledge import source type">
+              <option value="local_text_file">Local text file</option>
+              <option value="url_text_snapshot">URL text snapshot</option>
+            </select>
+            <input id="knowledge-import-source-label" type="text" placeholder="Source label">
+          </div>
+          <div id="knowledge-import-file-fields">
+            <input type="file" id="knowledge-upload" accept=".txt,.md,text/plain,text/markdown" multiple>
+          </div>
+          <div id="knowledge-import-url-fields" hidden>
+            <input id="knowledge-import-url" type="url" placeholder="https://example.com/source">
+            <textarea id="knowledge-import-content" rows="6" placeholder="Paste the extracted source text"></textarea>
+          </div>
+          <div class="action-row">
+            <button id="knowledge-import-run" type="button">Run import</button>
+            <button id="knowledge-upload-mock" type="button">Upload mock</button>
+          </div>
+          <section id="knowledge-import-jobs" aria-label="Recent imports">Recent imports</section>
+        </section>
         <section id="knowledge-filters" aria-label="Knowledge filters">
           <strong>Knowledge filters</strong>
           <div class="action-row">
@@ -60,6 +80,8 @@
               <option value="">All sources</option>
               <option value="workbench_note">Workbench note</option>
               <option value="upload">Upload</option>
+              <option value="local_text_file">Imported local text file</option>
+              <option value="url_text_snapshot">Imported URL snapshot</option>
               <option value="unknown">Unknown</option>
             </select>
             <label><input id="knowledge-filter-gap-linked" type="checkbox"> gap-linked only</label>

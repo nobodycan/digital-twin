@@ -14,8 +14,9 @@ type FileKnowledgeStore struct {
 }
 
 type knowledgeEnvelope struct {
-	Spaces    []KnowledgeSpace    `json:"spaces"`
-	Documents []KnowledgeDocument `json:"documents"`
+	Spaces     []KnowledgeSpace     `json:"spaces"`
+	Documents  []KnowledgeDocument  `json:"documents"`
+	ImportJobs []KnowledgeImportJob `json:"import_jobs,omitempty"`
 }
 
 func NewFileKnowledgeStore(dir string) *FileKnowledgeStore {
@@ -172,6 +173,54 @@ func (s *FileKnowledgeStore) GetKnowledgeSpace(tenantID, spaceID string) (Knowle
 	return KnowledgeSpace{}, ErrKnowledgeSpaceNotFound
 }
 
+func (s *FileKnowledgeStore) SaveKnowledgeImportJob(job KnowledgeImportJob) (KnowledgeImportJob, error) {
+	if err := validateKnowledgeID(job.ID); err != nil {
+		return KnowledgeImportJob{}, err
+	}
+	envelope, err := s.load()
+	if err != nil {
+		return KnowledgeImportJob{}, err
+	}
+	envelope.ensureDefaultSpace(job.TenantID)
+	job.SpaceID = normalizeDocumentSpaceID(job.SpaceID)
+	replaced := false
+	for index, existing := range envelope.ImportJobs {
+		if existing.TenantID == job.TenantID && existing.ID == job.ID {
+			envelope.ImportJobs[index] = job
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		envelope.ImportJobs = append(envelope.ImportJobs, job)
+	}
+	if err := s.save(envelope); err != nil {
+		return KnowledgeImportJob{}, err
+	}
+	return job, nil
+}
+
+func (s *FileKnowledgeStore) ListKnowledgeImportJobs(tenantID, spaceID string) ([]KnowledgeImportJob, error) {
+	envelope, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	envelope.ensureDefaultSpace(tenantID)
+	out := make([]KnowledgeImportJob, 0, len(envelope.ImportJobs))
+	normalizedSpaceID := normalizeDocumentSpaceID(spaceID)
+	for _, job := range envelope.ImportJobs {
+		if job.TenantID != tenantID {
+			continue
+		}
+		if spaceID != "" && job.SpaceID != normalizedSpaceID {
+			continue
+		}
+		out = append(out, job)
+	}
+	sortKnowledgeImportJobs(out)
+	return out, nil
+}
+
 func (s *FileKnowledgeStore) load() (knowledgeEnvelope, error) {
 	data, err := os.ReadFile(s.path())
 	if errors.Is(err, os.ErrNotExist) {
@@ -238,6 +287,10 @@ func (e *knowledgeEnvelope) normalize() {
 	for _, space := range e.Spaces {
 		e.ensureDefaultSpace(space.TenantID)
 	}
+	for index := range e.ImportJobs {
+		e.ImportJobs[index].SpaceID = normalizeDocumentSpaceID(e.ImportJobs[index].SpaceID)
+		e.ensureDefaultSpace(e.ImportJobs[index].TenantID)
+	}
 	sortKnowledgeSpaces(e.Spaces)
 	sort.Slice(e.Documents, func(i, j int) bool {
 		if e.Documents[i].CreatedAt.Equal(e.Documents[j].CreatedAt) {
@@ -245,6 +298,7 @@ func (e *knowledgeEnvelope) normalize() {
 		}
 		return e.Documents[i].CreatedAt.Before(e.Documents[j].CreatedAt)
 	})
+	sortKnowledgeImportJobs(e.ImportJobs)
 }
 
 func (e *knowledgeEnvelope) ensureDefaultSpace(tenantID string) {

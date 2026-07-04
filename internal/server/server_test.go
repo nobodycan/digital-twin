@@ -1347,10 +1347,12 @@ func TestHandlerKnowledgeNoteCreateRejectsGapFromDifferentSpace(t *testing.T) {
 func TestHandlerKnowledgeListSupportsPhase17Filters(t *testing.T) {
 	knowledgeStore := admin.NewInMemoryKnowledgeStore()
 	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	importService := admin.NewKnowledgeImportService(knowledgeStore, knowledgeService)
 	handler := NewHandler(Config{
-		Metrics:         observability.NewMemoryMetrics(),
-		DefaultTenantID: "default",
-		KnowledgeAdmin:  &knowledgeService,
+		Metrics:              observability.NewMemoryMetrics(),
+		DefaultTenantID:      "default",
+		KnowledgeAdmin:       &knowledgeService,
+		KnowledgeImportAdmin: &importService,
 	})
 
 	for _, upload := range []admin.KnowledgeUpload{
@@ -1402,6 +1404,95 @@ func TestHandlerKnowledgeListSupportsPhase17Filters(t *testing.T) {
 	}
 	if !strings.Contains(statusResponse.Body.String(), `"id":"kb-runbook"`) {
 		t.Fatalf("status filter body = %s, want disabled kb-runbook", statusResponse.Body.String())
+	}
+
+	if _, err := importService.Import("default", admin.KnowledgeImportRequest{
+		SpaceID:    "default",
+		SourceType: admin.KnowledgeImportSourceLocalTextFile,
+		Sources: []admin.KnowledgeImportSource{{
+			Name:    "phase18.md",
+			Content: "Imported content.",
+		}},
+	}); err != nil {
+		t.Fatalf("Import() returned error: %v", err)
+	}
+
+	importFilterRequest := httptest.NewRequest(http.MethodGet, "/admin/knowledge?space_id=default&source_type=local_text_file", nil)
+	importFilterResponse := httptest.NewRecorder()
+	handler.ServeHTTP(importFilterResponse, importFilterRequest)
+
+	if importFilterResponse.Code != http.StatusOK {
+		t.Fatalf("import filter code = %d, body = %s", importFilterResponse.Code, importFilterResponse.Body.String())
+	}
+	importBody := importFilterResponse.Body.String()
+	if !strings.Contains(importBody, `"source_type":"local_text_file"`) {
+		t.Fatalf("import filter body = %s, want local_text_file document", importBody)
+	}
+	if strings.Contains(importBody, `"id":"kb-note"`) || strings.Contains(importBody, `"id":"kb-runbook"`) {
+		t.Fatalf("import filter body = %s, want only imported documents", importBody)
+	}
+}
+
+func TestHandlerKnowledgeImportRoutesCreateAndListPhase18Jobs(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	importService := admin.NewKnowledgeImportService(knowledgeStore, knowledgeService)
+	handler := NewHandler(Config{
+		Metrics:              observability.NewMemoryMetrics(),
+		DefaultTenantID:      "default",
+		KnowledgeAdmin:       &knowledgeService,
+		KnowledgeImportAdmin: &importService,
+	})
+
+	importResponse := httptest.NewRecorder()
+	handler.ServeHTTP(importResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/import", strings.NewReader(`{"space_id":"default","source_type":"local_text_file","source_label":"operator import","sources":[{"name":"phase18.md","content":"Imported content."}]}`)))
+
+	if importResponse.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", importResponse.Code, importResponse.Body.String())
+	}
+	for _, want := range []string{`"status":"completed"`, `"source_type":"local_text_file"`, `"imported_document_ids":[`, `"source_label":"operator import"`} {
+		if !strings.Contains(importResponse.Body.String(), want) {
+			t.Fatalf("import body missing %q:\n%s", want, importResponse.Body.String())
+		}
+	}
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/imports?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"source_type":"local_text_file"`) {
+		t.Fatalf("list body = %s, want import job", listResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeImportRouteReturnsJobContextOnValidationFailure(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	importService := admin.NewKnowledgeImportService(knowledgeStore, knowledgeService)
+	handler := NewHandler(Config{
+		Metrics:              observability.NewMemoryMetrics(),
+		DefaultTenantID:      "default",
+		KnowledgeAdmin:       &knowledgeService,
+		KnowledgeImportAdmin: &importService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/import", strings.NewReader(`{"space_id":"default","source_type":"local_text_file","sources":[{"name":"phase18.pdf","content":"Imported content."}]}`)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"error":"knowledge_import_failed"`) {
+		t.Fatalf("body = %s, want knowledge_import_failed", body)
+	}
+	if !strings.Contains(body, `"failure_code":"unsupported_extension"`) {
+		t.Fatalf("body = %s, want job failure_code unsupported_extension", body)
+	}
+	if !strings.Contains(body, `"failed_sources":[{"name":"phase18.pdf","reason":"unsupported_extension"}]`) {
+		t.Fatalf("body = %s, want failed source detail", body)
 	}
 }
 

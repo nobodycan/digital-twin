@@ -584,13 +584,15 @@ input:disabled {
 
 #knowledge-attention-reasons,
 #knowledge-debug-results,
-#knowledge-gap-queue {
+#knowledge-gap-queue,
+#knowledge-import-jobs {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
 }
 
-#knowledge-gap-queue {
+#knowledge-gap-queue,
+#knowledge-import-jobs {
   white-space: normal;
 }
 
@@ -649,6 +651,32 @@ input:disabled {
 .knowledge-gap-row:first-child {
   border-top: 0;
   padding-top: 0;
+}
+
+.knowledge-import-job-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid #e2e8e5;
+}
+
+.knowledge-import-job-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.knowledge-import-job-summary {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.knowledge-import-job-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 table {

@@ -1,5 +1,22 @@
 # Release Notes
 
+## Unreleased - Phase 18 Knowledge Source Ingestion
+
+### Added
+
+- Added `KnowledgeImportService` and `KnowledgeImportJob` persistence in `internal/admin` so the local file-backed knowledge store can track import runs, imported documents, skipped duplicates, and failed sources.
+- Added `GET /admin/knowledge/imports` and `POST /admin/knowledge/import` so the server can ingest local text/Markdown files and pasted URL text snapshots into a selected knowledge space.
+- Added `/admin` knowledge import controls for choosing source type, running imports, reviewing recent import jobs, and jumping from an import job into document detail.
+
+### Documented
+
+- Added Phase 18 spec, design, and plan docs for knowledge source ingestion.
+- README now reflects Phase 18 as the current stage and explains the new import workflow.
+
+### Notes
+
+- Phase 18 stays local-first and deterministic: there is no server-side URL fetch, no PDF/DOCX parser, and duplicate-content dedupe is exact within a knowledge space.
+
 ## Unreleased - Phase 17 Knowledge Curation and Source Management
 
 ### Added
