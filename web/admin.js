@@ -19,8 +19,24 @@ const knowledgeHealthMetrics = document.querySelector("#knowledge-health-metrics
 const knowledgeAttentionReasons = document.querySelector("#knowledge-attention-reasons");
 const knowledgeTableBody = document.querySelector("#knowledge-table-body");
 const knowledgeDetail = document.querySelector("#knowledge-detail");
+const knowledgeDetailTitle = document.querySelector("#knowledge-detail-title");
+const knowledgeDetailMeta = document.querySelector("#knowledge-detail-meta");
+const knowledgeDetailRelations = document.querySelector("#knowledge-detail-relations");
 const knowledgeDetailFlags = document.querySelector("#knowledge-detail-flags");
 const knowledgeDetailBody = document.querySelector("#knowledge-detail-body");
+const knowledgeFilterQuery = document.querySelector("#knowledge-filter-query");
+const knowledgeFilterStatus = document.querySelector("#knowledge-filter-status");
+const knowledgeFilterSourceType = document.querySelector("#knowledge-filter-source-type");
+const knowledgeFilterGapLinked = document.querySelector("#knowledge-filter-gap-linked");
+const knowledgeFilterApply = document.querySelector("#knowledge-filter-apply");
+const knowledgeFilterReset = document.querySelector("#knowledge-filter-reset");
+const knowledgeEditToggle = document.querySelector("#knowledge-edit-toggle");
+const knowledgeEditForm = document.querySelector("#knowledge-edit-form");
+const knowledgeEditName = document.querySelector("#knowledge-edit-name");
+const knowledgeEditSourceLabel = document.querySelector("#knowledge-edit-source-label");
+const knowledgeEditContent = document.querySelector("#knowledge-edit-content");
+const knowledgeEditSave = document.querySelector("#knowledge-edit-save");
+const knowledgeEditCancel = document.querySelector("#knowledge-edit-cancel");
 const knowledgeDebugResults = document.querySelector("#knowledge-debug-results");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
 const knowledgeNoteTitle = document.querySelector("#knowledge-note-title");
@@ -38,11 +54,15 @@ const knowledgeHealthPath = "/admin/knowledge/health";
 const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
 const knowledgeNoteCreatePath = "/admin/knowledge/notes/create";
+const knowledgeUpdatePath = "/admin/knowledge/update";
 
 let currentDraftId = "";
 let activeVersionId = "";
 let selectedKnowledgeSpaceId = "default";
+let selectedKnowledgeDocumentId = "";
+let selectedKnowledgeDocument = null;
 let selectedKnowledgeGapId = "";
+let knowledgeEditDraft = null;
 const knowledgeGapDiagnosticsState = new Map();
 
 function setPersonaStatus(text) {
@@ -178,6 +198,14 @@ function renderKnowledgeDetail(detail) {
   const chunks = (documentRecord.chunks || []).map((chunk) => chunk.text).join("\n\n") || "Chunk preview";
   const indexState = documentRecord.metadata?.vector_status || "unknown";
   const lastErrorCode = documentRecord.metadata?.last_error_code || "none";
+  selectedKnowledgeDocument = detail;
+  selectedKnowledgeDocumentId = documentRecord.id || "";
+  if (knowledgeDetailTitle) {
+    knowledgeDetailTitle.textContent = documentRecord.name || documentRecord.id || "Document detail";
+  }
+  if (knowledgeDetailMeta) {
+    knowledgeDetailMeta.textContent = renderKnowledgeSourceMeta(documentRecord);
+  }
   clearElement(knowledgeDetailFlags);
   if (qualityFlags.length === 0) {
     knowledgeDetailFlags.append(renderKnowledgeFlag("healthy"));
@@ -186,6 +214,7 @@ function renderKnowledgeDetail(detail) {
       knowledgeDetailFlags.append(renderKnowledgeFlag(flag));
     }
   }
+  renderKnowledgeRelations(detail.relations || {});
   knowledgeDetailBody.textContent = [
     `document: ${documentRecord.name || documentRecord.id || "unknown"}`,
     `status: ${documentRecord.status || "unknown"}`,
@@ -195,6 +224,42 @@ function renderKnowledgeDetail(detail) {
     "",
     chunks
   ].join("\n");
+  if (knowledgeEditDraft === null) {
+    cancelKnowledgeEdit();
+  }
+}
+
+function renderKnowledgeSourceMeta(documentRecord) {
+  const segments = [];
+  segments.push(`space ${documentRecord.space_id || selectedKnowledgeSpaceId}`);
+  if (documentRecord.metadata?.source_type) {
+    segments.push(`source ${documentRecord.metadata.source_type}`);
+  }
+  if (documentRecord.metadata?.source_label) {
+    segments.push(`label ${documentRecord.metadata.source_label}`);
+  }
+  if (documentRecord.metadata?.source_gap_id) {
+    segments.push(`gap ${documentRecord.metadata.source_gap_id}`);
+  }
+  return segments.join(" | ") || "No source metadata";
+}
+
+function renderKnowledgeRelations(relations) {
+  if (!knowledgeDetailRelations) {
+    return;
+  }
+  const lines = ["Source relationships"];
+  if (relations.source_gap?.id) {
+    lines.push(`Created from gap: ${relations.source_gap.id} | ${relations.source_gap.question || "no question"}`);
+  }
+  const resolvedGaps = relations.resolved_gaps || [];
+  if (resolvedGaps.length > 0) {
+    lines.push(`Resolved gaps: ${resolvedGaps.map((gap) => `${gap.id} | ${gap.question || "no question"}`).join(" || ")}`);
+  }
+  if (!relations.source_gap?.id && resolvedGaps.length === 0) {
+    lines.push("No linked gaps");
+  }
+  knowledgeDetailRelations.textContent = lines.join("\n");
 }
 
 function renderKnowledgeDebugRow(explanation) {
@@ -313,6 +378,85 @@ function createKnowledgeNoteFromGap(gap) {
     knowledgeNoteBody.value = `Question: ${gap.question}\n\nAnswer this gap with durable source text.\n\n`;
   }
   knowledgeNoteTitle?.focus();
+}
+
+function startKnowledgeEdit() {
+  const documentRecord = selectedKnowledgeDocument?.document;
+  if (!documentRecord) {
+    setKnowledgeStatus("Select a document before editing");
+    return;
+  }
+  knowledgeEditDraft = {
+    document_id: documentRecord.id,
+    name: documentRecord.name || "",
+    source_label: documentRecord.metadata?.source_label || "",
+    content: (documentRecord.chunks || []).map((chunk) => chunk.text).join("\n\n"),
+  };
+  if (knowledgeEditName) {
+    knowledgeEditName.value = knowledgeEditDraft.name;
+  }
+  if (knowledgeEditSourceLabel) {
+    knowledgeEditSourceLabel.value = knowledgeEditDraft.source_label;
+  }
+  if (knowledgeEditContent) {
+    knowledgeEditContent.value = knowledgeEditDraft.content;
+  }
+  knowledgeEditForm?.removeAttribute("hidden");
+  knowledgeEditName?.focus();
+}
+
+function cancelKnowledgeEdit() {
+  knowledgeEditDraft = null;
+  if (knowledgeEditName) {
+    knowledgeEditName.value = "";
+  }
+  if (knowledgeEditSourceLabel) {
+    knowledgeEditSourceLabel.value = "";
+  }
+  if (knowledgeEditContent) {
+    knowledgeEditContent.value = "";
+  }
+  knowledgeEditForm?.setAttribute("hidden", "hidden");
+}
+
+async function saveKnowledgeEdit() {
+  if (!selectedKnowledgeDocumentId) {
+    setKnowledgeStatus("Select a document before saving an edit");
+    return;
+  }
+  const updated = await postJSON(knowledgeUpdatePath, {
+    document_id: selectedKnowledgeDocumentId,
+    name: knowledgeEditName?.value || "",
+    content: knowledgeEditContent?.value || "",
+    source_label: knowledgeEditSourceLabel?.value || "",
+  });
+  setKnowledgeStatus(`Updated ${updated.id}`);
+  cancelKnowledgeEdit();
+  await refreshKnowledgeWorkspace();
+  const detailURL = `${knowledgeDetailPathPrefix}${updated.id}/detail`;
+  const detail = await fetch(detailURL);
+  if (!detail.ok) throw new Error(`${detailURL} failed (${detail.status})`);
+  renderKnowledgeDetail(await detail.json());
+}
+
+function applyKnowledgeFilters() {
+  return loadKnowledge();
+}
+
+async function resetKnowledgeFilters() {
+  if (knowledgeFilterQuery) {
+    knowledgeFilterQuery.value = "";
+  }
+  if (knowledgeFilterStatus) {
+    knowledgeFilterStatus.value = "";
+  }
+  if (knowledgeFilterSourceType) {
+    knowledgeFilterSourceType.value = "";
+  }
+  if (knowledgeFilterGapLinked) {
+    knowledgeFilterGapLinked.checked = false;
+  }
+  await loadKnowledge();
 }
 
 async function knowledgeGapInvestigate(gap) {
@@ -451,7 +595,20 @@ function renderMemoryRow(record) {
 }
 
 async function loadKnowledge() {
-  const response = await fetch(`${knowledgeListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  const params = new URLSearchParams({ space_id: selectedKnowledgeSpaceId });
+  if (knowledgeFilterQuery?.value.trim()) {
+    params.set("query", knowledgeFilterQuery.value.trim());
+  }
+  if (knowledgeFilterStatus?.value) {
+    params.set("status", knowledgeFilterStatus.value);
+  }
+  if (knowledgeFilterSourceType?.value) {
+    params.set("source_type", knowledgeFilterSourceType.value);
+  }
+  if (knowledgeFilterGapLinked?.checked) {
+    params.set("gap_linked", "true");
+  }
+  const response = await fetch(`${knowledgeListPath}?${params.toString()}`);
   if (!response.ok) return;
   const documents = await response.json();
   knowledgeTableBody.textContent = "";
@@ -462,8 +619,20 @@ async function loadKnowledge() {
     cell.textContent = "No knowledge loaded";
     row.append(cell);
     knowledgeTableBody.append(row);
+    if (knowledgeDetailTitle) {
+      knowledgeDetailTitle.textContent = "Document detail";
+    }
+    if (knowledgeDetailMeta) {
+      knowledgeDetailMeta.textContent = "No document selected";
+    }
+    if (knowledgeDetailRelations) {
+      knowledgeDetailRelations.textContent = "Source relationships";
+    }
     knowledgeDetailBody.textContent = "Chunk preview";
     clearElement(knowledgeDetailFlags);
+    selectedKnowledgeDocumentId = "";
+    selectedKnowledgeDocument = null;
+    cancelKnowledgeEdit();
     return;
   }
   for (const documentRecord of documents) {
@@ -628,6 +797,30 @@ knowledgeQueryRun?.addEventListener("click", async () => {
 knowledgeSpaceSelect?.addEventListener("change", async () => {
   selectedKnowledgeSpaceId = knowledgeSpaceSelect.value || "default";
   await refreshKnowledgeWorkspace();
+});
+
+knowledgeFilterApply?.addEventListener("click", async () => {
+  await applyKnowledgeFilters();
+});
+
+knowledgeFilterReset?.addEventListener("click", async () => {
+  await resetKnowledgeFilters();
+});
+
+knowledgeEditToggle?.addEventListener("click", () => {
+  startKnowledgeEdit();
+});
+
+knowledgeEditCancel?.addEventListener("click", () => {
+  cancelKnowledgeEdit();
+});
+
+knowledgeEditSave?.addEventListener("click", async () => {
+  try {
+    await saveKnowledgeEdit();
+  } catch (error) {
+    setKnowledgeStatus(`Knowledge update failed: ${error.message}`);
+  }
 });
 
 knowledgeSpaceCreateButton?.addEventListener("click", async () => {

@@ -200,6 +200,165 @@ func TestKnowledgeServiceSupportsDocumentLifecycle(t *testing.T) {
 	}
 }
 
+func TestKnowledgeServiceUpdatePreservesIdentityAndWorkbenchMetadata(t *testing.T) {
+	store := NewInMemoryKnowledgeStore()
+	service := NewKnowledgeService(store)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	}
+
+	created, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-note",
+		Name:    "note.md",
+		Content: "Original guidance.\n\nOriginal second paragraph.",
+		Metadata: map[string]string{
+			"source_type":   "workbench_note",
+			"source_gap_id": "gap-123",
+			"created_from":  "knowledge_workbench",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
+	}
+	updated, err := service.Update("tenant-1", KnowledgeUpdate{
+		DocumentID: "kb-note",
+		Name:       "updated-note.md",
+		Content:    "Updated guidance.\n\nUpdated second paragraph.",
+	})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+
+	if updated.ID != created.ID {
+		t.Fatalf("document id = %q, want %q", updated.ID, created.ID)
+	}
+	if updated.SpaceID != created.SpaceID {
+		t.Fatalf("space id = %q, want %q", updated.SpaceID, created.SpaceID)
+	}
+	if !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("created_at = %v, want %v", updated.CreatedAt, created.CreatedAt)
+	}
+	if updated.Name != "updated-note.md" {
+		t.Fatalf("name = %q, want updated-note.md", updated.Name)
+	}
+	if updated.ContentHash == created.ContentHash {
+		t.Fatalf("content hash should change after update")
+	}
+	if updated.ChunkCount != 2 {
+		t.Fatalf("chunk count = %d, want 2", updated.ChunkCount)
+	}
+	if updated.UpdatedAt.Equal(created.UpdatedAt) {
+		t.Fatalf("updated_at should change after update")
+	}
+	if updated.Metadata["source_type"] != "workbench_note" {
+		t.Fatalf("source_type = %q, want workbench_note", updated.Metadata["source_type"])
+	}
+	if updated.Metadata["source_gap_id"] != "gap-123" {
+		t.Fatalf("source_gap_id = %q, want gap-123", updated.Metadata["source_gap_id"])
+	}
+	if updated.Metadata["created_from"] != "knowledge_workbench" {
+		t.Fatalf("created_from = %q, want knowledge_workbench", updated.Metadata["created_from"])
+	}
+}
+
+func TestKnowledgeServiceUpdateRejectsDisabledSpaceAndEmptyContent(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	if _, err := service.CreateSpace("tenant-1", KnowledgeSpaceInput{
+		ID:   "ops",
+		Name: "Ops",
+	}); err != nil {
+		t.Fatalf("CreateSpace returned error: %v", err)
+	}
+	if _, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-ops",
+		Name:    "ops.md",
+		Content: "Original ops note.",
+		SpaceID: "ops",
+	}); err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	if _, err := service.DisableSpace("tenant-1", "ops"); err != nil {
+		t.Fatalf("DisableSpace returned error: %v", err)
+	}
+
+	if _, err := service.Update("tenant-1", KnowledgeUpdate{
+		DocumentID: "kb-ops",
+		Name:       "ops.md",
+		Content:    "Updated ops note.",
+	}); err != ErrKnowledgeSpaceDisabled {
+		t.Fatalf("Update error = %v, want %v", err, ErrKnowledgeSpaceDisabled)
+	}
+
+	if _, err := service.EnableSpace("tenant-1", "ops"); err != nil {
+		t.Fatalf("EnableSpace returned error: %v", err)
+	}
+	if _, err := service.Update("tenant-1", KnowledgeUpdate{
+		DocumentID: "kb-ops",
+		Name:       "ops.md",
+		Content:    "",
+	}); err != ErrKnowledgeUploadEmpty {
+		t.Fatalf("Update empty content error = %v, want %v", err, ErrKnowledgeUploadEmpty)
+	}
+}
+
+func TestKnowledgeServiceListFilteredBySpaceQueryStatusSourceAndGapLink(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	for _, upload := range []KnowledgeUpload{
+		{
+			ID:      "kb-note",
+			Name:    "deployment-note.md",
+			Content: "Deployment note content.",
+			Metadata: map[string]string{
+				"source_type":   "workbench_note",
+				"source_gap_id": "gap-1",
+				"source_label":  "operator note",
+			},
+		},
+		{
+			ID:      "kb-runbook",
+			Name:    "runbook.md",
+			Content: "Runbook content.",
+		},
+	} {
+		if _, err := service.Upload("tenant-1", upload); err != nil {
+			t.Fatalf("Upload(%s) returned error: %v", upload.ID, err)
+		}
+	}
+	if _, err := service.Disable("tenant-1", "kb-runbook"); err != nil {
+		t.Fatalf("Disable returned error: %v", err)
+	}
+
+	filtered, err := service.ListFiltered("tenant-1", KnowledgeDocumentFilter{
+		SpaceID:       DefaultKnowledgeSpaceID,
+		Query:         "operator",
+		SourceType:    "workbench_note",
+		GapLinkedOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("ListFiltered(workbench) returned error: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != "kb-note" {
+		t.Fatalf("filtered workbench docs = %#v, want kb-note only", filtered)
+	}
+
+	disabled, err := service.ListFiltered("tenant-1", KnowledgeDocumentFilter{
+		SpaceID: DefaultKnowledgeSpaceID,
+		Status:  KnowledgeDisabled,
+	})
+	if err != nil {
+		t.Fatalf("ListFiltered(disabled) returned error: %v", err)
+	}
+	if len(disabled) != 1 || disabled[0].ID != "kb-runbook" {
+		t.Fatalf("disabled docs = %#v, want kb-runbook only", disabled)
+	}
+}
+
 func TestKnowledgeServiceListsDocumentsInStableOrder(t *testing.T) {
 	store := NewInMemoryKnowledgeStore()
 	service := NewKnowledgeService(store)

@@ -1,5 +1,23 @@
 # Release Notes
 
+## Unreleased - Phase 17 Knowledge Curation and Source Management
+
+### Added
+
+- Added `KnowledgeUpdate` and `KnowledgeDocumentFilter` support in `internal/admin` so local operators can update curated document fields and filter document listings by space, status, source type, gap linkage, and free-text query.
+- Added relationship-aware knowledge detail projections so `/admin` can show a document's `source_gap_id` link plus any knowledge gaps resolved by that document.
+- Added `POST /admin/knowledge/update` and expanded `/admin/knowledge` query handling so the server can persist curated edits and return filtered document views.
+- Added `/admin` knowledge curation controls for filtering, detail relationship display, and in-place editing of local document title, source label, and content.
+
+### Documented
+
+- Added Phase 17 spec, design, and plan docs for knowledge curation and source management.
+- README now reflects Phase 17 as the current stage and explains the local curation workflow on top of the existing knowledge workbench.
+
+### Notes
+
+- Phase 17 remains local-first and deterministic: document editing reuses the existing file-backed index path, and CI still does not require DeepSeek, embeddings, or an external database.
+
 ## Unreleased - Phase 16 Knowledge Workbench and Gap Resolution
 
 ### Added

@@ -37,6 +37,12 @@ type KnowledgeHealthSummary struct {
 type KnowledgeDocumentDetail struct {
 	Document     KnowledgeDocument `json:"document"`
 	QualityFlags []string          `json:"quality_flags,omitempty"`
+	Relations    KnowledgeDocumentRelations `json:"relations,omitempty"`
+}
+
+type KnowledgeDocumentRelations struct {
+	SourceGap    *KnowledgeGap `json:"source_gap,omitempty"`
+	ResolvedGaps []KnowledgeGap `json:"resolved_gaps,omitempty"`
 }
 
 func (s KnowledgeService) HealthSummary(tenantID, spaceID string) (KnowledgeHealthSummary, error) {
@@ -90,6 +96,10 @@ func (s KnowledgeService) HealthSummary(tenantID, spaceID string) (KnowledgeHeal
 }
 
 func (s KnowledgeService) DocumentDetail(tenantID, documentID string) (KnowledgeDocumentDetail, error) {
+	return s.DocumentDetailWithRelations(tenantID, documentID, KnowledgeGapService{})
+}
+
+func (s KnowledgeService) DocumentDetailWithRelations(tenantID, documentID string, gaps KnowledgeGapService) (KnowledgeDocumentDetail, error) {
 	document, err := s.Get(tenantID, documentID)
 	if err != nil {
 		return KnowledgeDocumentDetail{}, err
@@ -126,10 +136,40 @@ func (s KnowledgeService) DocumentDetail(tenantID, documentID string) (Knowledge
 			break
 		}
 	}
+	relations, err := buildKnowledgeDocumentRelations(tenantID, document, gaps)
+	if err != nil {
+		return KnowledgeDocumentDetail{}, err
+	}
 	return KnowledgeDocumentDetail{
 		Document:     document,
 		QualityFlags: flags,
+		Relations:    relations,
 	}, nil
+}
+
+func buildKnowledgeDocumentRelations(tenantID string, document KnowledgeDocument, gaps KnowledgeGapService) (KnowledgeDocumentRelations, error) {
+	if gaps.store == nil {
+		return KnowledgeDocumentRelations{}, nil
+	}
+	records, err := gaps.List(tenantID, document.SpaceID)
+	if err != nil {
+		return KnowledgeDocumentRelations{}, err
+	}
+	relations := KnowledgeDocumentRelations{
+		ResolvedGaps: make([]KnowledgeGap, 0, len(records)),
+	}
+	sourceGapID := strings.TrimSpace(document.Metadata["source_gap_id"])
+	for _, gap := range records {
+		if sourceGapID != "" && gap.ID == sourceGapID {
+			gapCopy := gap
+			relations.SourceGap = &gapCopy
+		}
+		if gap.ResolvedByDocumentID == document.ID {
+			relations.ResolvedGaps = append(relations.ResolvedGaps, gap)
+		}
+	}
+	sortKnowledgeGaps(relations.ResolvedGaps)
+	return relations, nil
 }
 
 type KnowledgeGapStatus string

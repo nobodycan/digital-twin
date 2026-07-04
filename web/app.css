@@ -526,7 +526,10 @@ input:disabled {
 
 #knowledge-health-summary,
 #knowledge-debug-results,
-#knowledge-gap-queue {
+#knowledge-gap-queue,
+#knowledge-filters,
+#knowledge-detail-relations,
+#knowledge-edit-form {
   margin-top: 12px;
   padding: 12px;
   border: 1px solid #d5ddd7;
@@ -547,10 +550,36 @@ input:disabled {
   margin: 8px 0;
 }
 
+#knowledge-detail-title {
+  display: block;
+  margin-bottom: 6px;
+}
+
+#knowledge-detail-meta,
+#knowledge-detail-relations {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
 #knowledge-detail-body {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+}
+
+#knowledge-edit-form {
+  display: grid;
+  gap: 10px;
+}
+
+#knowledge-edit-form[hidden] {
+  display: none;
+}
+
+#knowledge-edit-form input,
+#knowledge-edit-form textarea {
+  width: 100%;
 }
 
 #knowledge-attention-reasons,

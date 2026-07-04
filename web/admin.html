@@ -10,7 +10,7 @@
     <main class="admin-shell">
       <header class="surface-header">
         <h1>Operations Console</h1>
-        <p class="status-line">Local-first controls for Phase 16</p>
+        <p class="status-line">Local-first controls for Phase 17</p>
       </header>
 
       <section id="persona-admin" class="admin-section" aria-label="Persona editor">
@@ -46,6 +46,27 @@
         </section>
         <input type="file" id="knowledge-upload">
         <button id="knowledge-upload-mock" type="button">Upload mock</button>
+        <section id="knowledge-filters" aria-label="Knowledge filters">
+          <strong>Knowledge filters</strong>
+          <div class="action-row">
+            <input id="knowledge-filter-query" type="text" placeholder="Search title or source">
+            <select id="knowledge-filter-status" aria-label="Document status filter">
+              <option value="">All statuses</option>
+              <option value="ready">Ready</option>
+              <option value="disabled">Disabled</option>
+              <option value="failed">Failed</option>
+            </select>
+            <select id="knowledge-filter-source-type" aria-label="Document source filter">
+              <option value="">All sources</option>
+              <option value="workbench_note">Workbench note</option>
+              <option value="upload">Upload</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <label><input id="knowledge-filter-gap-linked" type="checkbox"> gap-linked only</label>
+            <button id="knowledge-filter-apply" type="button">Apply filters</button>
+            <button id="knowledge-filter-reset" type="button">Reset filters</button>
+          </div>
+        </section>
         <div class="action-row">
           <select id="knowledge-query-mode" aria-label="Retrieval mode">
             <option value="auto">Auto</option>
@@ -61,8 +82,23 @@
           <thead><tr><th>Name</th><th>Status</th><th>Chunks</th><th>Quality</th><th>Action</th></tr></thead>
           <tbody id="knowledge-table-body"><tr><td colspan="5">No knowledge loaded</td></tr></tbody>
         </table>
-        <section id="knowledge-detail" aria-label="Chunk preview">
+        <section id="knowledge-detail" aria-label="Document detail">
+          <strong id="knowledge-detail-title">Document detail</strong>
+          <div id="knowledge-detail-meta">No document selected</div>
           <div id="knowledge-detail-flags" class="knowledge-detail-flags"></div>
+          <section id="knowledge-detail-relations" aria-label="Source relationships">Source relationships</section>
+          <div class="action-row">
+            <button id="knowledge-edit-toggle" type="button">Edit document</button>
+          </div>
+          <div id="knowledge-edit-form" class="knowledge-edit-form" hidden>
+            <input id="knowledge-edit-name" type="text" placeholder="Document name">
+            <input id="knowledge-edit-source-label" type="text" placeholder="Source label">
+            <textarea id="knowledge-edit-content" rows="8" placeholder="Editable knowledge content"></textarea>
+            <div class="action-row">
+              <button id="knowledge-edit-save" type="button">Save edit</button>
+              <button id="knowledge-edit-cancel" type="button">Cancel</button>
+            </div>
+          </div>
           <div id="knowledge-detail-body">Chunk preview</div>
         </section>
         <section id="knowledge-debug-results" aria-label="Retrieval debug results">Retrieval debug</section>

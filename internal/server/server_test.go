@@ -1344,6 +1344,178 @@ func TestHandlerKnowledgeNoteCreateRejectsGapFromDifferentSpace(t *testing.T) {
 	}
 }
 
+func TestHandlerKnowledgeListSupportsPhase17Filters(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	handler := NewHandler(Config{
+		Metrics:         observability.NewMemoryMetrics(),
+		DefaultTenantID: "default",
+		KnowledgeAdmin:  &knowledgeService,
+	})
+
+	for _, upload := range []admin.KnowledgeUpload{
+		{
+			ID:      "kb-note",
+			Name:    "deployment-note.md",
+			Content: "Deployment note content.",
+			Metadata: map[string]string{
+				"source_type":   "workbench_note",
+				"source_gap_id": "gap-1",
+				"source_label":  "operator note",
+			},
+		},
+		{
+			ID:      "kb-runbook",
+			Name:    "runbook.md",
+			Content: "Runbook content.",
+		},
+	} {
+		if _, err := knowledgeService.Upload("default", upload); err != nil {
+			t.Fatalf("Upload(%s) returned error: %v", upload.ID, err)
+		}
+	}
+	if _, err := knowledgeService.Disable("default", "kb-runbook"); err != nil {
+		t.Fatalf("Disable returned error: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/admin/knowledge?space_id=default&query=operator&source_type=workbench_note&gap_linked=true", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"id":"kb-note"`) {
+		t.Fatalf("body = %s, want filtered kb-note", body)
+	}
+	if strings.Contains(body, `"id":"kb-runbook"`) {
+		t.Fatalf("body = %s, want kb-runbook excluded", body)
+	}
+
+	statusRequest := httptest.NewRequest(http.MethodGet, "/admin/knowledge?space_id=default&status=disabled", nil)
+	statusResponse := httptest.NewRecorder()
+	handler.ServeHTTP(statusResponse, statusRequest)
+
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("status filter code = %d, body = %s", statusResponse.Code, statusResponse.Body.String())
+	}
+	if !strings.Contains(statusResponse.Body.String(), `"id":"kb-runbook"`) {
+		t.Fatalf("status filter body = %s, want disabled kb-runbook", statusResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeDetailIncludesPhase17Relations(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	inMemoryGapStore := admin.NewInMemoryKnowledgeGapStore()
+	gapService := admin.NewKnowledgeGapService(inMemoryGapStore)
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		DefaultTenantID:   "default",
+		KnowledgeAdmin:    &knowledgeService,
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	document, err := knowledgeService.Upload("default", admin.KnowledgeUpload{
+		ID:      "kb-note",
+		Name:    "note.md",
+		Content: "Refund policy source text.",
+		Metadata: map[string]string{
+			"source_type":   "workbench_note",
+			"source_gap_id": "gap-source",
+			"created_from":  "knowledge_workbench",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	sourceGap, err := gapService.Create("default", admin.KnowledgeGapInput{
+		SpaceID:        document.SpaceID,
+		Question:       "What is the refund policy?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create(source gap) returned error: %v", err)
+	}
+	sourceGap.ID = "gap-source"
+	if _, err := inMemoryGapStore.SaveKnowledgeGap(sourceGap); err != nil {
+		t.Fatalf("SaveKnowledgeGap returned error: %v", err)
+	}
+	resolvedGap, err := gapService.Create("default", admin.KnowledgeGapInput{
+		SpaceID:        document.SpaceID,
+		Question:       "How long do refunds take?",
+		NoSourceReason: "below_threshold",
+	})
+	if err != nil {
+		t.Fatalf("Create(resolved gap) returned error: %v", err)
+	}
+	if _, err := gapService.UpdateStatus("default", resolvedGap.ID, admin.KnowledgeGapResolved, document.ID, "Covered by note."); err != nil {
+		t.Fatalf("UpdateStatus(resolved) returned error: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/knowledge/kb-note/detail", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"source_gap":{"id":"gap-source"`) {
+		t.Fatalf("body = %s, want source gap relation", body)
+	}
+	if !strings.Contains(body, `"resolved_gaps":[{"id":"`+resolvedGap.ID+`"`) {
+		t.Fatalf("body = %s, want resolved gap relation", body)
+	}
+}
+
+func TestHandlerKnowledgeUpdateRouteValidatesAndPersistsPhase17Changes(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	handler := NewHandler(Config{
+		Metrics:         observability.NewMemoryMetrics(),
+		DefaultTenantID: "default",
+		KnowledgeAdmin:  &knowledgeService,
+	})
+
+	if _, err := knowledgeService.Upload("default", admin.KnowledgeUpload{
+		ID:      "kb-note",
+		Name:    "note.md",
+		Content: "Original content.",
+		Metadata: map[string]string{
+			"source_type":   "workbench_note",
+			"source_gap_id": "gap-123",
+			"created_from":  "knowledge_workbench",
+		},
+	}); err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/update", strings.NewReader(`{"document_id":"kb-note","name":"updated-note.md","content":"Updated content.","source_label":"operator correction"}`)))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"id":"kb-note"`, `"name":"updated-note.md"`, `"source_gap_id":"gap-123"`, `"source_label":"operator correction"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+
+	invalid := httptest.NewRecorder()
+	handler.ServeHTTP(invalid, httptest.NewRequest(http.MethodPost, "/admin/knowledge/update", strings.NewReader(`{"document_id":"kb-note","name":"updated-note.md","content":"   "}`)))
+
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid status = %d, want 400; body = %s", invalid.Code, invalid.Body.String())
+	}
+	if !strings.Contains(invalid.Body.String(), `knowledge_update_failed`) {
+		t.Fatalf("invalid body = %s, want knowledge_update_failed", invalid.Body.String())
+	}
+}
+
 func TestHandlerKnowledgeEndpointsUseAuthoritativeTenant(t *testing.T) {
 	knowledgeStore := admin.NewInMemoryKnowledgeStore()
 	knowledgeService := admin.NewKnowledgeService(knowledgeStore)

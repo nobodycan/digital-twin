@@ -40,6 +40,21 @@ type KnowledgeUpload struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
+type KnowledgeUpdate struct {
+	DocumentID  string `json:"document_id"`
+	Name        string `json:"name,omitempty"`
+	Content     string `json:"content"`
+	SourceLabel string `json:"source_label,omitempty"`
+}
+
+type KnowledgeDocumentFilter struct {
+	SpaceID       string          `json:"space_id,omitempty"`
+	Query         string          `json:"query,omitempty"`
+	Status        KnowledgeStatus `json:"status,omitempty"`
+	SourceType    string          `json:"source_type,omitempty"`
+	GapLinkedOnly bool            `json:"gap_linked_only,omitempty"`
+}
+
 type KnowledgeSpaceStatus string
 
 const (
@@ -199,6 +214,31 @@ func (s KnowledgeService) ListBySpace(tenantID, spaceID string) ([]KnowledgeDocu
 	return filtered, nil
 }
 
+func (s KnowledgeService) ListFiltered(tenantID string, filter KnowledgeDocumentFilter) ([]KnowledgeDocument, error) {
+	documents, err := s.ListBySpace(tenantID, filter.SpaceID)
+	if err != nil {
+		return nil, err
+	}
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	filtered := make([]KnowledgeDocument, 0, len(documents))
+	for _, document := range documents {
+		if filter.Status != "" && document.Status != filter.Status {
+			continue
+		}
+		if !matchesKnowledgeSourceType(document, filter.SourceType) {
+			continue
+		}
+		if filter.GapLinkedOnly && strings.TrimSpace(document.Metadata["source_gap_id"]) == "" {
+			continue
+		}
+		if query != "" && !matchesKnowledgeQuery(document, query) {
+			continue
+		}
+		filtered = append(filtered, document)
+	}
+	return filtered, nil
+}
+
 func (s KnowledgeService) Disable(tenantID, documentID string) (KnowledgeDocument, error) {
 	document, err := s.store.GetKnowledge(tenantID, documentID)
 	if err != nil {
@@ -224,20 +264,27 @@ func (s KnowledgeService) Reindex(tenantID, documentID, content string) (Knowled
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	if _, err := s.requireWritableSpace(tenantID, document.SpaceID); err != nil {
+	return s.reindexDocument(tenantID, document, content)
+}
+
+func (s KnowledgeService) Update(tenantID string, update KnowledgeUpdate) (KnowledgeDocument, error) {
+	document, err := s.store.GetKnowledge(tenantID, update.DocumentID)
+	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	chunks := chunkKnowledge(document.ID, content)
-	if len(chunks) == 0 {
-		return KnowledgeDocument{}, ErrKnowledgeUploadEmpty
+	name := strings.TrimSpace(update.Name)
+	if name != "" {
+		document.Name = name
+		document.SourceType = sourceTypeFromName(name)
 	}
-	document.Status = KnowledgeReady
-	document.ContentHash = hashKnowledgeContent(content)
-	document.ChunkCount = len(chunks)
-	document.Chunks = chunks
-	document.UpdatedAt = s.now()
-	applyIndexMetadata(&document, document.UpdatedAt, KnowledgeVectorMissing, "")
-	return s.store.SaveKnowledge(document)
+	sourceLabel := strings.TrimSpace(update.SourceLabel)
+	if sourceLabel != "" {
+		if document.Metadata == nil {
+			document.Metadata = make(map[string]string)
+		}
+		document.Metadata["source_label"] = sourceLabel
+	}
+	return s.reindexDocument(tenantID, document, update.Content)
 }
 
 func (s KnowledgeService) Delete(tenantID, documentID string) error {
@@ -408,6 +455,56 @@ func cloneStringMap(input map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func (s KnowledgeService) reindexDocument(tenantID string, document KnowledgeDocument, content string) (KnowledgeDocument, error) {
+	if _, err := s.requireWritableSpace(tenantID, document.SpaceID); err != nil {
+		return KnowledgeDocument{}, err
+	}
+	chunks := chunkKnowledge(document.ID, content)
+	if len(chunks) == 0 {
+		return KnowledgeDocument{}, ErrKnowledgeUploadEmpty
+	}
+	document.Status = KnowledgeReady
+	document.ContentHash = hashKnowledgeContent(content)
+	document.ChunkCount = len(chunks)
+	document.Chunks = chunks
+	document.UpdatedAt = s.now()
+	applyIndexMetadata(&document, document.UpdatedAt, KnowledgeVectorMissing, "")
+	return s.store.SaveKnowledge(document)
+}
+
+func matchesKnowledgeQuery(document KnowledgeDocument, query string) bool {
+	values := []string{
+		document.ID,
+		document.Name,
+		document.Metadata["source_label"],
+		document.Metadata["source_gap_id"],
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(value)), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesKnowledgeSourceType(document KnowledgeDocument, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return true
+	}
+	switch want {
+	case "workbench_note":
+		return strings.TrimSpace(document.Metadata["source_type"]) == "workbench_note"
+	case "upload":
+		return strings.TrimSpace(document.Metadata["source_type"]) == ""
+	case "unknown":
+		sourceType := strings.TrimSpace(document.Metadata["source_type"])
+		return sourceType != "" && sourceType != "workbench_note"
+	default:
+		return false
+	}
 }
 
 func sourceTypeFromName(name string) KnowledgeSourceType {

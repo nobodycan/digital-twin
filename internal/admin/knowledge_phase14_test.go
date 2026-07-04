@@ -109,6 +109,88 @@ func TestKnowledgeServiceDocumentDetailFlagsQualitySignals(t *testing.T) {
 	}
 }
 
+func TestKnowledgeServiceDocumentDetailIncludesSourceAndResolvedGapRelations(t *testing.T) {
+	knowledgeStore := NewInMemoryKnowledgeStore()
+	knowledgeService := NewKnowledgeService(knowledgeStore)
+	gapService := NewKnowledgeGapService(NewInMemoryKnowledgeGapStore())
+
+	document, err := knowledgeService.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-note",
+		Name:    "note.md",
+		Content: "Source text for the refund policy.",
+		Metadata: map[string]string{
+			"source_type":   "workbench_note",
+			"source_gap_id": "gap-source",
+			"created_from":  "knowledge_workbench",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	sourceGap, err := gapService.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        document.SpaceID,
+		Question:       "What is the refund policy?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create(source gap) returned error: %v", err)
+	}
+	sourceGap.ID = "gap-source"
+	if _, err := gapService.store.SaveKnowledgeGap(sourceGap); err != nil {
+		t.Fatalf("SaveKnowledgeGap(source gap) returned error: %v", err)
+	}
+
+	resolvedGap, err := gapService.Create("tenant-1", KnowledgeGapInput{
+		SpaceID:        document.SpaceID,
+		Question:       "How long do refunds take?",
+		NoSourceReason: "below_threshold",
+	})
+	if err != nil {
+		t.Fatalf("Create(resolved gap) returned error: %v", err)
+	}
+	if _, err := gapService.UpdateStatus("tenant-1", resolvedGap.ID, KnowledgeGapResolved, document.ID, "Covered by the note."); err != nil {
+		t.Fatalf("UpdateStatus(resolved) returned error: %v", err)
+	}
+
+	detail, err := knowledgeService.DocumentDetailWithRelations("tenant-1", document.ID, gapService)
+	if err != nil {
+		t.Fatalf("DocumentDetailWithRelations returned error: %v", err)
+	}
+	if detail.Relations.SourceGap == nil || detail.Relations.SourceGap.ID != "gap-source" {
+		t.Fatalf("source gap = %#v, want gap-source", detail.Relations.SourceGap)
+	}
+	if len(detail.Relations.ResolvedGaps) != 1 || detail.Relations.ResolvedGaps[0].ID != resolvedGap.ID {
+		t.Fatalf("resolved gaps = %#v, want resolved gap %q", detail.Relations.ResolvedGaps, resolvedGap.ID)
+	}
+}
+
+func TestKnowledgeServiceDocumentDetailWithRelationsWorksWithoutGapService(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+	document, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-note",
+		Name:    "note.md",
+		Content: "Standalone source text.",
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	detail, err := service.DocumentDetailWithRelations("tenant-1", document.ID, KnowledgeGapService{})
+	if err != nil {
+		t.Fatalf("DocumentDetailWithRelations returned error: %v", err)
+	}
+	if detail.Document.ID != document.ID {
+		t.Fatalf("document id = %q, want %q", detail.Document.ID, document.ID)
+	}
+	if detail.Relations.SourceGap != nil {
+		t.Fatalf("source gap = %#v, want nil", detail.Relations.SourceGap)
+	}
+	if len(detail.Relations.ResolvedGaps) != 0 {
+		t.Fatalf("resolved gaps = %#v, want none", detail.Relations.ResolvedGaps)
+	}
+}
+
 func TestKnowledgeGapServiceLifecycleWithFileStore(t *testing.T) {
 	dir := t.TempDir()
 	service := NewKnowledgeGapService(NewFileKnowledgeGapStore(dir))
