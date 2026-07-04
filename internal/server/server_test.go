@@ -1148,6 +1148,70 @@ func TestHandlerKnowledgeGapEndpoints(t *testing.T) {
 	}
 }
 
+func TestHandlerKnowledgeGapUpdateSupportsInvestigatingAndResolutionNote(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	created, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
+		SpaceID:        "default",
+		Question:       "How do we run smoke tests?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	investigatingResponse := httptest.NewRecorder()
+	handler.ServeHTTP(investigatingResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/gaps/update", strings.NewReader(`{"gap_id":"`+created.ID+`","status":"investigating"}`)))
+	if investigatingResponse.Code != http.StatusOK {
+		t.Fatalf("investigating status = %d, body = %s", investigatingResponse.Code, investigatingResponse.Body.String())
+	}
+	if !strings.Contains(investigatingResponse.Body.String(), `"status":"investigating"`) {
+		t.Fatalf("investigating body = %s", investigatingResponse.Body.String())
+	}
+
+	resolvedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(resolvedResponse, httptest.NewRequest(http.MethodPost, "/admin/knowledge/gaps/update", strings.NewReader(`{"gap_id":"`+created.ID+`","status":"resolved","resolved_by_document_id":"kb-smoke","resolution_note":"Covered by the smoke checklist note."}`)))
+	if resolvedResponse.Code != http.StatusOK {
+		t.Fatalf("resolved status = %d, body = %s", resolvedResponse.Code, resolvedResponse.Body.String())
+	}
+	body := resolvedResponse.Body.String()
+	if !strings.Contains(body, `"resolved_by_document_id":"kb-smoke"`) {
+		t.Fatalf("resolved body = %s", body)
+	}
+	if !strings.Contains(body, `"resolution_note":"Covered by the smoke checklist note."`) {
+		t.Fatalf("resolved body = %s", body)
+	}
+}
+
+func TestHandlerKnowledgeGapUpdateRejectsInvalidWorkflowStatus(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	created, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
+		SpaceID:        "default",
+		Question:       "What is the refund window?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/gaps/update", strings.NewReader(`{"gap_id":"`+created.ID+`","status":"triaged"}`)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `knowledge_gap_update_failed`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
 func TestHandlerKnowledgeGapEndpointsReturnEmptyArrayWhenNoGapsExist(t *testing.T) {
 	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
 	handler := NewHandler(Config{
@@ -1176,6 +1240,106 @@ func TestHandlerKnowledgeGapEndpointsRequireService(t *testing.T) {
 		t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), `knowledge_gap_admin_unavailable`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeNoteCreateStoresWorkbenchMetadata(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	gap, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
+		SpaceID:        "default",
+		Question:       "How do we run smoke tests?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create gap returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeAdmin:    &knowledgeService,
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/notes/create", strings.NewReader(`{"space_id":"default","title":"Smoke script","body":"Use scripts/smoke-conversation.ps1 after boot.","source_gap_id":"`+gap.ID+`"}`)))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"name":"Smoke script.md"`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"source_gap_id":"`+gap.ID+`"`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"source_type":"workbench_note"`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeNoteCreateRejectsEmptyTitleOrBody(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	handler := NewHandler(Config{
+		Metrics:        observability.NewMemoryMetrics(),
+		KnowledgeAdmin: &knowledgeService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/notes/create", strings.NewReader(`{"space_id":"default","title":" ","body":" "}`)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `knowledge_note_create_failed`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeNoteCreateRejectsUnknownSourceGap(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeAdmin:    &knowledgeService,
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/notes/create", strings.NewReader(`{"space_id":"default","title":"Smoke script","body":"Use scripts/smoke-conversation.ps1 after boot.","source_gap_id":"gap-missing"}`)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `knowledge_note_create_failed`) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeNoteCreateRejectsGapFromDifferentSpace(t *testing.T) {
+	knowledgeService := admin.NewKnowledgeService(admin.NewInMemoryKnowledgeStore())
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	gap, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
+		SpaceID:        "ops",
+		Question:       "How do we run smoke tests?",
+		NoSourceReason: "no_matching_chunks",
+	})
+	if err != nil {
+		t.Fatalf("Create gap returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		KnowledgeAdmin:    &knowledgeService,
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/notes/create", strings.NewReader(`{"space_id":"default","title":"Smoke script","body":"Use scripts/smoke-conversation.ps1 after boot.","source_gap_id":"`+gap.ID+`"}`)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `selected knowledge space`) {
 		t.Fatalf("body = %s", response.Body.String())
 	}
 }
@@ -1286,7 +1450,7 @@ func TestHandlerRecordsExperienceStreamAudit(t *testing.T) {
 func TestHandlerExperienceStreamCreatesKnowledgeGapForNoSourceTurn(t *testing.T) {
 	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
 	handler := NewHandler(Config{
-		Metrics:      observability.NewMemoryMetrics(),
+		Metrics: observability.NewMemoryMetrics(),
 		Orchestrator: stubOrchestrator{result: types.AgentResult{
 			AgentName: "persona-agent",
 			Message:   types.Message{Role: types.RoleAssistant, Content: "I do not have support for that."},

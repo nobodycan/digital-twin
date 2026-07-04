@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 15 - Knowledge-Grounded Answer Loop`
+Current stage: `Phase 16 - Knowledge Workbench and Gap Resolution`
 
 What is already working:
 
@@ -22,6 +22,7 @@ What is already working:
 - summary-first Presence panel in `/app` with bounded latest-turn takeaway and trust signals
 - knowledge-space health summaries, document quality detail, retrieval debug, and local knowledge-gap queues in `/admin`
 - deterministic `knowledge_answer_state` metadata for grounded, partially supported, unsupported, provider fallback, guard-rejected, and local-mode turns
+- knowledge workbench actions in `/admin`: investigate gaps, create local note documents, run gap-centered diagnostics, and resolve with evidence
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -77,6 +78,7 @@ flowchart TD
 - `POST /experience/stream`
 - `POST /experience/mock-voice/stream`
 - `POST /admin/knowledge/upload`
+- `POST /admin/knowledge/notes/create`
 - `POST /admin/knowledge/gaps/update`
 - `POST /admin/knowledge/spaces/create`
 - `POST /admin/knowledge/spaces/update`
@@ -164,16 +166,17 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 15 extends the local knowledge loop into an auditable answer loop:
+Phase 16 extends the local knowledge loop into an operator workbench:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
 3. Use the default knowledge space or create a new one.
 4. Upload a mock or text/Markdown knowledge document into the selected space.
 5. Check the selected space health summary and inspect document detail/quality flags.
-6. Run retrieval diagnostics in `auto` or `lexical` mode from `/admin`.
-7. Ask a related or unsupported question in `/app` with the same selected space.
-8. Return to `/admin` and inspect the local knowledge-gap queue.
+6. Ask a related or unsupported question in `/app` with the same selected space.
+7. Return to `/admin` and inspect the local knowledge-gap queue.
+8. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
+9. Resolve the gap with an optional document ID and resolution note once evidence is visible.
 
 When a turn completes, `/app` can now show:
 
@@ -184,7 +187,7 @@ When a turn completes, `/app` can now show:
 - source citation chips
 - `Memory considered` when memory metadata is present
 
-Local verification for Phase 15:
+Local verification for Phase 16:
 
 ```powershell
 go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web

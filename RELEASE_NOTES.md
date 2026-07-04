@@ -1,5 +1,23 @@
 # Release Notes
 
+## Unreleased - Phase 16 Knowledge Workbench and Gap Resolution
+
+### Added
+
+- Added `investigating` as a first-class local knowledge-gap status in `internal/admin`, along with optional `resolution_note` persistence on resolved gaps.
+- Added `POST /admin/knowledge/notes/create` so `/admin` can create local text/Markdown workbench notes through the existing knowledge upload and indexing path.
+- Added knowledge upload metadata support so workbench notes can retain `source_type=workbench_note`, `source_gap_id`, and `created_from=knowledge_workbench`.
+- Added `/admin` workbench interactions for gap investigation, gap-centered retrieval diagnostics, note drafting, and evidence-aware gap resolution.
+
+### Documented
+
+- Added Phase 16 spec, design, and plan docs for the Knowledge Workbench and Gap Resolution loop.
+- README now reflects Phase 16 as the current stage and explains the investigate -> note -> diagnostics -> resolve workflow.
+
+### Notes
+
+- Phase 16 stays local-first and deterministic: note creation is create-only, diagnostics remain read-only, and CI still does not require DeepSeek or any external database.
+
 ## Unreleased - Phase 15 Knowledge-Grounded Answer Loop
 
 ### Added

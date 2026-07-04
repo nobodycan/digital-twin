@@ -561,6 +561,10 @@ input:disabled {
   line-height: 1.5;
 }
 
+#knowledge-gap-queue {
+  white-space: normal;
+}
+
 .knowledge-metric,
 .knowledge-flag {
   display: inline-flex;
@@ -592,22 +596,25 @@ input:disabled {
 }
 
 .knowledge-gap-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
   padding: 8px 0;
   border-top: 1px solid #e2e8e5;
 }
 
 .knowledge-gap-summary {
   flex: 1;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.5;
 }
 
 .knowledge-gap-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .knowledge-gap-row:first-child {

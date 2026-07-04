@@ -142,6 +142,11 @@ func TestAppStylesDefineVisibleAvatarStates(t *testing.T) {
 		"transcript-line-assistant",
 		"transcript-line-pending",
 		"transcript-line-status",
+		"#knowledge-gap-queue",
+		".knowledge-gap-summary",
+		".knowledge-gap-row",
+		"grid-template-columns: 1fr",
+		"min-width: 0",
 	} {
 		if !strings.Contains(styles, want) {
 			t.Fatalf("app.css missing %q", want)
@@ -209,6 +214,7 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		`"/admin/knowledge/health"`,
 		`"/admin/knowledge/gaps"`,
 		`"/admin/knowledge/gaps/update"`,
+		`"/admin/knowledge/notes/create"`,
 		`"/admin/knowledge/"`,
 		`"/admin/knowledge/upload"`,
 		`"/admin/knowledge/disable"`,
@@ -232,6 +238,10 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		"knowledge-health-status",
 		"knowledge-attention-reasons",
 		"knowledge-gap-queue",
+		"knowledge-note-title",
+		"knowledge-note-body",
+		"knowledge-note-create",
+		"knowledge-note-gap-context",
 		"knowledge-debug-results",
 		"knowledge-health-metrics",
 		"knowledge-detail-flags",
@@ -248,6 +258,10 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		"renderKnowledgeFlag",
 		"loadKnowledgeGaps",
 		"renderKnowledgeGapRow",
+		"createKnowledgeNoteFromGap",
+		"runKnowledgeGapDiagnostics",
+		"resolveKnowledgeGap",
+		"knowledgeGapInvestigate",
 		"renderKnowledgeDebugResults",
 		"renderKnowledgeDebugRow",
 		"clearElement",
@@ -255,6 +269,9 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		"renderKnowledgeDiagnostics",
 		"no_source_reason",
 		"index_status",
+		"source_gap_id",
+		"resolution_note",
+		"investigating",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.js missing %q", want)
@@ -269,7 +286,7 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 	}
 	source := string(html)
 	for _, want := range []string{
-		"Local-first controls for Phase 14",
+		"Local-first controls for Phase 16",
 		`id="knowledge-space-select"`,
 		`id="knowledge-space-create"`,
 		`id="knowledge-space-create-button"`,
@@ -287,11 +304,16 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 		`id="knowledge-detail-flags"`,
 		`id="knowledge-debug-results"`,
 		`id="knowledge-gap-queue"`,
+		`id="knowledge-note-title"`,
+		`id="knowledge-note-body"`,
+		`id="knowledge-note-create"`,
+		`id="knowledge-note-gap-context"`,
 		`id="knowledge-status"`,
 		"Chunk preview",
 		"Health summary",
 		"Retrieval debug",
 		"Knowledge gaps",
+		"Knowledge note",
 		"Run diagnostics",
 	} {
 		if !strings.Contains(source, want) {

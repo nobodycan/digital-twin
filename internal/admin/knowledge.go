@@ -32,11 +32,12 @@ const (
 )
 
 type KnowledgeUpload struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Content string   `json:"content"`
-	SpaceID string   `json:"space_id,omitempty"`
-	Tags    []string `json:"tags,omitempty"`
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Content  string            `json:"content"`
+	SpaceID  string            `json:"space_id,omitempty"`
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type KnowledgeSpaceStatus string
@@ -166,6 +167,7 @@ func (s KnowledgeService) Upload(tenantID string, upload KnowledgeUpload) (Knowl
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Tags:        slices.Clone(upload.Tags),
+		Metadata:    cloneStringMap(upload.Metadata),
 	}
 	applyIndexMetadata(&document, now, KnowledgeVectorMissing, "")
 	return s.store.SaveKnowledge(document)
@@ -395,6 +397,17 @@ func validateKnowledgeID(value string) error {
 func hashKnowledgeContent(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func sourceTypeFromName(name string) KnowledgeSourceType {

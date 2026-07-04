@@ -23,6 +23,10 @@ const knowledgeDetailFlags = document.querySelector("#knowledge-detail-flags");
 const knowledgeDetailBody = document.querySelector("#knowledge-detail-body");
 const knowledgeDebugResults = document.querySelector("#knowledge-debug-results");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
+const knowledgeNoteTitle = document.querySelector("#knowledge-note-title");
+const knowledgeNoteBody = document.querySelector("#knowledge-note-body");
+const knowledgeNoteCreate = document.querySelector("#knowledge-note-create");
+const knowledgeNoteGapContext = document.querySelector("#knowledge-note-gap-context");
 const toolKnowledgeSearch = document.querySelector("#tool-knowledge-search");
 const toolSavePolicy = document.querySelector("#tool-save-policy");
 const toolStatus = document.querySelector("#tool-status");
@@ -33,10 +37,13 @@ const knowledgeListPath = "/admin/knowledge";
 const knowledgeHealthPath = "/admin/knowledge/health";
 const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
+const knowledgeNoteCreatePath = "/admin/knowledge/notes/create";
 
 let currentDraftId = "";
 let activeVersionId = "";
 let selectedKnowledgeSpaceId = "default";
+let selectedKnowledgeGapId = "";
+const knowledgeGapDiagnosticsState = new Map();
 
 function setPersonaStatus(text) {
   personaStatus.textContent = text;
@@ -210,22 +217,51 @@ function renderKnowledgeGapRow(gap) {
   row.className = "knowledge-gap-row";
   const summary = document.createElement("div");
   summary.className = "knowledge-gap-summary";
-  summary.textContent = `${gap.status}: ${gap.question} (${gap.no_source_reason})`;
+  const evidence = [];
+  if (gap.resolved_by_document_id) {
+    evidence.push(`document ${gap.resolved_by_document_id}`);
+  }
+  if (gap.resolution_note) {
+    evidence.push(gap.resolution_note);
+  }
+  summary.textContent = `${gap.status}: ${gap.question} (${gap.no_source_reason})${evidence.length > 0 ? ` | ${evidence.join(" | ")}` : ""}`;
   row.append(summary);
 
   const actions = document.createElement("div");
   actions.className = "knowledge-gap-actions";
+
+  if (gap.status === "open") {
+    const investigateButton = document.createElement("button");
+    investigateButton.type = "button";
+    investigateButton.textContent = "Investigate";
+    investigateButton.addEventListener("click", async () => {
+      await knowledgeGapInvestigate(gap);
+    });
+    actions.append(investigateButton);
+  }
+
+  const diagnosticsButton = document.createElement("button");
+  diagnosticsButton.type = "button";
+  diagnosticsButton.textContent = "Run diagnostics";
+  diagnosticsButton.addEventListener("click", async () => {
+    await runKnowledgeGapDiagnostics(gap);
+  });
+  actions.append(diagnosticsButton);
+
+  const createNoteButton = document.createElement("button");
+  createNoteButton.type = "button";
+  createNoteButton.textContent = "Create note";
+  createNoteButton.addEventListener("click", () => {
+    createKnowledgeNoteFromGap(gap);
+  });
+  actions.append(createNoteButton);
 
   if (gap.status !== "resolved") {
     const resolveButton = document.createElement("button");
     resolveButton.type = "button";
     resolveButton.textContent = "Resolve";
     resolveButton.addEventListener("click", async () => {
-      await postJSON(knowledgeGapUpdatePath, {
-        gap_id: gap.id,
-        status: "resolved"
-      });
-      await refreshKnowledgeWorkspace();
+      await resolveKnowledgeGap(gap);
     });
     actions.append(resolveButton);
   }
@@ -263,6 +299,72 @@ async function loadKnowledgeGaps() {
   for (const gap of gaps) {
     knowledgeGapQueue.append(renderKnowledgeGapRow(gap));
   }
+}
+
+function createKnowledgeNoteFromGap(gap) {
+  selectedKnowledgeGapId = gap.id;
+  if (knowledgeNoteGapContext) {
+    knowledgeNoteGapContext.textContent = `Gap ${gap.id}: ${gap.question}`;
+  }
+  if (knowledgeNoteTitle && !knowledgeNoteTitle.value.trim()) {
+    knowledgeNoteTitle.value = gap.question;
+  }
+  if (knowledgeNoteBody && !knowledgeNoteBody.value.trim()) {
+    knowledgeNoteBody.value = `Question: ${gap.question}\n\nAnswer this gap with durable source text.\n\n`;
+  }
+  knowledgeNoteTitle?.focus();
+}
+
+async function knowledgeGapInvestigate(gap) {
+  await postJSON(knowledgeGapUpdatePath, {
+    gap_id: gap.id,
+    status: "investigating"
+  });
+  setKnowledgeStatus(`Investigating gap ${gap.id}`);
+  createKnowledgeNoteFromGap(gap);
+  await refreshKnowledgeWorkspace();
+}
+
+async function runKnowledgeGapDiagnostics(gap) {
+  const diagnostics = await postJSON("/admin/knowledge/retrieval-diagnostics", {
+    query: gap.question,
+    mode: knowledgeQueryMode?.value || "auto",
+    space_id: gap.space_id || selectedKnowledgeSpaceId,
+    limit: 3
+  });
+  knowledgeGapDiagnosticsState.set(gap.id, diagnostics);
+  if (knowledgeQuery) {
+    knowledgeQuery.value = gap.question;
+  }
+  renderKnowledgeDebugResults(diagnostics);
+  if ((diagnostics.explanations || []).length > 0) {
+    setKnowledgeStatus(`Diagnostics found ${(diagnostics.explanations || []).length} ranked chunks for ${gap.id}`);
+  } else if (diagnostics.no_source_reason) {
+    setKnowledgeStatus(`No source for ${gap.id}: ${diagnostics.no_source_reason}`);
+  } else {
+    setKnowledgeStatus(`No ranked chunks for ${gap.id}`);
+  }
+}
+
+async function resolveKnowledgeGap(gap) {
+  const diagnostics = knowledgeGapDiagnosticsState.get(gap.id);
+  const hasEvidence = (diagnostics?.explanations || []).length > 0;
+  if (!hasEvidence) {
+    const proceed = window.confirm("Diagnostics still show no ranked chunks for this gap. Resolve anyway?");
+    if (!proceed) {
+      return;
+    }
+  }
+  const resolvedByDocumentID = window.prompt("Resolved by document ID (optional)", "") || "";
+  const resolutionNote = window.prompt("Resolution note (optional)", "") || "";
+  await postJSON(knowledgeGapUpdatePath, {
+    gap_id: gap.id,
+    status: "resolved",
+    resolved_by_document_id: resolvedByDocumentID.trim(),
+    resolution_note: resolutionNote.trim()
+  });
+  setKnowledgeStatus(`Resolved gap ${gap.id}`);
+  await refreshKnowledgeWorkspace();
 }
 
 async function refreshKnowledgeWorkspace() {
@@ -460,6 +562,41 @@ knowledgeUploadMock?.addEventListener("click", async () => {
     });
     const citation = await postJSON("/admin/knowledge/citation-test", { query: "digital human UI" });
     setKnowledgeStatus(`Uploaded ${uploaded.chunk_count ?? uploaded.chunks.length} chunks; citation ${citation.chunk_id}`);
+    await refreshKnowledgeWorkspace();
+  } catch (error) {
+    setKnowledgeStatus(`Knowledge error: ${error.message}`);
+  }
+});
+
+knowledgeNoteCreate?.addEventListener("click", async () => {
+  const title = (knowledgeNoteTitle?.value || "").trim();
+  const body = (knowledgeNoteBody?.value || "").trim();
+  if (!title) {
+    setKnowledgeStatus("Knowledge error: missing note title");
+    return;
+  }
+  if (!body) {
+    setKnowledgeStatus("Knowledge error: missing note body");
+    return;
+  }
+  try {
+    const created = await postJSON(knowledgeNoteCreatePath, {
+      space_id: selectedKnowledgeSpaceId,
+      title,
+      body,
+      source_gap_id: selectedKnowledgeGapId || undefined
+    });
+    setKnowledgeStatus(`Created note ${created.name}`);
+    if (knowledgeNoteTitle) {
+      knowledgeNoteTitle.value = "";
+    }
+    if (knowledgeNoteBody) {
+      knowledgeNoteBody.value = "";
+    }
+    selectedKnowledgeGapId = "";
+    if (knowledgeNoteGapContext) {
+      knowledgeNoteGapContext.textContent = "No gap selected";
+    }
     await refreshKnowledgeWorkspace();
   } catch (error) {
     setKnowledgeStatus(`Knowledge error: ${error.message}`);

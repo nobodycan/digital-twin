@@ -65,6 +65,33 @@ func TestKnowledgeServiceUploadsChunksAndRunsCitationTest(t *testing.T) {
 	}
 }
 
+func TestKnowledgeServiceUploadPreservesWorkbenchMetadata(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	doc, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-note",
+		Name:    "deployment-note.md",
+		Content: "Use the smoke conversation script after boot.",
+		Metadata: map[string]string{
+			"source_type":   "workbench_note",
+			"source_gap_id": "gap-123",
+			"created_from":  "knowledge_workbench",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	if doc.Metadata["source_type"] != "workbench_note" {
+		t.Fatalf("source_type = %q, want workbench_note", doc.Metadata["source_type"])
+	}
+	if doc.Metadata["source_gap_id"] != "gap-123" {
+		t.Fatalf("source_gap_id = %q, want gap-123", doc.Metadata["source_gap_id"])
+	}
+	if doc.Metadata["created_from"] != "knowledge_workbench" {
+		t.Fatalf("created_from = %q, want knowledge_workbench", doc.Metadata["created_from"])
+	}
+}
+
 func TestKnowledgeServiceRejectsEmptyUpload(t *testing.T) {
 	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
 

@@ -10,7 +10,7 @@
     <main class="admin-shell">
       <header class="surface-header">
         <h1>Operations Console</h1>
-        <p class="status-line">Local-first controls for Phase 14</p>
+        <p class="status-line">Local-first controls for Phase 16</p>
       </header>
 
       <section id="persona-admin" class="admin-section" aria-label="Persona editor">
@@ -67,6 +67,13 @@
         </section>
         <section id="knowledge-debug-results" aria-label="Retrieval debug results">Retrieval debug</section>
         <section id="knowledge-gap-queue" aria-label="Knowledge gaps">Knowledge gaps</section>
+        <section id="knowledge-note" aria-label="Knowledge note">
+          <strong>Knowledge note</strong>
+          <div id="knowledge-note-gap-context">No gap selected</div>
+          <input id="knowledge-note-title" type="text" placeholder="Note title">
+          <textarea id="knowledge-note-body" rows="6" placeholder="Write the note that should resolve this gap"></textarea>
+          <button id="knowledge-note-create" type="button">Create note</button>
+        </section>
       </section>
 
       <section id="tool-admin" class="admin-section" aria-label="Tool permissions">
