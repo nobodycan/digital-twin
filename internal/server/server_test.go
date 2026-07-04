@@ -1431,6 +1431,17 @@ func TestHandlerKnowledgeListSupportsPhase17Filters(t *testing.T) {
 	if strings.Contains(importBody, `"id":"kb-note"`) || strings.Contains(importBody, `"id":"kb-runbook"`) {
 		t.Fatalf("import filter body = %s, want only imported documents", importBody)
 	}
+
+	reviewFilterRequest := httptest.NewRequest(http.MethodGet, "/admin/knowledge?space_id=default&review_status=pending_review", nil)
+	reviewFilterResponse := httptest.NewRecorder()
+	handler.ServeHTTP(reviewFilterResponse, reviewFilterRequest)
+
+	if reviewFilterResponse.Code != http.StatusOK {
+		t.Fatalf("review filter code = %d, body = %s", reviewFilterResponse.Code, reviewFilterResponse.Body.String())
+	}
+	if !strings.Contains(reviewFilterResponse.Body.String(), `"review_status":"pending_review"`) {
+		t.Fatalf("review filter body = %s, want pending_review document", reviewFilterResponse.Body.String())
+	}
 }
 
 func TestHandlerKnowledgeImportRoutesCreateAndListPhase18Jobs(t *testing.T) {
@@ -1493,6 +1504,72 @@ func TestHandlerKnowledgeImportRouteReturnsJobContextOnValidationFailure(t *test
 	}
 	if !strings.Contains(body, `"failed_sources":[{"name":"phase18.pdf","reason":"unsupported_extension"}]`) {
 		t.Fatalf("body = %s, want failed source detail", body)
+	}
+}
+
+func TestHandlerKnowledgeReviewRouteUpdatesDocumentStatus(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	importService := admin.NewKnowledgeImportService(knowledgeStore, knowledgeService)
+	handler := NewHandler(Config{
+		Metrics:              observability.NewMemoryMetrics(),
+		DefaultTenantID:      "default",
+		KnowledgeAdmin:       &knowledgeService,
+		KnowledgeImportAdmin: &importService,
+	})
+
+	importJob, err := importService.Import("default", admin.KnowledgeImportRequest{
+		SpaceID:    "default",
+		SourceType: admin.KnowledgeImportSourceLocalTextFile,
+		Sources: []admin.KnowledgeImportSource{{
+			Name:    "phase19.md",
+			Content: "Pending review content.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Import returned error: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/review", strings.NewReader(`{"document_id":"`+importJob.ImportedDocumentIDs[0]+`","review_status":"active","reason":"Reviewed for activation.","reviewed_by":"operator"}`)))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"review_status":"active"`, `"review_reason":"Reviewed for activation."`, `"reviewed_by":"operator"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestHandlerKnowledgeReviewRouteRejectsInvalidStatus(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	handler := NewHandler(Config{
+		Metrics:         observability.NewMemoryMetrics(),
+		DefaultTenantID: "default",
+		KnowledgeAdmin:  &knowledgeService,
+	})
+
+	document, err := knowledgeService.Upload("default", admin.KnowledgeUpload{
+		ID:      "kb-review-route",
+		Name:    "review-route.md",
+		Content: "Route validation content.",
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/review", strings.NewReader(`{"document_id":"`+document.ID+`","review_status":"mystery"}`)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"error":"knowledge_review_failed"`) {
+		t.Fatalf("body = %s, want knowledge_review_failed", response.Body.String())
 	}
 }
 

@@ -25,26 +25,26 @@ import (
 )
 
 type Config struct {
-	Metrics             observability.Metrics
-	Orchestrator        core.Orchestrator
-	EventRecorder       *runtime.EventRecorder
-	PresentationAdapter presentation.Adapter
-	ASR                 voice.ASRClient
-	Readiness           ReadinessConfig
-	RuntimeStatus       RuntimeStatus
-	PersonaAdmin        *admin.PersonaService
-	MemoryAdmin         *admin.MemoryService
-	KnowledgeAdmin      *admin.KnowledgeService
+	Metrics              observability.Metrics
+	Orchestrator         core.Orchestrator
+	EventRecorder        *runtime.EventRecorder
+	PresentationAdapter  presentation.Adapter
+	ASR                  voice.ASRClient
+	Readiness            ReadinessConfig
+	RuntimeStatus        RuntimeStatus
+	PersonaAdmin         *admin.PersonaService
+	MemoryAdmin          *admin.MemoryService
+	KnowledgeAdmin       *admin.KnowledgeService
 	KnowledgeImportAdmin *admin.KnowledgeImportService
-	KnowledgeGapAdmin   *admin.KnowledgeGapService
-	KnowledgeRetriever  *knowledge.Service
-	ToolPolicyAdmin     *admin.ToolPolicyService
-	AuditAdmin          *admin.AuditService
-	StaticDir           string
-	APIKeys             []string
-	RateLimitRequests   int
-	DefaultTenantID     string
-	DefaultUserID       string
+	KnowledgeGapAdmin    *admin.KnowledgeGapService
+	KnowledgeRetriever   *knowledge.Service
+	ToolPolicyAdmin      *admin.ToolPolicyService
+	AuditAdmin           *admin.AuditService
+	StaticDir            string
+	APIKeys              []string
+	RateLimitRequests    int
+	DefaultTenantID      string
+	DefaultUserID        string
 }
 
 type ReadinessConfig struct {
@@ -65,29 +65,29 @@ type RuntimeStatus struct {
 }
 
 type Handler struct {
-	mux                 *http.ServeMux
-	metrics             observability.Metrics
-	orchestrator        core.Orchestrator
-	eventRecorder       *runtime.EventRecorder
-	presentationAdapter presentation.Adapter
-	asr                 voice.ASRClient
-	readiness           ReadinessConfig
-	runtimeStatus       RuntimeStatus
-	personaAdmin        *admin.PersonaService
-	memoryAdmin         *admin.MemoryService
-	knowledgeAdmin      *admin.KnowledgeService
+	mux                  *http.ServeMux
+	metrics              observability.Metrics
+	orchestrator         core.Orchestrator
+	eventRecorder        *runtime.EventRecorder
+	presentationAdapter  presentation.Adapter
+	asr                  voice.ASRClient
+	readiness            ReadinessConfig
+	runtimeStatus        RuntimeStatus
+	personaAdmin         *admin.PersonaService
+	memoryAdmin          *admin.MemoryService
+	knowledgeAdmin       *admin.KnowledgeService
 	knowledgeImportAdmin *admin.KnowledgeImportService
-	knowledgeGapAdmin   *admin.KnowledgeGapService
-	knowledgeRetriever  *knowledge.Service
-	toolPolicyAdmin     *admin.ToolPolicyService
-	auditAdmin          *admin.AuditService
-	staticDir           string
-	apiKeys             map[string]struct{}
-	rateLimitRequests   int
-	defaultTenantID     string
-	defaultUserID       string
-	mu                  sync.Mutex
-	requestCounts       map[string]int
+	knowledgeGapAdmin    *admin.KnowledgeGapService
+	knowledgeRetriever   *knowledge.Service
+	toolPolicyAdmin      *admin.ToolPolicyService
+	auditAdmin           *admin.AuditService
+	staticDir            string
+	apiKeys              map[string]struct{}
+	rateLimitRequests    int
+	defaultTenantID      string
+	defaultUserID        string
+	mu                   sync.Mutex
+	requestCounts        map[string]int
 }
 
 func NewHandler(config Config) http.Handler {
@@ -96,28 +96,28 @@ func NewHandler(config Config) http.Handler {
 		metrics = observability.NewMemoryMetrics()
 	}
 	handler := &Handler{
-		mux:                 http.NewServeMux(),
-		metrics:             metrics,
-		orchestrator:        config.Orchestrator,
-		eventRecorder:       config.EventRecorder,
-		presentationAdapter: config.PresentationAdapter,
-		asr:                 config.ASR,
-		readiness:           config.Readiness,
-		runtimeStatus:       config.RuntimeStatus,
-		personaAdmin:        config.PersonaAdmin,
-		memoryAdmin:         config.MemoryAdmin,
-		knowledgeAdmin:      config.KnowledgeAdmin,
+		mux:                  http.NewServeMux(),
+		metrics:              metrics,
+		orchestrator:         config.Orchestrator,
+		eventRecorder:        config.EventRecorder,
+		presentationAdapter:  config.PresentationAdapter,
+		asr:                  config.ASR,
+		readiness:            config.Readiness,
+		runtimeStatus:        config.RuntimeStatus,
+		personaAdmin:         config.PersonaAdmin,
+		memoryAdmin:          config.MemoryAdmin,
+		knowledgeAdmin:       config.KnowledgeAdmin,
 		knowledgeImportAdmin: config.KnowledgeImportAdmin,
-		knowledgeGapAdmin:   config.KnowledgeGapAdmin,
-		knowledgeRetriever:  config.KnowledgeRetriever,
-		toolPolicyAdmin:     config.ToolPolicyAdmin,
-		auditAdmin:          config.AuditAdmin,
-		staticDir:           config.StaticDir,
-		apiKeys:             apiKeySet(config.APIKeys),
-		rateLimitRequests:   config.RateLimitRequests,
-		defaultTenantID:     strings.TrimSpace(config.DefaultTenantID),
-		defaultUserID:       strings.TrimSpace(config.DefaultUserID),
-		requestCounts:       make(map[string]int),
+		knowledgeGapAdmin:    config.KnowledgeGapAdmin,
+		knowledgeRetriever:   config.KnowledgeRetriever,
+		toolPolicyAdmin:      config.ToolPolicyAdmin,
+		auditAdmin:           config.AuditAdmin,
+		staticDir:            config.StaticDir,
+		apiKeys:              apiKeySet(config.APIKeys),
+		rateLimitRequests:    config.RateLimitRequests,
+		defaultTenantID:      strings.TrimSpace(config.DefaultTenantID),
+		defaultUserID:        strings.TrimSpace(config.DefaultUserID),
+		requestCounts:        make(map[string]int),
 	}
 	handler.mux.HandleFunc("GET /health", handler.handleHealth)
 	handler.mux.HandleFunc("GET /ready", handler.handleReady)
@@ -153,6 +153,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}/detail", handler.handleKnowledgeDetail)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
 	handler.mux.HandleFunc("POST /admin/knowledge/import", handler.handleKnowledgeImport)
+	handler.mux.HandleFunc("POST /admin/knowledge/review", handler.handleKnowledgeReview)
 	handler.mux.HandleFunc("POST /admin/knowledge/notes/create", handler.handleKnowledgeNoteCreate)
 	handler.mux.HandleFunc("POST /admin/knowledge/disable", handler.handleKnowledgeDisable)
 	handler.mux.HandleFunc("POST /admin/knowledge/enable", handler.handleKnowledgeEnable)
@@ -547,16 +548,23 @@ type knowledgeDiagnosticsRequest struct {
 }
 
 type knowledgeImportRequest struct {
-	SpaceID     string                    `json:"space_id,omitempty"`
+	SpaceID     string                          `json:"space_id,omitempty"`
 	SourceType  admin.KnowledgeImportSourceType `json:"source_type"`
-	SourceLabel string                    `json:"source_label,omitempty"`
-	Sources     []admin.KnowledgeImportSource `json:"sources"`
+	SourceLabel string                          `json:"source_label,omitempty"`
+	Sources     []admin.KnowledgeImportSource   `json:"sources"`
 }
 
 type knowledgeDocumentRequest struct {
 	DocumentID string `json:"document_id"`
 	Content    string `json:"content,omitempty"`
 	SpaceID    string `json:"space_id,omitempty"`
+}
+
+type knowledgeReviewRequest struct {
+	DocumentID   string                      `json:"document_id"`
+	ReviewStatus admin.KnowledgeReviewStatus `json:"review_status"`
+	Reason       string                      `json:"reason,omitempty"`
+	ReviewedBy   string                      `json:"reviewed_by,omitempty"`
 }
 
 type knowledgeUpdateRequest struct {
@@ -582,17 +590,19 @@ func (h *Handler) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 	spaceID := strings.TrimSpace(r.URL.Query().Get("space_id"))
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	status := admin.KnowledgeStatus(strings.TrimSpace(r.URL.Query().Get("status")))
+	reviewStatus := admin.KnowledgeReviewStatus(strings.TrimSpace(r.URL.Query().Get("review_status")))
 	sourceType := strings.TrimSpace(r.URL.Query().Get("source_type"))
 	gapLinked := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("gap_linked")), "true")
 	var (
 		documents []admin.KnowledgeDocument
 		err       error
 	)
-	if query != "" || status != "" || sourceType != "" || gapLinked {
+	if query != "" || status != "" || reviewStatus != "" || sourceType != "" || gapLinked {
 		documents, err = h.knowledgeAdmin.ListFiltered(h.adminTenantID(), admin.KnowledgeDocumentFilter{
 			SpaceID:       spaceID,
 			Query:         query,
 			Status:        status,
+			ReviewStatus:  reviewStatus,
 			SourceType:    sourceType,
 			GapLinkedOnly: gapLinked,
 		})
@@ -642,6 +652,29 @@ func (h *Handler) handleKnowledgeImport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (h *Handler) handleKnowledgeReview(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_admin_unavailable"})
+		return
+	}
+	var request knowledgeReviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	document, err := h.knowledgeAdmin.Review(h.adminTenantID(), admin.KnowledgeReviewUpdate{
+		DocumentID:   request.DocumentID,
+		ReviewStatus: request.ReviewStatus,
+		Reason:       request.Reason,
+		ReviewedBy:   request.ReviewedBy,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_review_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
 }
 
 func (h *Handler) handleKnowledgeGet(w http.ResponseWriter, r *http.Request) {

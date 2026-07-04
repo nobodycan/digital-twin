@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 18 - Knowledge Source Ingestion`
+Current stage: `Phase 19 - Knowledge Review and Activation`
 
 What is already working:
 
@@ -26,6 +26,7 @@ What is already working:
 - knowledge curation controls in `/admin`: filter documents by space, source type, status, gap linkage, and free-text query
 - knowledge document detail with source-gap and resolved-gap relationships, plus in-place local editing for curated notes and uploaded text content
 - local-first knowledge import jobs for text/Markdown files and pasted URL snapshots, with deterministic dedupe and import history
+- knowledge review and activation controls: imported sources default to pending review, `/admin` exposes a review queue, and only review-active documents participate in normal retrieval
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -84,6 +85,7 @@ flowchart TD
 - `POST /admin/knowledge/upload`
 - `POST /admin/knowledge/notes/create`
 - `POST /admin/knowledge/import`
+- `POST /admin/knowledge/review`
 - `POST /admin/knowledge/update`
 - `POST /admin/knowledge/gaps/update`
 - `POST /admin/knowledge/spaces/create`
@@ -172,21 +174,22 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 18 extends the local knowledge loop into a source-ingestion workspace:
+Phase 19 extends the local knowledge loop into a governed source-activation workspace:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
 3. Use the default knowledge space or create a new one.
 4. Use `Knowledge import` to ingest either local `.txt` / `.md` files or a pasted URL text snapshot into the selected space.
 5. Check `Recent imports` to see imported, skipped, and failed sources for each job.
-6. Inspect an imported document directly from the import history.
-7. Filter the document table by source type, status, free-text query, or whether a document is linked to a knowledge gap.
-8. Inspect document detail to see quality flags, source metadata, and source/resolution relationships.
-9. Edit a local document title, source label, or content in place when curation is needed.
-10. Ask a related or unsupported question in `/app` with the same selected space.
-11. Return to `/admin` and inspect the local knowledge-gap queue.
-12. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
-13. Resolve the gap with an optional document ID and resolution note once evidence is visible.
+6. Use `Review queue` to inspect newly imported pending sources before activation.
+7. Approve, reject, archive, or reactivate a source from document detail.
+8. Filter the document table by source type, lifecycle status, review status, free-text query, or whether a document is linked to a knowledge gap.
+9. Inspect document detail to see quality flags, source metadata, review state, and source/resolution relationships.
+10. Edit a local document title, source label, or content in place when curation is needed.
+11. Ask a related or unsupported question in `/app` with the same selected space.
+12. Return to `/admin` and inspect the local knowledge-gap queue.
+13. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
+14. Resolve the gap with an optional document ID and resolution note once evidence is visible.
 
 When a turn completes, `/app` can now show:
 
@@ -197,7 +200,7 @@ When a turn completes, `/app` can now show:
 - source citation chips
 - `Memory considered` when memory metadata is present
 
-Local verification for Phase 18:
+Local verification for Phase 19:
 
 ```powershell
 go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web
@@ -211,6 +214,14 @@ The retrieval pipeline is still local-first:
 - vector retrieval is optional
 - CI does not require DeepSeek, embeddings, or an external vector database
 - `internal/knowledge/testdata` contains deterministic RAG eval fixtures
+
+## Phase 19 highlights
+
+Phase 19 focuses on adding a trust gate between import and retrieval:
+
+- imported knowledge now defaults to `pending_review` instead of becoming active immediately
+- `/admin` exposes a compact review queue plus approve, reject, archive, and reactivate actions
+- retrieval excludes non-active review states and returns explicit review-gated no-source reasons
 
 ## Phase 18 highlights
 

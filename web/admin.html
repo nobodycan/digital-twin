@@ -65,6 +65,7 @@
             <button id="knowledge-upload-mock" type="button">Upload mock</button>
           </div>
           <section id="knowledge-import-jobs" aria-label="Recent imports">Recent imports</section>
+          <section id="knowledge-review-queue" aria-label="Review queue">Review queue</section>
         </section>
         <section id="knowledge-filters" aria-label="Knowledge filters">
           <strong>Knowledge filters</strong>
@@ -76,6 +77,15 @@
               <option value="disabled">Disabled</option>
               <option value="failed">Failed</option>
             </select>
+            <span id="knowledge-review-filter">
+              <select id="knowledge-filter-review-status" aria-label="Review status filter">
+                <option value="">All review states</option>
+                <option value="active">Active</option>
+                <option value="pending_review">Pending review</option>
+                <option value="rejected">Rejected</option>
+                <option value="archived">Archived</option>
+              </select>
+            </span>
             <select id="knowledge-filter-source-type" aria-label="Document source filter">
               <option value="">All sources</option>
               <option value="workbench_note">Workbench note</option>
@@ -108,6 +118,7 @@
           <strong id="knowledge-detail-title">Document detail</strong>
           <div id="knowledge-detail-meta">No document selected</div>
           <div id="knowledge-detail-flags" class="knowledge-detail-flags"></div>
+          <div id="knowledge-review-actions" class="action-row"></div>
           <section id="knowledge-detail-relations" aria-label="Source relationships">Source relationships</section>
           <div class="action-row">
             <button id="knowledge-edit-toggle" type="button">Edit document</button>

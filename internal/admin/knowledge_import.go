@@ -30,7 +30,7 @@ const (
 )
 
 const (
-	KnowledgeImportSkipDuplicateContent    = "duplicate_content"
+	KnowledgeImportSkipDuplicateContent       = "duplicate_content"
 	KnowledgeImportWarningInstructionLikeText = "instruction_like_text"
 )
 
@@ -162,11 +162,12 @@ func (s KnowledgeImportService) Import(tenantID string, request KnowledgeImportR
 			metadata["source_warning"] = warning
 		}
 		document, err := s.knowledge.Upload(tenantID, KnowledgeUpload{
-			ID:       documentID,
-			Name:     normalized.Name,
-			Content:  normalized.Content,
-			SpaceID:  space.ID,
-			Metadata: metadata,
+			ID:           documentID,
+			Name:         normalized.Name,
+			Content:      normalized.Content,
+			SpaceID:      space.ID,
+			Metadata:     metadata,
+			ReviewStatus: KnowledgeReviewPending,
 		})
 		if err != nil {
 			job.FailedSources = append(job.FailedSources, KnowledgeImportFailedSource{

@@ -92,6 +92,118 @@ func TestKnowledgeServiceUploadPreservesWorkbenchMetadata(t *testing.T) {
 	}
 }
 
+func TestKnowledgeServiceUploadDefaultsReviewStatusToActive(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 4, 9, 30, 0, 0, time.UTC)
+	}
+
+	doc, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-review-default",
+		Name:    "review-default.md",
+		Content: "Operator-authored knowledge stays active.",
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	if doc.ReviewStatus != KnowledgeReviewActive {
+		t.Fatalf("review status = %q, want %q", doc.ReviewStatus, KnowledgeReviewActive)
+	}
+	if doc.ActivatedAt == nil || !doc.ActivatedAt.Equal(doc.CreatedAt) {
+		t.Fatalf("activated_at = %v, want created_at %v", doc.ActivatedAt, doc.CreatedAt)
+	}
+	if effectiveKnowledgeReviewStatus(doc) != KnowledgeReviewActive {
+		t.Fatalf("effective review status = %q, want %q", effectiveKnowledgeReviewStatus(doc), KnowledgeReviewActive)
+	}
+}
+
+func TestKnowledgeServiceReviewUpdatesStatusAndReason(t *testing.T) {
+	store := NewInMemoryKnowledgeStore()
+	service := NewKnowledgeService(store)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
+	}
+
+	doc, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-review-transition",
+		Name:    "review-transition.md",
+		Content: "Imported content waiting for review.",
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	doc.ReviewStatus = KnowledgeReviewPending
+	doc.ReviewReason = ""
+	doc.ReviewedBy = ""
+	doc.ReviewedAt = nil
+	doc.ActivatedAt = nil
+	if _, err := store.SaveKnowledge(doc); err != nil {
+		t.Fatalf("SaveKnowledge returned error: %v", err)
+	}
+
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 4, 11, 0, 0, 0, time.UTC)
+	}
+	reviewed, err := service.Review("tenant-1", KnowledgeReviewUpdate{
+		DocumentID:   doc.ID,
+		ReviewStatus: KnowledgeReviewRejected,
+		Reason:       "Source conflicts with the approved policy.",
+		ReviewedBy:   "operator",
+	})
+	if err != nil {
+		t.Fatalf("Review returned error: %v", err)
+	}
+	if reviewed.ReviewStatus != KnowledgeReviewRejected {
+		t.Fatalf("review status = %q, want %q", reviewed.ReviewStatus, KnowledgeReviewRejected)
+	}
+	if reviewed.ReviewReason != "Source conflicts with the approved policy." {
+		t.Fatalf("review reason = %q", reviewed.ReviewReason)
+	}
+	if reviewed.ReviewedBy != "operator" {
+		t.Fatalf("reviewed_by = %q, want operator", reviewed.ReviewedBy)
+	}
+	if reviewed.ReviewedAt == nil || reviewed.ReviewedAt.IsZero() {
+		t.Fatalf("reviewed_at should be set")
+	}
+	if reviewed.ActivatedAt != nil {
+		t.Fatalf("activated_at = %v, want nil for rejected document", reviewed.ActivatedAt)
+	}
+}
+
+func TestKnowledgeServiceReviewRejectsInvalidStatus(t *testing.T) {
+	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
+
+	doc, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-review-invalid",
+		Name:    "review-invalid.md",
+		Content: "Test content.",
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	if _, err := service.Review("tenant-1", KnowledgeReviewUpdate{
+		DocumentID:   doc.ID,
+		ReviewStatus: "mystery",
+	}); err == nil {
+		t.Fatalf("expected invalid review status to be rejected")
+	}
+}
+
+func TestEffectiveKnowledgeReviewStatusTreatsInvalidStoredValueAsPending(t *testing.T) {
+	document := KnowledgeDocument{
+		ID:           "kb-invalid-review-state",
+		TenantID:     "tenant-1",
+		Name:         "invalid.md",
+		Status:       KnowledgeReady,
+		ReviewStatus: "mystery",
+	}
+
+	if got := effectiveKnowledgeReviewStatus(document); got != KnowledgeReviewPending {
+		t.Fatalf("effective review status = %q, want %q", got, KnowledgeReviewPending)
+	}
+}
+
 func TestKnowledgeServiceRejectsEmptyUpload(t *testing.T) {
 	service := NewKnowledgeService(NewInMemoryKnowledgeStore())
 
@@ -144,6 +256,39 @@ func TestFileKnowledgeStorePersistsDocuments(t *testing.T) {
 	}
 	if citation.DocumentID != "kb-1" {
 		t.Fatalf("citation document = %q, want kb-1", citation.DocumentID)
+	}
+}
+
+func TestFileKnowledgeStoreTreatsLegacyDocumentsAsReviewActive(t *testing.T) {
+	dir := t.TempDir()
+	legacyDocument := []byte(`[
+  {
+    "id":"kb-legacy",
+    "tenant_id":"tenant-1",
+    "name":"legacy.md",
+    "source_type":"markdown",
+    "status":"ready",
+    "content_hash":"abc123",
+    "chunk_count":1,
+    "chunks":[{"id":"kb-legacy:chunk-0001","document_id":"kb-legacy","ordinal":1,"text":"Legacy content."}],
+    "created_at":"2026-07-04T09:00:00Z",
+    "updated_at":"2026-07-04T09:00:00Z"
+  }
+]`)
+	if err := os.WriteFile(filepath.Join(dir, "knowledge.json"), legacyDocument, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	service := NewKnowledgeService(NewFileKnowledgeStore(dir))
+	document, err := service.Get("tenant-1", "kb-legacy")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if document.ReviewStatus != KnowledgeReviewActive {
+		t.Fatalf("review status = %q, want %q", document.ReviewStatus, KnowledgeReviewActive)
+	}
+	if document.ActivatedAt == nil {
+		t.Fatalf("activated_at should be derived for legacy document")
 	}
 }
 
