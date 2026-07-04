@@ -95,21 +95,28 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 	}
 
 	readyDocuments := readyKnowledgeDocuments(documents)
+	gatedDocuments := reviewGatedKnowledgeDocuments(readyDocuments)
+	retrievableDocuments := reviewActiveKnowledgeDocuments(readyDocuments)
 	if request.SpaceID != "" {
-		readyDocuments = filterKnowledgeDocumentsBySpace(readyDocuments, request.SpaceID)
+		retrievableDocuments = filterKnowledgeDocumentsBySpace(retrievableDocuments, request.SpaceID)
 	}
 	if len(readyDocuments) == 0 {
 		response.NoSourceReason = "no_ready_documents"
 		return response
 	}
+	if len(retrievableDocuments) == 0 {
+		response.NoSourceReason = "no_review_active_documents"
+		response.StagesSkipped = append(response.StagesSkipped, "review_gated_documents")
+		return response
+	}
 
 	candidates := make(map[string]*Explanation)
-	documentIndex := indexDocuments(readyDocuments)
+	documentIndex := indexDocuments(retrievableDocuments)
 
 	shouldRunLexical := mode == RetrievalModeLexical || mode == RetrievalModeHybrid || mode == RetrievalModeAuto
 	if shouldRunLexical {
 		response.StagesRun = append(response.StagesRun, "lexical")
-		lexicalResults := p.lexical.Search(readyDocuments, query, limit)
+		lexicalResults := p.lexical.Search(retrievableDocuments, query, limit)
 		queryTokens := tokenize(strings.ToLower(query))
 		for _, result := range lexicalResults {
 			candidate := ensureCandidate(candidates, documentIndex, result.ChunkID)
@@ -128,7 +135,7 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 			response.StagesSkipped = append(response.StagesSkipped, "vector_unavailable")
 			markIndexStatus(candidates, "vector_missing")
 		default:
-			vectorResults, err := p.vector.Search(ctx, readyDocuments, query, limit)
+			vectorResults, err := p.vector.Search(ctx, retrievableDocuments, query, limit)
 			if err != nil {
 				response.StagesSkipped = append(response.StagesSkipped, "vector_failed")
 				markIndexStatus(candidates, "vector_failed")
@@ -173,6 +180,11 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 		}
 	}
 	if len(explanations) == 0 {
+		if hasReviewGatedMatch(p.lexical, gatedDocuments, query) {
+			response.NoSourceReason = "review_gated_documents"
+			response.StagesSkipped = append(response.StagesSkipped, "review_gated_documents")
+			return response
+		}
 		if mode == RetrievalModeVector && len(response.StagesSkipped) > 0 && response.StagesSkipped[0] == "vector_unavailable" {
 			response.NoSourceReason = "vector_unavailable"
 			return response
@@ -215,6 +227,26 @@ func readyKnowledgeDocuments(documents []admin.KnowledgeDocument) []admin.Knowle
 	return ready
 }
 
+func reviewActiveKnowledgeDocuments(documents []admin.KnowledgeDocument) []admin.KnowledgeDocument {
+	active := make([]admin.KnowledgeDocument, 0, len(documents))
+	for _, document := range documents {
+		if document.ReviewStatus == "" || document.ReviewStatus == admin.KnowledgeReviewActive {
+			active = append(active, document)
+		}
+	}
+	return active
+}
+
+func reviewGatedKnowledgeDocuments(documents []admin.KnowledgeDocument) []admin.KnowledgeDocument {
+	gated := make([]admin.KnowledgeDocument, 0, len(documents))
+	for _, document := range documents {
+		if document.ReviewStatus != "" && document.ReviewStatus != admin.KnowledgeReviewActive {
+			gated = append(gated, document)
+		}
+	}
+	return gated
+}
+
 func filterKnowledgeDocumentsBySpace(documents []admin.KnowledgeDocument, spaceID string) []admin.KnowledgeDocument {
 	filtered := make([]admin.KnowledgeDocument, 0, len(documents))
 	for _, document := range documents {
@@ -254,6 +286,14 @@ func ensureCandidate(candidates map[string]*Explanation, index map[string]admin.
 	}
 	candidates[chunkID] = candidate
 	return candidate
+}
+
+func hasReviewGatedMatch(retriever Retriever, documents []admin.KnowledgeDocument, query string) bool {
+	if len(documents) == 0 {
+		return false
+	}
+	results := retriever.Search(documents, query, 1)
+	return len(results) > 0
 }
 
 func explanationIndexStatus(vectorStatus string) string {

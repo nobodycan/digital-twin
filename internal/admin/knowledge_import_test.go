@@ -55,6 +55,12 @@ func TestKnowledgeImportServiceImportsLocalMarkdownAndURLSnapshot(t *testing.T) 
 	if localDocument.Metadata["source_uri"] != "runbook.md" {
 		t.Fatalf("source_uri = %q, want runbook.md", localDocument.Metadata["source_uri"])
 	}
+	if localDocument.ReviewStatus != KnowledgeReviewPending {
+		t.Fatalf("local review status = %q, want %q", localDocument.ReviewStatus, KnowledgeReviewPending)
+	}
+	if localDocument.ActivatedAt != nil {
+		t.Fatalf("local activated_at = %v, want nil while pending review", localDocument.ActivatedAt)
+	}
 
 	importService.now = func() time.Time {
 		return time.Date(2026, 7, 4, 11, 5, 0, 0, time.UTC)
@@ -89,6 +95,9 @@ func TestKnowledgeImportServiceImportsLocalMarkdownAndURLSnapshot(t *testing.T) 
 	if urlDocument.Metadata["source_warning"] != KnowledgeImportWarningInstructionLikeText {
 		t.Fatalf("source_warning = %q, want %q", urlDocument.Metadata["source_warning"], KnowledgeImportWarningInstructionLikeText)
 	}
+	if urlDocument.ReviewStatus != KnowledgeReviewPending {
+		t.Fatalf("url review status = %q, want %q", urlDocument.ReviewStatus, KnowledgeReviewPending)
+	}
 }
 
 func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *testing.T) {
@@ -98,9 +107,9 @@ func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *t
 	importService.maxSourceBytes = 16
 
 	for _, testCase := range []struct {
-		name    string
-		request KnowledgeImportRequest
-		wantErr string
+		name     string
+		request  KnowledgeImportRequest
+		wantErr  string
 		wantCode string
 	}{
 		{
@@ -109,7 +118,7 @@ func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *t
 				SourceType: "pdf",
 				Sources:    []KnowledgeImportSource{{Name: "guide.pdf", Content: "content"}},
 			},
-			wantErr: "unsupported source type",
+			wantErr:  "unsupported source type",
 			wantCode: "unsupported_source_type",
 		},
 		{
@@ -118,7 +127,7 @@ func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *t
 				SourceType: KnowledgeImportSourceLocalTextFile,
 				Sources:    []KnowledgeImportSource{{Name: "guide.pdf", Content: "content"}},
 			},
-			wantErr: "unsupported source extension",
+			wantErr:  "unsupported source extension",
 			wantCode: "unsupported_extension",
 		},
 		{
@@ -127,7 +136,7 @@ func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *t
 				SourceType: KnowledgeImportSourceURLTextSnapshot,
 				Sources:    []KnowledgeImportSource{{URI: "file:///etc/passwd", Content: "content"}},
 			},
-			wantErr: "invalid source url",
+			wantErr:  "invalid source url",
 			wantCode: "invalid_url",
 		},
 		{
@@ -136,7 +145,7 @@ func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *t
 				SourceType: KnowledgeImportSourceLocalTextFile,
 				Sources:    []KnowledgeImportSource{{Name: "empty.md", Content: "   "}},
 			},
-			wantErr: "knowledge import source content is required",
+			wantErr:  "knowledge import source content is required",
 			wantCode: "empty_source_content",
 		},
 		{
@@ -145,7 +154,7 @@ func TestKnowledgeImportServiceRejectsUnsupportedSourcesAndOversizedContent(t *t
 				SourceType: KnowledgeImportSourceLocalTextFile,
 				Sources:    []KnowledgeImportSource{{Name: "large.md", Content: "0123456789-0123456789"}},
 			},
-			wantErr: "knowledge import source exceeds size limit",
+			wantErr:  "knowledge import source exceeds size limit",
 			wantCode: "source_too_large",
 		},
 	} {

@@ -169,6 +169,104 @@ func TestPipelineReturnsNoSourceReasonWhenNothingMatches(t *testing.T) {
 	}
 }
 
+func TestPipelineExcludesPendingReviewDocuments(t *testing.T) {
+	pipeline := NewPipeline(PipelineConfig{})
+	documents := []admin.KnowledgeDocument{
+		{
+			ID:           "doc-pending",
+			TenantID:     "tenant-1",
+			Name:         "pending.md",
+			Status:       admin.KnowledgeReady,
+			ReviewStatus: admin.KnowledgeReviewPending,
+			Chunks: []admin.KnowledgeChunk{
+				{ID: "doc-pending:chunk-0001", DocumentID: "doc-pending", Ordinal: 1, Text: "refund policy grounding"},
+			},
+		},
+	}
+
+	response := pipeline.Search(context.Background(), documents, SearchRequest{
+		Query: "refund policy",
+		Limit: 1,
+		Mode:  RetrievalModeLexical,
+	})
+	if len(response.Results) != 0 {
+		t.Fatalf("result count = %d, want 0", len(response.Results))
+	}
+	if response.NoSourceReason != "no_review_active_documents" {
+		t.Fatalf("NoSourceReason = %q, want no_review_active_documents", response.NoSourceReason)
+	}
+	if len(response.StagesSkipped) != 1 || response.StagesSkipped[0] != "review_gated_documents" {
+		t.Fatalf("StagesSkipped = %#v, want review_gated_documents", response.StagesSkipped)
+	}
+}
+
+func TestPipelineReportsReviewGatedDocumentsWhenPendingSourceMatchesQuery(t *testing.T) {
+	pipeline := NewPipeline(PipelineConfig{})
+	documents := []admin.KnowledgeDocument{
+		{
+			ID:       "doc-active",
+			TenantID: "tenant-1",
+			Name:     "active.md",
+			Status:   admin.KnowledgeReady,
+			Chunks: []admin.KnowledgeChunk{
+				{ID: "doc-active:chunk-0001", DocumentID: "doc-active", Ordinal: 1, Text: "unrelated active document"},
+			},
+		},
+		{
+			ID:           "doc-pending",
+			TenantID:     "tenant-1",
+			Name:         "pending.md",
+			Status:       admin.KnowledgeReady,
+			ReviewStatus: admin.KnowledgeReviewPending,
+			Chunks: []admin.KnowledgeChunk{
+				{ID: "doc-pending:chunk-0001", DocumentID: "doc-pending", Ordinal: 1, Text: "refund approvals require operator review"},
+			},
+		},
+	}
+
+	response := pipeline.Search(context.Background(), documents, SearchRequest{
+		Query: "refund approvals require operator review",
+		Limit: 3,
+		Mode:  RetrievalModeLexical,
+	})
+	if len(response.Results) != 0 {
+		t.Fatalf("result count = %d, want 0", len(response.Results))
+	}
+	if response.NoSourceReason != "review_gated_documents" {
+		t.Fatalf("NoSourceReason = %q, want review_gated_documents", response.NoSourceReason)
+	}
+	if len(response.StagesSkipped) == 0 || response.StagesSkipped[len(response.StagesSkipped)-1] != "review_gated_documents" {
+		t.Fatalf("StagesSkipped = %#v, want review_gated_documents", response.StagesSkipped)
+	}
+}
+
+func TestPipelineTreatsLegacyDocumentsAsReviewActive(t *testing.T) {
+	pipeline := NewPipeline(PipelineConfig{})
+	documents := []admin.KnowledgeDocument{
+		{
+			ID:       "doc-legacy",
+			TenantID: "tenant-1",
+			Name:     "legacy.md",
+			Status:   admin.KnowledgeReady,
+			Chunks: []admin.KnowledgeChunk{
+				{ID: "doc-legacy:chunk-0001", DocumentID: "doc-legacy", Ordinal: 1, Text: "legacy grounded answer"},
+			},
+		},
+	}
+
+	response := pipeline.Search(context.Background(), documents, SearchRequest{
+		Query: "legacy grounded",
+		Limit: 1,
+		Mode:  RetrievalModeLexical,
+	})
+	if len(response.Results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(response.Results))
+	}
+	if response.Results[0].DocumentID != "doc-legacy" {
+		t.Fatalf("result = %#v, want legacy document", response.Results[0])
+	}
+}
+
 func TestPipelineTreatsWeakMatchesAsNoSourceWhenBelowThreshold(t *testing.T) {
 	pipeline := NewPipeline(PipelineConfig{})
 	documents := []admin.KnowledgeDocument{

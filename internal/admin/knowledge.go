@@ -31,13 +31,23 @@ const (
 	KnowledgeFailed   KnowledgeStatus = "failed"
 )
 
+type KnowledgeReviewStatus string
+
+const (
+	KnowledgeReviewPending  KnowledgeReviewStatus = "pending_review"
+	KnowledgeReviewActive   KnowledgeReviewStatus = "active"
+	KnowledgeReviewRejected KnowledgeReviewStatus = "rejected"
+	KnowledgeReviewArchived KnowledgeReviewStatus = "archived"
+)
+
 type KnowledgeUpload struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Content  string            `json:"content"`
-	SpaceID  string            `json:"space_id,omitempty"`
-	Tags     []string          `json:"tags,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	ID           string                `json:"id"`
+	Name         string                `json:"name"`
+	Content      string                `json:"content"`
+	SpaceID      string                `json:"space_id,omitempty"`
+	Tags         []string              `json:"tags,omitempty"`
+	Metadata     map[string]string     `json:"metadata,omitempty"`
+	ReviewStatus KnowledgeReviewStatus `json:"review_status,omitempty"`
 }
 
 type KnowledgeUpdate struct {
@@ -48,11 +58,19 @@ type KnowledgeUpdate struct {
 }
 
 type KnowledgeDocumentFilter struct {
-	SpaceID       string          `json:"space_id,omitempty"`
-	Query         string          `json:"query,omitempty"`
-	Status        KnowledgeStatus `json:"status,omitempty"`
-	SourceType    string          `json:"source_type,omitempty"`
-	GapLinkedOnly bool            `json:"gap_linked_only,omitempty"`
+	SpaceID       string                `json:"space_id,omitempty"`
+	Query         string                `json:"query,omitempty"`
+	Status        KnowledgeStatus       `json:"status,omitempty"`
+	ReviewStatus  KnowledgeReviewStatus `json:"review_status,omitempty"`
+	SourceType    string                `json:"source_type,omitempty"`
+	GapLinkedOnly bool                  `json:"gap_linked_only,omitempty"`
+}
+
+type KnowledgeReviewUpdate struct {
+	DocumentID   string                `json:"document_id"`
+	ReviewStatus KnowledgeReviewStatus `json:"review_status"`
+	Reason       string                `json:"reason,omitempty"`
+	ReviewedBy   string                `json:"reviewed_by,omitempty"`
 }
 
 type KnowledgeSpaceStatus string
@@ -93,19 +111,24 @@ const (
 )
 
 type KnowledgeDocument struct {
-	ID          string              `json:"id"`
-	TenantID    string              `json:"tenant_id"`
-	SpaceID     string              `json:"space_id,omitempty"`
-	Name        string              `json:"name"`
-	SourceType  KnowledgeSourceType `json:"source_type"`
-	Status      KnowledgeStatus     `json:"status"`
-	ContentHash string              `json:"content_hash"`
-	ChunkCount  int                 `json:"chunk_count"`
-	Chunks      []KnowledgeChunk    `json:"chunks"`
-	CreatedAt   time.Time           `json:"created_at"`
-	UpdatedAt   time.Time           `json:"updated_at"`
-	Tags        []string            `json:"tags,omitempty"`
-	Metadata    map[string]string   `json:"metadata,omitempty"`
+	ID           string                `json:"id"`
+	TenantID     string                `json:"tenant_id"`
+	SpaceID      string                `json:"space_id,omitempty"`
+	Name         string                `json:"name"`
+	SourceType   KnowledgeSourceType   `json:"source_type"`
+	Status       KnowledgeStatus       `json:"status"`
+	ReviewStatus KnowledgeReviewStatus `json:"review_status,omitempty"`
+	ReviewReason string                `json:"review_reason,omitempty"`
+	ReviewedBy   string                `json:"reviewed_by,omitempty"`
+	ReviewedAt   *time.Time            `json:"reviewed_at,omitempty"`
+	ActivatedAt  *time.Time            `json:"activated_at,omitempty"`
+	ContentHash  string                `json:"content_hash"`
+	ChunkCount   int                   `json:"chunk_count"`
+	Chunks       []KnowledgeChunk      `json:"chunks"`
+	CreatedAt    time.Time             `json:"created_at"`
+	UpdatedAt    time.Time             `json:"updated_at"`
+	Tags         []string              `json:"tags,omitempty"`
+	Metadata     map[string]string     `json:"metadata,omitempty"`
 }
 
 const (
@@ -171,20 +194,29 @@ func (s KnowledgeService) Upload(tenantID string, upload KnowledgeUpload) (Knowl
 		return KnowledgeDocument{}, ErrKnowledgeUploadEmpty
 	}
 	now := s.now()
+	reviewStatus, err := normalizeKnowledgeReviewStatus(upload.ReviewStatus)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
 	document := KnowledgeDocument{
-		ID:          upload.ID,
-		TenantID:    tenantID,
-		SpaceID:     space.ID,
-		Name:        upload.Name,
-		SourceType:  sourceTypeFromName(upload.Name),
-		Status:      KnowledgeReady,
-		ContentHash: hashKnowledgeContent(upload.Content),
-		ChunkCount:  len(chunks),
-		Chunks:      chunks,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		Tags:        slices.Clone(upload.Tags),
-		Metadata:    cloneStringMap(upload.Metadata),
+		ID:           upload.ID,
+		TenantID:     tenantID,
+		SpaceID:      space.ID,
+		Name:         upload.Name,
+		SourceType:   sourceTypeFromName(upload.Name),
+		Status:       KnowledgeReady,
+		ReviewStatus: reviewStatus,
+		ContentHash:  hashKnowledgeContent(upload.Content),
+		ChunkCount:   len(chunks),
+		Chunks:       chunks,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		Tags:         slices.Clone(upload.Tags),
+		Metadata:     cloneStringMap(upload.Metadata),
+	}
+	if reviewStatus == KnowledgeReviewActive {
+		activatedAt := now
+		document.ActivatedAt = &activatedAt
 	}
 	applyIndexMetadata(&document, now, KnowledgeVectorMissing, "")
 	return s.store.SaveKnowledge(document)
@@ -227,6 +259,9 @@ func (s KnowledgeService) ListFiltered(tenantID string, filter KnowledgeDocument
 		if filter.Status != "" && document.Status != filter.Status {
 			continue
 		}
+		if filter.ReviewStatus != "" && effectiveKnowledgeReviewStatus(document) != filter.ReviewStatus {
+			continue
+		}
 		if !matchesKnowledgeSourceType(document, filter.SourceType) {
 			continue
 		}
@@ -239,6 +274,29 @@ func (s KnowledgeService) ListFiltered(tenantID string, filter KnowledgeDocument
 		filtered = append(filtered, document)
 	}
 	return filtered, nil
+}
+
+func (s KnowledgeService) Review(tenantID string, update KnowledgeReviewUpdate) (KnowledgeDocument, error) {
+	document, err := s.store.GetKnowledge(tenantID, update.DocumentID)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	reviewStatus, err := normalizeKnowledgeReviewStatus(update.ReviewStatus)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	now := s.now()
+	document.ReviewStatus = reviewStatus
+	document.ReviewReason = strings.TrimSpace(update.Reason)
+	document.ReviewedBy = strings.TrimSpace(update.ReviewedBy)
+	document.ReviewedAt = timePointer(now)
+	document.UpdatedAt = now
+	if reviewStatus == KnowledgeReviewActive {
+		document.ActivatedAt = timePointer(now)
+	} else {
+		document.ActivatedAt = nil
+	}
+	return s.store.SaveKnowledge(document)
 }
 
 func (s KnowledgeService) Disable(tenantID, documentID string) (KnowledgeDocument, error) {
@@ -379,6 +437,9 @@ func (s KnowledgeService) CitationTest(tenantID, query string) (KnowledgeCitatio
 		if document.Status != KnowledgeReady {
 			continue
 		}
+		if effectiveKnowledgeReviewStatus(document) != KnowledgeReviewActive {
+			continue
+		}
 		for _, chunk := range document.Chunks {
 			if strings.Contains(strings.ToLower(chunk.Text), needle) {
 				return KnowledgeCitation{DocumentID: document.ID, ChunkID: chunk.ID, Text: chunk.Text}, nil
@@ -459,6 +520,36 @@ func cloneStringMap(input map[string]string) map[string]string {
 	return cloned
 }
 
+func timePointer(value time.Time) *time.Time {
+	copyValue := value
+	return &copyValue
+}
+
+func normalizeKnowledgeReviewStatus(status KnowledgeReviewStatus) (KnowledgeReviewStatus, error) {
+	switch strings.TrimSpace(string(status)) {
+	case "":
+		return KnowledgeReviewActive, nil
+	case string(KnowledgeReviewPending):
+		return KnowledgeReviewPending, nil
+	case string(KnowledgeReviewActive):
+		return KnowledgeReviewActive, nil
+	case string(KnowledgeReviewRejected):
+		return KnowledgeReviewRejected, nil
+	case string(KnowledgeReviewArchived):
+		return KnowledgeReviewArchived, nil
+	default:
+		return "", fmt.Errorf("invalid knowledge review status")
+	}
+}
+
+func effectiveKnowledgeReviewStatus(document KnowledgeDocument) KnowledgeReviewStatus {
+	status, err := normalizeKnowledgeReviewStatus(document.ReviewStatus)
+	if err != nil {
+		return KnowledgeReviewPending
+	}
+	return status
+}
+
 func (s KnowledgeService) reindexDocument(tenantID string, document KnowledgeDocument, content string) (KnowledgeDocument, error) {
 	if _, err := s.requireWritableSpace(tenantID, document.SpaceID); err != nil {
 		return KnowledgeDocument{}, err
@@ -521,6 +612,22 @@ func sourceTypeFromName(name string) KnowledgeSourceType {
 		return KnowledgeSourceMarkdown
 	}
 	return KnowledgeSourceText
+}
+
+func normalizeKnowledgeDocument(document KnowledgeDocument) KnowledgeDocument {
+	document.SpaceID = normalizeDocumentSpaceID(document.SpaceID)
+	document.ReviewStatus = effectiveKnowledgeReviewStatus(document)
+	if document.ReviewStatus == KnowledgeReviewActive && document.ActivatedAt == nil {
+		if !document.UpdatedAt.IsZero() {
+			document.ActivatedAt = timePointer(document.UpdatedAt)
+		} else if !document.CreatedAt.IsZero() {
+			document.ActivatedAt = timePointer(document.CreatedAt)
+		}
+	}
+	if document.ReviewStatus != KnowledgeReviewActive {
+		document.ActivatedAt = nil
+	}
+	return document
 }
 
 func (s KnowledgeService) updateSpaceStatus(tenantID, spaceID string, status KnowledgeSpaceStatus) (KnowledgeSpace, error) {
@@ -586,7 +693,7 @@ func NewInMemoryKnowledgeStore() *InMemoryKnowledgeStore {
 func (s *InMemoryKnowledgeStore) SaveKnowledge(document KnowledgeDocument) (KnowledgeDocument, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	document.SpaceID = normalizeDocumentSpaceID(document.SpaceID)
+	document = normalizeKnowledgeDocument(document)
 	s.ensureDefaultSpaceLocked(document.TenantID)
 	if _, ok := s.documents[document.TenantID]; !ok {
 		s.documents[document.TenantID] = make(map[string]KnowledgeDocument)
@@ -602,7 +709,7 @@ func (s *InMemoryKnowledgeStore) ListKnowledge(tenantID string) ([]KnowledgeDocu
 	documents := s.documents[tenantID]
 	out := make([]KnowledgeDocument, 0, len(documents))
 	for _, document := range documents {
-		out = append(out, document)
+		out = append(out, normalizeKnowledgeDocument(document))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
@@ -621,7 +728,7 @@ func (s *InMemoryKnowledgeStore) GetKnowledge(tenantID, documentID string) (Know
 	if !ok {
 		return KnowledgeDocument{}, ErrKnowledgeDocumentNotFound
 	}
-	return document, nil
+	return normalizeKnowledgeDocument(document), nil
 }
 
 func (s *InMemoryKnowledgeStore) DeleteKnowledge(tenantID, documentID string) error {

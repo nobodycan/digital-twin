@@ -31,7 +31,7 @@ func (s *FileKnowledgeStore) SaveKnowledge(document KnowledgeDocument) (Knowledg
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	document.SpaceID = normalizeDocumentSpaceID(document.SpaceID)
+	document = normalizeKnowledgeDocument(document)
 	envelope.ensureDefaultSpace(document.TenantID)
 	replaced := false
 	for index, existing := range envelope.Documents {
@@ -59,7 +59,7 @@ func (s *FileKnowledgeStore) ListKnowledge(tenantID string) ([]KnowledgeDocument
 	out := make([]KnowledgeDocument, 0, len(envelope.Documents))
 	for _, document := range envelope.Documents {
 		if document.TenantID == tenantID {
-			out = append(out, document)
+			out = append(out, normalizeKnowledgeDocument(document))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -82,7 +82,7 @@ func (s *FileKnowledgeStore) GetKnowledge(tenantID, documentID string) (Knowledg
 	envelope.ensureDefaultSpace(tenantID)
 	for _, document := range envelope.Documents {
 		if document.TenantID == tenantID && document.ID == documentID {
-			return document, nil
+			return normalizeKnowledgeDocument(document), nil
 		}
 	}
 	return KnowledgeDocument{}, ErrKnowledgeDocumentNotFound
@@ -279,7 +279,7 @@ func (s *FileKnowledgeStore) path() string {
 
 func (e *knowledgeEnvelope) normalize() {
 	for index := range e.Documents {
-		e.Documents[index].SpaceID = normalizeDocumentSpaceID(e.Documents[index].SpaceID)
+		e.Documents[index] = normalizeKnowledgeDocument(e.Documents[index])
 	}
 	for _, document := range e.Documents {
 		e.ensureDefaultSpace(document.TenantID)

@@ -1,5 +1,23 @@
 # Release Notes
 
+## Unreleased - Phase 19 Knowledge Review and Activation
+
+### Added
+
+- Added first-class knowledge review state in `internal/admin`, including `pending_review`, `active`, `rejected`, and `archived`, plus review timestamps and operator metadata.
+- Added `POST /admin/knowledge/review` and `review_status` filtering on `GET /admin/knowledge` so the admin API can activate, reject, archive, reactivate, and query governed knowledge documents.
+- Added retrieval gating in `internal/knowledge` so only lifecycle-ready and review-active documents participate in normal grounding; review-gated searches now return deterministic no-source reasons.
+- Added `/admin` review queue and document-level review actions for imported sources.
+
+### Documented
+
+- Added Phase 19 spec, design, and plan docs for knowledge review and activation.
+- README now reflects Phase 19 as the current stage and explains the review-before-activation workflow.
+
+### Notes
+
+- Phase 19 keeps governance intentionally lightweight: no RBAC, reviewer assignment, approval chains, or LLM auto-approval.
+
 ## Unreleased - Phase 18 Knowledge Source Ingestion
 
 ### Added

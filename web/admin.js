@@ -32,8 +32,10 @@ const knowledgeDetailMeta = document.querySelector("#knowledge-detail-meta");
 const knowledgeDetailRelations = document.querySelector("#knowledge-detail-relations");
 const knowledgeDetailFlags = document.querySelector("#knowledge-detail-flags");
 const knowledgeDetailBody = document.querySelector("#knowledge-detail-body");
+const knowledgeReviewActions = document.querySelector("#knowledge-review-actions");
 const knowledgeFilterQuery = document.querySelector("#knowledge-filter-query");
 const knowledgeFilterStatus = document.querySelector("#knowledge-filter-status");
+const knowledgeFilterReviewStatus = document.querySelector("#knowledge-filter-review-status");
 const knowledgeFilterSourceType = document.querySelector("#knowledge-filter-source-type");
 const knowledgeFilterGapLinked = document.querySelector("#knowledge-filter-gap-linked");
 const knowledgeFilterApply = document.querySelector("#knowledge-filter-apply");
@@ -48,6 +50,7 @@ const knowledgeEditCancel = document.querySelector("#knowledge-edit-cancel");
 const knowledgeDebugResults = document.querySelector("#knowledge-debug-results");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
 const knowledgeImportJobs = document.querySelector("#knowledge-import-jobs");
+const knowledgeReviewQueue = document.querySelector("#knowledge-review-queue");
 const knowledgeNoteTitle = document.querySelector("#knowledge-note-title");
 const knowledgeNoteBody = document.querySelector("#knowledge-note-body");
 const knowledgeNoteCreate = document.querySelector("#knowledge-note-create");
@@ -64,8 +67,11 @@ const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
 const knowledgeImportPath = "/admin/knowledge/import";
 const knowledgeImportListPath = "/admin/knowledge/imports";
+const knowledgeReviewPath = "/admin/knowledge/review";
 const knowledgeNoteCreatePath = "/admin/knowledge/notes/create";
 const knowledgeUpdatePath = "/admin/knowledge/update";
+const knowledgeReviewGatedStage = "review_gated_documents";
+const knowledgeNoReviewActiveReason = "no_review_active_documents";
 
 let currentDraftId = "";
 let activeVersionId = "";
@@ -102,6 +108,127 @@ function renderKnowledgeFlag(flag) {
   item.className = "knowledge-flag";
   item.textContent = flag.replaceAll("_", " ");
   return item;
+}
+
+function effectiveReviewStatus(documentRecord) {
+  return documentRecord?.review_status || "active";
+}
+
+function renderKnowledgeReviewRow(documentRecord) {
+  const row = document.createElement("div");
+  row.className = "knowledge-import-job-row";
+
+  const summary = document.createElement("div");
+  summary.className = "knowledge-import-job-summary";
+  const warning = documentRecord.metadata?.source_warning ? `warning ${documentRecord.metadata.source_warning}` : "";
+  summary.textContent = [
+    `${documentRecord.name || documentRecord.id} | ${effectiveReviewStatus(documentRecord)}`,
+    `status ${documentRecord.status || "unknown"} | source ${documentRecord.metadata?.source_type || "upload"}`,
+    warning,
+  ].filter(Boolean).join("\n");
+  row.append(summary);
+
+  const actions = document.createElement("div");
+  actions.className = "knowledge-import-job-actions";
+  const inspectButton = document.createElement("button");
+  inspectButton.type = "button";
+  inspectButton.textContent = "Inspect";
+  inspectButton.addEventListener("click", async () => {
+    await inspectKnowledgeDocument(documentRecord.id);
+    setKnowledgeStatus(`Inspecting review candidate ${documentRecord.id}`);
+  });
+  actions.append(inspectButton);
+  row.append(actions);
+  return row;
+}
+
+function renderKnowledgeReviewQueue(documents) {
+  if (!knowledgeReviewQueue) {
+    return;
+  }
+  clearElement(knowledgeReviewQueue);
+  if (!documents || documents.length === 0) {
+    knowledgeReviewQueue.textContent = "Review queue";
+    return;
+  }
+  const header = document.createElement("strong");
+  header.textContent = `Review queue (${documents.length})`;
+  knowledgeReviewQueue.append(header);
+  for (const documentRecord of documents) {
+    knowledgeReviewQueue.append(renderKnowledgeReviewRow(documentRecord));
+  }
+}
+
+async function loadKnowledgeReviewQueue() {
+  if (!knowledgeReviewQueue) {
+    return;
+  }
+  const params = new URLSearchParams({
+    space_id: selectedKnowledgeSpaceId,
+    review_status: "pending_review",
+  });
+  const response = await fetch(`${knowledgeListPath}?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`knowledge review queue failed (${response.status})`);
+  }
+  renderKnowledgeReviewQueue(await response.json());
+}
+
+async function updateKnowledgeReview(reviewStatus) {
+  if (!selectedKnowledgeDocumentId) {
+    setKnowledgeStatus("Select a document before changing review status");
+    return;
+  }
+  let reason = "";
+  if (reviewStatus === "rejected") {
+    reason = window.prompt("Rejection reason (optional)", "") || "";
+  }
+  await postJSON(knowledgeReviewPath, {
+    document_id: selectedKnowledgeDocumentId,
+    review_status: reviewStatus,
+    reason: reason.trim(),
+    reviewed_by: "operator",
+  });
+  setKnowledgeStatus(`Updated review status to ${reviewStatus}`);
+  await refreshKnowledgeWorkspace();
+  await inspectKnowledgeDocument(selectedKnowledgeDocumentId);
+}
+
+function renderKnowledgeReviewActions(documentRecord) {
+  if (!knowledgeReviewActions) {
+    return;
+  }
+  clearElement(knowledgeReviewActions);
+  if (!documentRecord?.id) {
+    return;
+  }
+  const actions = [];
+  switch (effectiveReviewStatus(documentRecord)) {
+    case "pending_review":
+      actions.push(["Approve", "active"], ["Reject", "rejected"], ["Archive", "archived"]);
+      break;
+    case "active":
+      actions.push(["Reject", "rejected"], ["Archive", "archived"]);
+      break;
+    case "rejected":
+      actions.push(["Send to review", "pending_review"], ["Archive", "archived"]);
+      break;
+    case "archived":
+      actions.push(["Reactivate", "active"], ["Send to review", "pending_review"]);
+      break;
+    default:
+      actions.push(["Approve", "active"]);
+      break;
+  }
+  for (const [label, value] of actions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", async () => {
+      await updateKnowledgeReview(value);
+    });
+    knowledgeReviewActions.append(button);
+  }
 }
 
 function renderKnowledgeHealth(summary) {
@@ -218,6 +345,7 @@ function renderKnowledgeDetail(detail) {
     knowledgeDetailMeta.textContent = renderKnowledgeSourceMeta(documentRecord);
   }
   clearElement(knowledgeDetailFlags);
+  knowledgeDetailFlags.append(renderKnowledgeFlag(`review_${effectiveReviewStatus(documentRecord)}`));
   if (qualityFlags.length === 0) {
     knowledgeDetailFlags.append(renderKnowledgeFlag("healthy"));
   } else {
@@ -225,10 +353,12 @@ function renderKnowledgeDetail(detail) {
       knowledgeDetailFlags.append(renderKnowledgeFlag(flag));
     }
   }
+  renderKnowledgeReviewActions(documentRecord);
   renderKnowledgeRelations(detail.relations || {});
   knowledgeDetailBody.textContent = [
     `document: ${documentRecord.name || documentRecord.id || "unknown"}`,
     `status: ${documentRecord.status || "unknown"}`,
+    `review_status: ${effectiveReviewStatus(documentRecord)}`,
     `space_id: ${documentRecord.space_id || selectedKnowledgeSpaceId}`,
     `index_state: ${indexState}`,
     `last_error_code: ${lastErrorCode}`,
@@ -251,6 +381,9 @@ function renderKnowledgeSourceMeta(documentRecord) {
   }
   if (documentRecord.metadata?.source_gap_id) {
     segments.push(`gap ${documentRecord.metadata.source_gap_id}`);
+  }
+  if (documentRecord.review_reason) {
+    segments.push(`review ${documentRecord.review_reason}`);
   }
   return segments.join(" | ") || "No source metadata";
 }
@@ -540,6 +673,9 @@ async function resetKnowledgeFilters() {
   if (knowledgeFilterStatus) {
     knowledgeFilterStatus.value = "";
   }
+  if (knowledgeFilterReviewStatus) {
+    knowledgeFilterReviewStatus.value = "";
+  }
   if (knowledgeFilterSourceType) {
     knowledgeFilterSourceType.value = "";
   }
@@ -606,6 +742,7 @@ async function refreshKnowledgeWorkspace() {
   await loadKnowledgeHealth();
   await loadKnowledgeGaps();
   await loadKnowledgeImportJobs();
+  await loadKnowledgeReviewQueue();
 }
 
 function draftPayload() {
@@ -701,6 +838,9 @@ async function loadKnowledge() {
   if (knowledgeFilterStatus?.value) {
     params.set("status", knowledgeFilterStatus.value);
   }
+  if (knowledgeFilterReviewStatus?.value) {
+    params.set("review_status", knowledgeFilterReviewStatus.value);
+  }
   if (knowledgeFilterSourceType?.value) {
     params.set("source_type", knowledgeFilterSourceType.value);
   }
@@ -726,6 +866,9 @@ async function loadKnowledge() {
     }
     if (knowledgeDetailRelations) {
       knowledgeDetailRelations.textContent = "Source relationships";
+    }
+    if (knowledgeReviewActions) {
+      knowledgeReviewActions.textContent = "";
     }
     knowledgeDetailBody.textContent = "Chunk preview";
     clearElement(knowledgeDetailFlags);
@@ -831,7 +974,7 @@ function renderKnowledgeRow(documentRecord) {
   nameCell.textContent = documentRecord.name;
 
   const statusCell = document.createElement("td");
-  statusCell.textContent = documentRecord.status;
+  statusCell.textContent = `${documentRecord.status} / ${effectiveReviewStatus(documentRecord)}`;
 
   const chunkCountCell = document.createElement("td");
   chunkCountCell.textContent = String(documentRecord.chunk_count ?? documentRecord.chunks?.length ?? 0);
