@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -55,7 +56,17 @@ func (s AuditService) Record(tenantID string, record AuditRecord) (AuditRecord, 
 }
 
 func (s AuditService) Recent(tenantID string) ([]AuditRecord, error) {
-	return s.store.ListAudit(tenantID)
+	records, err := s.store.ListAudit(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(records, func(i, j int) bool {
+		if !records[i].CreatedAt.Equal(records[j].CreatedAt) {
+			return records[i].CreatedAt.After(records[j].CreatedAt)
+		}
+		return records[i].ID > records[j].ID
+	})
+	return records, nil
 }
 
 type InMemoryAuditStore struct {
