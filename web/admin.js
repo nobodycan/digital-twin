@@ -110,6 +110,45 @@ function renderKnowledgeFlag(flag) {
   return item;
 }
 
+function renderAuditTrust(record) {
+  return record.knowledge_answer_state || record.knowledge_evidence?.answer_state || "unknown";
+}
+
+function renderAuditEvidence(record) {
+  const evidence = record.knowledge_evidence || {};
+  const citations = Array.isArray(evidence.citations) ? evidence.citations : [];
+  const summary = evidence.summary || "No supporting evidence recorded";
+  if (citations.length === 0) {
+    return summary;
+  }
+  const topSources = citations
+    .slice(0, 2)
+    .map((citation) => citation.title || citation.document_id || "Untitled source")
+    .join(", ");
+  return `${summary}\n${topSources}`;
+}
+
+function appendAuditEvidence(cell, record) {
+  const evidence = record.knowledge_evidence || {};
+  const citations = Array.isArray(evidence.citations) ? evidence.citations.slice(0, 2) : [];
+  const summary = document.createElement("div");
+  summary.textContent = renderAuditEvidence(record);
+  cell.append(summary);
+  for (const citation of citations) {
+    if (!citation.document_id) {
+      continue;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = citation.title || citation.document_id;
+    button.addEventListener("click", async () => {
+      await inspectKnowledgeDocument(citation.document_id);
+      setKnowledgeStatus(`Inspecting evidence source ${citation.document_id}`);
+    });
+    cell.append(button);
+  }
+}
+
 function effectiveReviewStatus(documentRecord) {
   return documentRecord?.review_status || "active";
 }
@@ -1182,7 +1221,7 @@ async function loadAudit() {
   if (records.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 3;
+    cell.colSpan = 5;
     cell.textContent = "No audit records";
     row.append(cell);
     auditTableBody.append(row);
@@ -1194,9 +1233,13 @@ async function loadAudit() {
     conversationCell.textContent = record.conversation_id;
     const statusCell = document.createElement("td");
     statusCell.textContent = record.status;
+    const trustCell = document.createElement("td");
+    trustCell.textContent = renderAuditTrust(record);
+    const evidenceCell = document.createElement("td");
+    appendAuditEvidence(evidenceCell, record);
     const agentCell = document.createElement("td");
     agentCell.textContent = record.agent_name;
-    row.append(conversationCell, statusCell, agentCell);
+    row.append(conversationCell, statusCell, trustCell, evidenceCell, agentCell);
     auditTableBody.append(row);
   }
 }

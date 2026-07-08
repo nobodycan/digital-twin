@@ -35,13 +35,13 @@ type KnowledgeHealthSummary struct {
 }
 
 type KnowledgeDocumentDetail struct {
-	Document     KnowledgeDocument `json:"document"`
-	QualityFlags []string          `json:"quality_flags,omitempty"`
+	Document     KnowledgeDocument          `json:"document"`
+	QualityFlags []string                   `json:"quality_flags,omitempty"`
 	Relations    KnowledgeDocumentRelations `json:"relations,omitempty"`
 }
 
 type KnowledgeDocumentRelations struct {
-	SourceGap    *KnowledgeGap `json:"source_gap,omitempty"`
+	SourceGap    *KnowledgeGap  `json:"source_gap,omitempty"`
 	ResolvedGaps []KnowledgeGap `json:"resolved_gaps,omitempty"`
 }
 
@@ -115,8 +115,17 @@ func (s KnowledgeService) DocumentDetailWithRelations(tenantID, documentID strin
 	if document.Status == KnowledgeFailed {
 		flags = append(flags, "document_failed")
 	}
+	if effectiveKnowledgeReviewStatus(document) != KnowledgeReviewActive {
+		flags = append(flags, "review_gated")
+	}
 	if document.ChunkCount == 0 || len(document.Chunks) == 0 {
 		flags = append(flags, "no_chunks")
+	}
+	if strings.TrimSpace(document.Metadata["source_label"]) == "" {
+		flags = append(flags, "missing_source_label")
+	}
+	if len(document.Chunks) > 0 && len(strings.TrimSpace(document.Chunks[0].Text)) > 0 && len(strings.TrimSpace(document.Chunks[0].Text)) < 32 {
+		flags = append(flags, "short_content")
 	}
 	if document.Metadata[KnowledgeMetadataVectorStatus] == KnowledgeVectorMissing {
 		flags = append(flags, "vector_missing")

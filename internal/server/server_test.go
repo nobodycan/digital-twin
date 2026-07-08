@@ -1763,9 +1763,23 @@ func TestHandlerToolPolicyAdminSavesAndAuthorizesTools(t *testing.T) {
 func TestHandlerRecordsExperienceStreamAudit(t *testing.T) {
 	auditService := admin.NewAuditService(admin.NewInMemoryAuditStore())
 	handler := NewHandler(Config{
-		Metrics:      observability.NewMemoryMetrics(),
-		Orchestrator: stubOrchestrator{result: types.AgentResult{AgentName: "persona-agent", Message: types.Message{Role: types.RoleAssistant, Content: "audit ok"}}},
-		AuditAdmin:   &auditService,
+		Metrics: observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "audit ok"},
+			Metadata: types.Metadata{
+				"knowledge_answer_state": "grounded",
+				"knowledge_result_count": 1,
+				"knowledge_evidence": map[string]any{
+					"answer_state": "grounded",
+					"summary":      "Grounded by 1 reviewed source.",
+					"citations": []map[string]any{
+						{"document_id": "kb-1", "title": "Support Playbook"},
+					},
+				},
+			},
+		}},
+		AuditAdmin: &auditService,
 		PresentationAdapter: presentation.Adapter{
 			TTS: voice.MockTTSClient{},
 			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
@@ -1784,6 +1798,11 @@ func TestHandlerRecordsExperienceStreamAudit(t *testing.T) {
 	}
 	if !strings.Contains(auditResponse.Body.String(), `"conversation_id":"conv-1"`) || !strings.Contains(auditResponse.Body.String(), `"agent_name":"persona-agent"`) {
 		t.Fatalf("audit body = %s", auditResponse.Body.String())
+	}
+	for _, want := range []string{`"knowledge_answer_state":"grounded"`, `"knowledge_source_count":1`, `"summary":"Grounded by 1 reviewed source."`} {
+		if !strings.Contains(auditResponse.Body.String(), want) {
+			t.Fatalf("audit body = %s, want %s", auditResponse.Body.String(), want)
+		}
 	}
 }
 
@@ -2001,6 +2020,43 @@ func TestHandlerRecordsMockVoiceAudit(t *testing.T) {
 	}
 	if !strings.Contains(auditResponse.Body.String(), `"conversation_id":"mock-voice-session"`) {
 		t.Fatalf("audit body = %s", auditResponse.Body.String())
+	}
+}
+
+func TestHandlerExperienceStreamCreatesKnowledgeGapForReviewGatedAnswer(t *testing.T) {
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	handler := NewHandler(Config{
+		Metrics: observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{result: types.AgentResult{
+			AgentName: "persona-agent",
+			Message:   types.Message{Role: types.RoleAssistant, Content: "That source still needs review."},
+			Metadata: types.Metadata{
+				"knowledge_answer_state":     "review_gated",
+				"knowledge_space_id":         "default",
+				"knowledge_used":             false,
+				"knowledge_no_source_reason": "review_gated_documents",
+			},
+		}},
+		KnowledgeGapAdmin: &gapService,
+		PresentationAdapter: presentation.Adapter{
+			TTS: voice.MockTTSClient{},
+			Avatar: mustAvatarStateMachine(t, avatar.Manifest{
+				Supported:     []avatar.State{avatar.StateIdle, avatar.StateSpeaking},
+				FallbackState: avatar.StateIdle,
+			}),
+		},
+	})
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/experience/stream", strings.NewReader(validChatJSON())))
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/admin/knowledge/gaps?space_id=default", nil))
+
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	if !strings.Contains(listResponse.Body.String(), `"no_source_reason":"review_gated_documents"`) {
+		t.Fatalf("gap list body = %s", listResponse.Body.String())
 	}
 }
 

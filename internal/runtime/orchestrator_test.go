@@ -495,6 +495,10 @@ func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testin
 				"knowledge_citations": []map[string]any{
 					{"document_id": "kb-1", "document_name": "planning.md", "chunk_id": "kb-1:chunk-0001"},
 				},
+				"knowledge_evidence": map[string]any{
+					"answer_state": "partially_supported",
+					"summary":      "Partial support only.",
+				},
 				"retrieval_mode":      "lexical",
 				"memory_used":         false,
 				"memory_result_count": 0,
@@ -535,6 +539,9 @@ func TestOrchestratorStreamIncludesGroundingMetadataOnMessageCompleted(t *testin
 	}
 	if _, exists := event.Metadata["knowledge_citations"]; !exists {
 		t.Fatalf("knowledge_citations missing from metadata: %#v", event.Metadata)
+	}
+	if _, exists := event.Metadata["knowledge_evidence"]; !exists {
+		t.Fatalf("knowledge_evidence missing from metadata: %#v", event.Metadata)
 	}
 }
 

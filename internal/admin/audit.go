@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -15,15 +16,18 @@ const (
 )
 
 type AuditRecord struct {
-	ID             string      `json:"id"`
-	TenantID       string      `json:"tenant_id"`
-	ConversationID string      `json:"conversation_id"`
-	UserID         string      `json:"user_id"`
-	Status         AuditStatus `json:"status"`
-	AgentName      string      `json:"agent_name"`
-	LatencyMS      int64       `json:"latency_ms"`
-	EventSummary   []string    `json:"event_summary"`
-	CreatedAt      time.Time   `json:"created_at"`
+	ID                   string         `json:"id"`
+	TenantID             string         `json:"tenant_id"`
+	ConversationID       string         `json:"conversation_id"`
+	UserID               string         `json:"user_id"`
+	Status               AuditStatus    `json:"status"`
+	AgentName            string         `json:"agent_name"`
+	LatencyMS            int64          `json:"latency_ms"`
+	EventSummary         []string       `json:"event_summary"`
+	KnowledgeAnswerState string         `json:"knowledge_answer_state,omitempty"`
+	KnowledgeSourceCount int            `json:"knowledge_source_count,omitempty"`
+	KnowledgeEvidence    map[string]any `json:"knowledge_evidence,omitempty"`
+	CreatedAt            time.Time      `json:"created_at"`
 }
 
 type AuditStore interface {
@@ -52,7 +56,17 @@ func (s AuditService) Record(tenantID string, record AuditRecord) (AuditRecord, 
 }
 
 func (s AuditService) Recent(tenantID string) ([]AuditRecord, error) {
-	return s.store.ListAudit(tenantID)
+	records, err := s.store.ListAudit(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(records, func(i, j int) bool {
+		if !records[i].CreatedAt.Equal(records[j].CreatedAt) {
+			return records[i].CreatedAt.After(records[j].CreatedAt)
+		}
+		return records[i].ID > records[j].ID
+	})
+	return records, nil
 }
 
 type InMemoryAuditStore struct {

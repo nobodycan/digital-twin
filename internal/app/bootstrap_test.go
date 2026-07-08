@@ -204,6 +204,23 @@ func TestNewLocalRuntimeUsesKnowledgeStoreForGroundedPersonaMetadata(t *testing.
 	if !ok || len(citations) != 1 {
 		t.Fatalf("knowledge_citations = %#v, want 1 citation", result.Metadata["knowledge_citations"])
 	}
+	evidence, ok := result.Metadata["knowledge_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("knowledge_evidence = %#v, want object", result.Metadata["knowledge_evidence"])
+	}
+	if evidence["answer_state"] != "grounded" {
+		t.Fatalf("answer_state = %v, want grounded", evidence["answer_state"])
+	}
+	citationEvidence, ok := evidence["citations"].([]map[string]any)
+	if !ok || len(citationEvidence) != 1 {
+		t.Fatalf("evidence citations = %#v, want 1 citation", evidence["citations"])
+	}
+	if citationEvidence[0]["review_status"] != "active" {
+		t.Fatalf("review status = %v, want active", citationEvidence[0]["review_status"])
+	}
+	if citationEvidence[0]["snippet"] == "" {
+		t.Fatalf("citation evidence = %#v, want snippet", citationEvidence[0])
+	}
 }
 
 func TestNewLocalRuntimeIncludesNoSourceReasonWhenKnowledgeHasNoMatch(t *testing.T) {

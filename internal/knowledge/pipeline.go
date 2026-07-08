@@ -40,12 +40,13 @@ type Explanation struct {
 }
 
 type SearchResponse struct {
-	Mode           RetrievalMode `json:"mode"`
-	Results        []Result      `json:"results"`
-	Explanations   []Explanation `json:"explanations"`
-	NoSourceReason string        `json:"no_source_reason,omitempty"`
-	StagesRun      []string      `json:"stages_run,omitempty"`
-	StagesSkipped  []string      `json:"stages_skipped,omitempty"`
+	Mode             RetrievalMode `json:"mode"`
+	Results          []Result      `json:"results"`
+	Explanations     []Explanation `json:"explanations"`
+	NoSourceReason   string        `json:"no_source_reason,omitempty"`
+	StagesRun        []string      `json:"stages_run,omitempty"`
+	StagesSkipped    []string      `json:"stages_skipped,omitempty"`
+	ReviewGatedCount int           `json:"review_gated_count,omitempty"`
 }
 
 type VectorResult struct {
@@ -98,8 +99,10 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 	gatedDocuments := reviewGatedKnowledgeDocuments(readyDocuments)
 	retrievableDocuments := reviewActiveKnowledgeDocuments(readyDocuments)
 	if request.SpaceID != "" {
+		gatedDocuments = filterKnowledgeDocumentsBySpace(gatedDocuments, request.SpaceID)
 		retrievableDocuments = filterKnowledgeDocumentsBySpace(retrievableDocuments, request.SpaceID)
 	}
+	response.ReviewGatedCount = len(gatedDocuments)
 	if len(readyDocuments) == 0 {
 		response.NoSourceReason = "no_ready_documents"
 		return response
@@ -204,12 +207,19 @@ func (p Pipeline) Search(ctx context.Context, documents []admin.KnowledgeDocumen
 	for index := range explanations {
 		explanations[index].Rank = index + 1
 		results = append(results, Result{
+			SpaceID:      documentSpaceID(documentIndex[explanations[index].ChunkID]),
 			DocumentID:   explanations[index].DocumentID,
 			DocumentName: explanations[index].DocumentName,
+			SourceLabel:  documentSourceLabel(documentIndex[explanations[index].ChunkID]),
+			SourceType:   documentSourceType(documentIndex[explanations[index].ChunkID]),
+			ReviewStatus: documentReviewStatus(documentIndex[explanations[index].ChunkID]),
 			ChunkID:      explanations[index].ChunkID,
+			ChunkOrdinal: documentChunkOrdinal(documentIndex[explanations[index].ChunkID]),
 			Rank:         explanations[index].Rank,
 			Score:        explanations[index].FinalScore,
 			Text:         chunkText(documentIndex[explanations[index].ChunkID]),
+			Snippet:      snippetForChunk(chunkText(documentIndex[explanations[index].ChunkID]), query, 160),
+			MatchReason:  explanations[index].RankReason,
 		})
 	}
 	response.Results = results
@@ -267,6 +277,10 @@ func indexDocuments(documents []admin.KnowledgeDocument) map[string]admin.Knowle
 			}
 			chunkCopy.Metadata["document_id"] = document.ID
 			chunkCopy.Metadata["document_name"] = document.Name
+			chunkCopy.Metadata["space_id"] = document.SpaceID
+			chunkCopy.Metadata["source_label"] = strings.TrimSpace(document.Metadata["source_label"])
+			chunkCopy.Metadata["source_type"] = strings.TrimSpace(document.Metadata["source_type"])
+			chunkCopy.Metadata["review_status"] = string(document.ReviewStatus)
 			index[chunk.ID] = chunkCopy
 		}
 	}
@@ -343,6 +357,29 @@ func rankReason(explanation Explanation) string {
 
 func chunkText(chunk admin.KnowledgeChunk) string {
 	return chunk.Text
+}
+
+func documentSpaceID(chunk admin.KnowledgeChunk) string {
+	return strings.TrimSpace(chunk.Metadata["space_id"])
+}
+
+func documentSourceLabel(chunk admin.KnowledgeChunk) string {
+	return strings.TrimSpace(chunk.Metadata["source_label"])
+}
+
+func documentSourceType(chunk admin.KnowledgeChunk) string {
+	return strings.TrimSpace(chunk.Metadata["source_type"])
+}
+
+func documentReviewStatus(chunk admin.KnowledgeChunk) string {
+	return strings.TrimSpace(chunk.Metadata["review_status"])
+}
+
+func documentChunkOrdinal(chunk admin.KnowledgeChunk) int {
+	if chunk.Ordinal > 0 {
+		return chunk.Ordinal
+	}
+	return chunkOrdinalFromID(chunk.ID)
 }
 
 func sortExplanations(explanations []Explanation) {

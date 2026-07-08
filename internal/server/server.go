@@ -1250,14 +1250,20 @@ func (h *Handler) recordAudit(conversation types.Conversation, result types.Agen
 	for _, event := range events {
 		summary = append(summary, string(event.Name))
 	}
-	_, _ = h.auditAdmin.Record(conversation.TenantID, admin.AuditRecord{
+	record := admin.AuditRecord{
 		ConversationID: conversation.ID,
 		UserID:         conversation.UserID,
 		Status:         status,
 		AgentName:      result.AgentName,
 		LatencyMS:      latencyMS,
 		EventSummary:   summary,
-	})
+	}
+	if result.Metadata != nil {
+		record.KnowledgeAnswerState, _ = result.Metadata["knowledge_answer_state"].(string)
+		record.KnowledgeSourceCount, _ = result.Metadata["knowledge_result_count"].(int)
+		record.KnowledgeEvidence = cloneEvidenceMetadata(result.Metadata["knowledge_evidence"])
+	}
+	_, _ = h.auditAdmin.Record(conversation.TenantID, record)
 }
 
 func (h *Handler) captureKnowledgeGap(conversation types.Conversation, result types.AgentResult) {
@@ -1269,7 +1275,7 @@ func (h *Handler) captureKnowledgeGap(conversation types.Conversation, result ty
 	}
 	answerState, _ := result.Metadata["knowledge_answer_state"].(string)
 	switch strings.TrimSpace(answerState) {
-	case "unsupported", "partially_supported":
+	case "unsupported", "partially_supported", "review_gated":
 	default:
 		return
 	}
@@ -1308,6 +1314,41 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func cloneEvidenceMetadata(value any) map[string]any {
+	source, ok := value.(map[string]any)
+	if !ok || len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(source))
+	for key, entry := range source {
+		cloned[key] = cloneEvidenceValue(entry)
+	}
+	return cloned
+}
+
+func cloneEvidenceValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneEvidenceMetadata(typed)
+	case []map[string]any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, entry := range typed {
+			items = append(items, cloneEvidenceMetadata(entry))
+		}
+		return items
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		items := make([]any, 0, len(typed))
+		for _, entry := range typed {
+			items = append(items, cloneEvidenceValue(entry))
+		}
+		return items
+	default:
+		return value
+	}
 }
 
 func writeSSE(w http.ResponseWriter, event, data string) {

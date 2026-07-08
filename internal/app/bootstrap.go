@@ -138,19 +138,28 @@ func (a knowledgeGrounderAdapter) Ground(ctx context.Context, conversation types
 		return agents.Grounding{}, err
 	}
 	result := agents.Grounding{
-		RetrievalMode:  grounding.RetrievalMode,
-		SpaceID:        grounding.SpaceID,
-		SpaceName:      grounding.SpaceName,
-		NoSourceReason: grounding.NoSourceReason,
+		RetrievalMode:    grounding.RetrievalMode,
+		SpaceID:          grounding.SpaceID,
+		SpaceName:        grounding.SpaceName,
+		NoSourceReason:   grounding.NoSourceReason,
+		StagesSkipped:    grounding.StagesSkipped,
+		ReviewGatedCount: grounding.ReviewGatedCount,
 	}
 	for _, citation := range grounding.Citations {
 		result.Citations = append(result.Citations, agents.GroundingCitation{
+			SpaceID:      citation.SpaceID,
 			DocumentID:   citation.DocumentID,
 			DocumentName: citation.DocumentName,
+			SourceLabel:  citation.SourceLabel,
+			SourceType:   citation.SourceType,
+			ReviewStatus: citation.ReviewStatus,
 			ChunkID:      citation.ChunkID,
+			ChunkOrdinal: citation.ChunkOrdinal,
 			Rank:         citation.Rank,
 			Score:        citation.Score,
 			Text:         citation.Text,
+			Snippet:      citation.Snippet,
+			MatchReason:  citation.MatchReason,
 		})
 	}
 	return result, nil

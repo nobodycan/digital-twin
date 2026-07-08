@@ -53,6 +53,7 @@ const answerStateCopy = {
   grounded: "Knowledge grounded",
   partially_supported: "Partially supported",
   unsupported: "No supporting source",
+  review_gated: "Review gated",
   provider_fallback: "Provider fallback",
   guard_rejected: "Guardrail fallback",
   local_mode: "Local mode"
@@ -142,6 +143,13 @@ function clearTranscriptMeta(line) {
   return meta;
 }
 
+function clearEvidencePanel(line) {
+  if (!line) {
+    return;
+  }
+  line.querySelector(".knowledge-evidence-panel")?.remove();
+}
+
 function renderCitationSummary(line, citations) {
   if (!line || !Array.isArray(citations) || citations.length === 0) {
     return;
@@ -155,6 +163,65 @@ function renderCitationSummary(line, citations) {
   }
 }
 
+function renderEvidencePanel(line, metadata) {
+  if (!line || !metadata || !metadata.knowledge_evidence) {
+    clearEvidencePanel(line);
+    return;
+  }
+  const evidence = metadata.knowledge_evidence;
+  const citations = Array.isArray(evidence.citations) ? evidence.citations : [];
+  const diagnostics = evidence.diagnostics || {};
+  clearEvidencePanel(line);
+
+  const panel = document.createElement("section");
+  panel.className = "knowledge-evidence-panel";
+
+  const summary = document.createElement("div");
+  summary.className = "knowledge-evidence-summary";
+  summary.textContent = evidence.summary || "No supporting evidence recorded";
+  panel.append(summary);
+
+  if (citations.length > 0) {
+    const list = document.createElement("div");
+    list.className = "knowledge-evidence-list";
+    for (const citation of citations) {
+      const row = document.createElement("article");
+      row.className = "knowledge-evidence-row";
+
+      const title = document.createElement("div");
+      title.className = "knowledge-evidence-title";
+      const sourceTitle = citation.title || citation.document_id || "Untitled source";
+      const sourceLabel = citation.source_label ? ` · ${citation.source_label}` : "";
+      title.textContent = `${sourceTitle}${sourceLabel}`;
+
+      const snippet = document.createElement("p");
+      snippet.className = "knowledge-evidence-snippet";
+      snippet.textContent = citation.snippet || "Snippet unavailable";
+
+      const detail = document.createElement("div");
+      detail.className = "knowledge-evidence-detail";
+      detail.textContent = [
+        citation.review_status || "active",
+        citation.match_reason || "lexical",
+        citation.chunk_id || ""
+      ].filter(Boolean).join(" · ");
+
+      row.append(title, snippet, detail);
+      list.append(row);
+    }
+    panel.append(list);
+  }
+
+  if (diagnostics.no_source_reason && citations.length === 0) {
+    const reason = document.createElement("div");
+    reason.className = "knowledge-evidence-next";
+    reason.textContent = diagnostics.no_source_reason.replaceAll("_", " ");
+    panel.append(reason);
+  }
+
+  line.append(panel);
+}
+
 function renderAnswerState(metadata = {}, activeSpaceName = selectedKnowledgeSpaceName) {
   const answerState = metadata.knowledge_answer_state || "";
   switch (answerState) {
@@ -164,6 +231,8 @@ function renderAnswerState(metadata = {}, activeSpaceName = selectedKnowledgeSpa
       return `${answerStateCopy.partially_supported} (${activeSpaceName})`;
     case "unsupported":
       return `${answerStateCopy.unsupported} (${activeSpaceName})`;
+    case "review_gated":
+      return `${answerStateCopy.review_gated} (${activeSpaceName})`;
     case "provider_fallback":
       return answerStateCopy.provider_fallback;
     case "guard_rejected":
@@ -197,6 +266,7 @@ function renderGroundingState(line, metadata) {
     memory.textContent = "Memory considered";
     meta.append(memory);
   }
+  renderEvidencePanel(line, metadata);
 }
 
 function setPresenceSummary(text) {
@@ -255,6 +325,8 @@ function renderPresenceSignals(metadata = {}) {
       presenceGroundingSignal.textContent = `Knowledge: partial (${activeSpaceName})`;
     } else if (answerState === "unsupported") {
       presenceGroundingSignal.textContent = `Knowledge: unsupported (${activeSpaceName})`;
+    } else if (answerState === "review_gated") {
+      presenceGroundingSignal.textContent = `Knowledge: review gated (${activeSpaceName})`;
     } else {
       presenceGroundingSignal.textContent = metadata.knowledge_used
         ? `Knowledge: grounded (${activeSpaceName})`

@@ -13,22 +13,31 @@ import (
 )
 
 type GroundingCitation struct {
+	SpaceID      string
 	DocumentID   string
 	DocumentName string
+	SourceLabel  string
+	SourceType   string
+	ReviewStatus string
 	ChunkID      string
+	ChunkOrdinal int
 	Rank         int
 	Score        float64
 	Text         string
+	Snippet      string
+	MatchReason  string
 }
 
 type Grounding struct {
-	RetrievalMode  string
-	SpaceID        string
-	SpaceName      string
-	Citations      []GroundingCitation
-	NoSourceReason string
-	MemoryUsed     bool
-	MemoryCount    int
+	RetrievalMode    string
+	SpaceID          string
+	SpaceName        string
+	Citations        []GroundingCitation
+	NoSourceReason   string
+	StagesSkipped    []string
+	ReviewGatedCount int
+	MemoryUsed       bool
+	MemoryCount      int
 }
 
 type KnowledgeAnswerState = string
@@ -40,6 +49,7 @@ const (
 	KnowledgeAnswerStateProviderFallback   KnowledgeAnswerState = "provider_fallback"
 	KnowledgeAnswerStateGuardRejected      KnowledgeAnswerState = "guard_rejected"
 	KnowledgeAnswerStateLocalMode          KnowledgeAnswerState = "local_mode"
+	KnowledgeAnswerStateReviewGated        KnowledgeAnswerState = "review_gated"
 )
 
 type KnowledgeGrounder interface {
@@ -504,6 +514,7 @@ func applyGroundingMetadata(metadata types.Metadata, grounding Grounding) {
 	if grounding.RetrievalMode != "" {
 		metadata["retrieval_mode"] = grounding.RetrievalMode
 	}
+	metadata["knowledge_evidence"] = groundingEvidenceMetadata(grounding)
 	if len(grounding.Citations) == 0 {
 		return
 	}
@@ -540,6 +551,9 @@ func classifyKnowledgeAnswerState(generationMode string, fallbackCategory string
 	if len(grounding.Citations) > 0 && generationMode == "llm" {
 		return KnowledgeAnswerStateGrounded
 	}
+	if isReviewGatedReason(grounding.NoSourceReason) {
+		return KnowledgeAnswerStateReviewGated
+	}
 	if grounding.NoSourceReason == "below_threshold" {
 		return KnowledgeAnswerStatePartiallySupported
 	}
@@ -547,4 +561,111 @@ func classifyKnowledgeAnswerState(generationMode string, fallbackCategory string
 		return KnowledgeAnswerStateUnsupported
 	}
 	return KnowledgeAnswerStateUnsupported
+}
+
+func groundingEvidenceMetadata(grounding Grounding) map[string]any {
+	answerState := classifyKnowledgeAnswerState("llm", "", grounding)
+	if answerState == KnowledgeAnswerStateGrounded && len(grounding.Citations) == 0 {
+		answerState = KnowledgeAnswerStateUnsupported
+	}
+	evidence := map[string]any{
+		"answer_state": string(answerState),
+		"summary":      groundingEvidenceSummary(answerState, grounding),
+		"citations":    groundingEvidenceCitations(grounding.Citations),
+		"diagnostics": map[string]any{
+			"no_source_reason":   grounding.NoSourceReason,
+			"stages_skipped":     append([]string(nil), grounding.StagesSkipped...),
+			"review_gated_count": grounding.ReviewGatedCount,
+		},
+		"gaps": []map[string]any{},
+	}
+	if grounding.SpaceID != "" {
+		evidence["space_id"] = grounding.SpaceID
+	}
+	if grounding.SpaceName != "" {
+		evidence["space_name"] = grounding.SpaceName
+	}
+	return evidence
+}
+
+func groundingEvidenceCitations(citations []GroundingCitation) []map[string]any {
+	items := make([]map[string]any, 0, len(citations))
+	for _, citation := range citations {
+		items = append(items, map[string]any{
+			"document_id":   citation.DocumentID,
+			"title":         citation.DocumentName,
+			"source_label":  citation.SourceLabel,
+			"source_type":   citation.SourceType,
+			"review_status": citation.ReviewStatus,
+			"chunk_id":      citation.ChunkID,
+			"chunk_ordinal": evidenceChunkOrdinal(citation),
+			"rank":          citation.Rank,
+			"score":         citation.Score,
+			"snippet":       evidenceSnippet(citation),
+			"match_reason":  evidenceMatchReason(citation),
+		})
+	}
+	return items
+}
+
+func groundingEvidenceSummary(state KnowledgeAnswerState, grounding Grounding) string {
+	switch state {
+	case KnowledgeAnswerStateGrounded:
+		if len(grounding.Citations) == 1 {
+			return "Grounded by 1 reviewed source."
+		}
+		return fmt.Sprintf("Grounded by %d reviewed sources.", len(grounding.Citations))
+	case KnowledgeAnswerStatePartiallySupported:
+		return "Partial support only; no source met the retrieval threshold."
+	case KnowledgeAnswerStateReviewGated:
+		if grounding.ReviewGatedCount > 0 {
+			return fmt.Sprintf("Matching knowledge exists but %d source(s) are still gated by review.", grounding.ReviewGatedCount)
+		}
+		return "Matching knowledge exists but it is still gated by review."
+	case KnowledgeAnswerStateProviderFallback:
+		return "A provider issue forced a fallback reply."
+	case KnowledgeAnswerStateGuardRejected:
+		return "The provider reply was blocked by answer-safety checks."
+	case KnowledgeAnswerStateLocalMode:
+		return "The response came from local mode without a live model provider."
+	default:
+		switch grounding.NoSourceReason {
+		case "no_matching_chunks":
+			return "No reviewed source matched the request."
+		case "no_review_active_documents":
+			return "No reviewed source is active in the selected knowledge space."
+		default:
+			return "No supporting evidence was recorded for this answer."
+		}
+	}
+}
+
+func isReviewGatedReason(reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case "review_gated_documents", "no_review_active_documents":
+		return true
+	default:
+		return false
+	}
+}
+
+func evidenceChunkOrdinal(citation GroundingCitation) int {
+	if citation.ChunkOrdinal > 0 {
+		return citation.ChunkOrdinal
+	}
+	return 0
+}
+
+func evidenceSnippet(citation GroundingCitation) string {
+	if strings.TrimSpace(citation.Snippet) != "" {
+		return citation.Snippet
+	}
+	return strings.TrimSpace(citation.Text)
+}
+
+func evidenceMatchReason(citation GroundingCitation) string {
+	if strings.TrimSpace(citation.MatchReason) != "" {
+		return citation.MatchReason
+	}
+	return "lexical"
 }
