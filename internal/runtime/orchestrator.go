@@ -344,6 +344,7 @@ func allowlistedGenerationMetadata(metadata types.Metadata) types.Metadata {
 		"knowledge_no_source_reason",
 		"knowledge_result_count",
 		"knowledge_citations",
+		"knowledge_evidence",
 		"retrieval_mode",
 		"memory_used",
 		"memory_result_count",

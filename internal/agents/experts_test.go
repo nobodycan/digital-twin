@@ -222,6 +222,33 @@ func TestPersonaAgentAddsKnowledgeGroundingToPromptAndMetadata(t *testing.T) {
 	if citations[0]["document_name"] != "planning.md" {
 		t.Fatalf("citation = %#v, want planning.md", citations[0])
 	}
+	evidence, ok := result.Metadata["knowledge_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("knowledge_evidence = %#v, want object", result.Metadata["knowledge_evidence"])
+	}
+	if evidence["answer_state"] != string(KnowledgeAnswerStateGrounded) {
+		t.Fatalf("answer_state = %v, want %s", evidence["answer_state"], KnowledgeAnswerStateGrounded)
+	}
+	if evidence["summary"] == "" {
+		t.Fatalf("summary = %#v, want non-empty", evidence["summary"])
+	}
+	citationEvidence, ok := evidence["citations"].([]map[string]any)
+	if !ok || len(citationEvidence) != 1 {
+		t.Fatalf("evidence citations = %#v, want 1 citation", evidence["citations"])
+	}
+	if citationEvidence[0]["title"] != "planning.md" {
+		t.Fatalf("evidence citation = %#v, want planning.md title", citationEvidence[0])
+	}
+	if citationEvidence[0]["snippet"] == "" {
+		t.Fatalf("evidence citation = %#v, want snippet", citationEvidence[0])
+	}
+	diagnostics, ok := evidence["diagnostics"].(map[string]any)
+	if !ok {
+		t.Fatalf("diagnostics = %#v, want object", evidence["diagnostics"])
+	}
+	if diagnostics["review_gated_count"] != 0 {
+		t.Fatalf("review_gated_count = %v, want 0", diagnostics["review_gated_count"])
+	}
 }
 
 func TestPersonaAgentMarksNoSourceWhenGroundingFindsNothing(t *testing.T) {
@@ -275,6 +302,42 @@ func TestPersonaAgentMarksPartialSupportWhenGroundingIsBelowThreshold(t *testing
 	}
 	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStatePartiallySupported {
 		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStatePartiallySupported)
+	}
+}
+
+func TestPersonaAgentMarksReviewGatedWhenGroundingIsBlockedByReview(t *testing.T) {
+	skills := skillRegistryWithDefaults(t, nil)
+	client := &recordingLLM{response: llm.ChatResponse{Message: types.Message{Role: types.RoleAssistant, Content: "Please review the source first."}}}
+	agent := NewPersonaAgent(skills, PersonaAgentConfig{
+		Client:   client,
+		Provider: "openai-compatible",
+		Knowledge: staticGrounder{result: Grounding{
+			RetrievalMode:    "lexical",
+			NoSourceReason:   "review_gated_documents",
+			ReviewGatedCount: 2,
+		}},
+	})
+
+	result, err := agent.Run(context.Background(), agentConversation("hello"), types.Intent{Name: types.IntentPersonaChat, Query: "hello", Confidence: 0.9})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Metadata["knowledge_answer_state"] != KnowledgeAnswerStateReviewGated {
+		t.Fatalf("knowledge_answer_state = %v, want %s", result.Metadata["knowledge_answer_state"], KnowledgeAnswerStateReviewGated)
+	}
+	evidence, ok := result.Metadata["knowledge_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("knowledge_evidence = %#v, want object", result.Metadata["knowledge_evidence"])
+	}
+	if evidence["answer_state"] != string(KnowledgeAnswerStateReviewGated) {
+		t.Fatalf("answer_state = %v, want %s", evidence["answer_state"], KnowledgeAnswerStateReviewGated)
+	}
+	diagnostics, ok := evidence["diagnostics"].(map[string]any)
+	if !ok {
+		t.Fatalf("diagnostics = %#v, want object", evidence["diagnostics"])
+	}
+	if diagnostics["review_gated_count"] != 2 {
+		t.Fatalf("review_gated_count = %v, want 2", diagnostics["review_gated_count"])
 	}
 }
 

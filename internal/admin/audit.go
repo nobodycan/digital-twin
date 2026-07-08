@@ -15,15 +15,18 @@ const (
 )
 
 type AuditRecord struct {
-	ID             string      `json:"id"`
-	TenantID       string      `json:"tenant_id"`
-	ConversationID string      `json:"conversation_id"`
-	UserID         string      `json:"user_id"`
-	Status         AuditStatus `json:"status"`
-	AgentName      string      `json:"agent_name"`
-	LatencyMS      int64       `json:"latency_ms"`
-	EventSummary   []string    `json:"event_summary"`
-	CreatedAt      time.Time   `json:"created_at"`
+	ID                   string         `json:"id"`
+	TenantID             string         `json:"tenant_id"`
+	ConversationID       string         `json:"conversation_id"`
+	UserID               string         `json:"user_id"`
+	Status               AuditStatus    `json:"status"`
+	AgentName            string         `json:"agent_name"`
+	LatencyMS            int64          `json:"latency_ms"`
+	EventSummary         []string       `json:"event_summary"`
+	KnowledgeAnswerState string         `json:"knowledge_answer_state,omitempty"`
+	KnowledgeSourceCount int            `json:"knowledge_source_count,omitempty"`
+	KnowledgeEvidence    map[string]any `json:"knowledge_evidence,omitempty"`
+	CreatedAt            time.Time      `json:"created_at"`
 }
 
 type AuditStore interface {

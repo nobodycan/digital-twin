@@ -109,6 +109,34 @@ func TestKnowledgeServiceDocumentDetailFlagsQualitySignals(t *testing.T) {
 	}
 }
 
+func TestKnowledgeServiceDocumentDetailFlagsMissingSourceLabelShortAndReviewGated(t *testing.T) {
+	store := NewInMemoryKnowledgeStore()
+	service := NewKnowledgeService(store)
+
+	document, err := service.Upload("tenant-1", KnowledgeUpload{
+		ID:      "kb-short",
+		Name:    "short.md",
+		Content: "tiny",
+		Metadata: map[string]string{
+			"source_type": "workbench_note",
+		},
+		ReviewStatus: KnowledgeReviewPending,
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+
+	detail, err := service.DocumentDetail("tenant-1", document.ID)
+	if err != nil {
+		t.Fatalf("DocumentDetail returned error: %v", err)
+	}
+	for _, want := range []string{"review_gated", "missing_source_label", "short_content"} {
+		if !containsString(detail.QualityFlags, want) {
+			t.Fatalf("quality flags = %#v, want %q", detail.QualityFlags, want)
+		}
+	}
+}
+
 func TestKnowledgeServiceDocumentDetailIncludesSourceAndResolvedGapRelations(t *testing.T) {
 	knowledgeStore := NewInMemoryKnowledgeStore()
 	knowledgeService := NewKnowledgeService(knowledgeStore)

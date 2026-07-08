@@ -9,12 +9,19 @@ import (
 )
 
 type Result struct {
+	SpaceID      string  `json:"space_id,omitempty"`
 	DocumentID   string  `json:"document_id"`
 	DocumentName string  `json:"document_name"`
+	SourceLabel  string  `json:"source_label,omitempty"`
+	SourceType   string  `json:"source_type,omitempty"`
+	ReviewStatus string  `json:"review_status,omitempty"`
 	ChunkID      string  `json:"chunk_id"`
+	ChunkOrdinal int     `json:"chunk_ordinal,omitempty"`
 	Rank         int     `json:"rank"`
 	Score        float64 `json:"score"`
 	Text         string  `json:"text"`
+	Snippet      string  `json:"snippet,omitempty"`
+	MatchReason  string  `json:"match_reason,omitempty"`
 }
 
 type Retriever struct{}
@@ -43,11 +50,18 @@ func (Retriever) Search(documents []admin.KnowledgeDocument, query string, limit
 				continue
 			}
 			candidates = append(candidates, Result{
+				SpaceID:      document.SpaceID,
 				DocumentID:   document.ID,
 				DocumentName: document.Name,
+				SourceLabel:  strings.TrimSpace(document.Metadata["source_label"]),
+				SourceType:   strings.TrimSpace(document.Metadata["source_type"]),
+				ReviewStatus: string(document.ReviewStatus),
 				ChunkID:      chunk.ID,
+				ChunkOrdinal: chunk.Ordinal,
 				Score:        score,
 				Text:         chunk.Text,
+				Snippet:      snippetForChunk(chunk.Text, normalizedQuery, 160),
+				MatchReason:  "lexical",
 			})
 		}
 	}
@@ -117,4 +131,38 @@ func chunkOrdinalFromID(chunkID string) int {
 		value = value*10 + int(r-'0')
 	}
 	return value
+}
+
+func snippetForChunk(text, query string, maxLen int) string {
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	if normalized == "" {
+		return ""
+	}
+	if maxLen <= 0 || len(normalized) <= maxLen {
+		return normalized
+	}
+	matchIdx := strings.Index(strings.ToLower(normalized), strings.ToLower(strings.TrimSpace(query)))
+	if matchIdx < 0 {
+		matchIdx = 0
+	}
+	start := matchIdx - maxLen/4
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxLen
+	if end > len(normalized) {
+		end = len(normalized)
+		start = end - maxLen
+		if start < 0 {
+			start = 0
+		}
+	}
+	snippet := normalized[start:end]
+	if start > 0 {
+		snippet = "..." + strings.TrimSpace(snippet)
+	}
+	if end < len(normalized) {
+		snippet = strings.TrimSpace(snippet) + "..."
+	}
+	return snippet
 }

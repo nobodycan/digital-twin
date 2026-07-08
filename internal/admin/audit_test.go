@@ -11,12 +11,18 @@ func TestAuditServiceRecordsAndListsConversationAudit(t *testing.T) {
 	service := NewAuditService(NewInMemoryAuditStore())
 
 	record, err := service.Record("tenant-1", AuditRecord{
-		ConversationID: "conv-1",
-		UserID:         "user-1",
-		Status:         AuditStatusCompleted,
-		AgentName:      "persona-agent",
-		LatencyMS:      42,
-		EventSummary:   []string{"assistant_text_delta", "audio_chunk", "done"},
+		ConversationID:       "conv-1",
+		UserID:               "user-1",
+		Status:               AuditStatusCompleted,
+		AgentName:            "persona-agent",
+		LatencyMS:            42,
+		EventSummary:         []string{"assistant_text_delta", "audio_chunk", "done"},
+		KnowledgeAnswerState: "grounded",
+		KnowledgeSourceCount: 2,
+		KnowledgeEvidence: map[string]any{
+			"answer_state": "grounded",
+			"summary":      "Grounded by 2 reviewed sources.",
+		},
 	})
 	if err != nil {
 		t.Fatalf("Record returned error: %v", err)
@@ -31,6 +37,9 @@ func TestAuditServiceRecordsAndListsConversationAudit(t *testing.T) {
 	}
 	if len(recent) != 1 || recent[0].ConversationID != "conv-1" {
 		t.Fatalf("recent audit = %#v", recent)
+	}
+	if recent[0].KnowledgeAnswerState != "grounded" || recent[0].KnowledgeSourceCount != 2 {
+		t.Fatalf("recent audit = %#v, want knowledge evidence fields", recent[0])
 	}
 }
 

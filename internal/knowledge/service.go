@@ -14,14 +14,15 @@ type Service struct {
 }
 
 type Grounding struct {
-	RetrievalMode  string
-	SpaceID        string
-	SpaceName      string
-	Citations      []Result
-	Explanations   []Explanation
-	NoSourceReason string
-	StagesRun      []string
-	StagesSkipped  []string
+	RetrievalMode    string
+	SpaceID          string
+	SpaceName        string
+	Citations        []Result
+	Explanations     []Explanation
+	NoSourceReason   string
+	StagesRun        []string
+	StagesSkipped    []string
+	ReviewGatedCount int
 }
 
 func NewService(store admin.KnowledgeStore) Service {
@@ -54,14 +55,15 @@ func (s Service) Ground(ctx context.Context, conversation types.Conversation, qu
 		SpaceID: spaceID,
 	})
 	return Grounding{
-		RetrievalMode:  string(response.Mode),
-		SpaceID:        spaceID,
-		SpaceName:      spaceName,
-		Citations:      response.Results,
-		Explanations:   response.Explanations,
-		NoSourceReason: response.NoSourceReason,
-		StagesRun:      response.StagesRun,
-		StagesSkipped:  response.StagesSkipped,
+		RetrievalMode:    string(response.Mode),
+		SpaceID:          spaceID,
+		SpaceName:        spaceName,
+		Citations:        response.Results,
+		Explanations:     response.Explanations,
+		NoSourceReason:   response.NoSourceReason,
+		StagesRun:        response.StagesRun,
+		StagesSkipped:    response.StagesSkipped,
+		ReviewGatedCount: response.ReviewGatedCount,
 	}, nil
 }
 
