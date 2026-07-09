@@ -385,7 +385,7 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 	}
 	source := string(html)
 	for _, want := range []string{
-		"Local-first controls for Phase 18",
+		"Local-first controls for Phase 21",
 		`id="knowledge-space-select"`,
 		`id="knowledge-space-create"`,
 		`id="knowledge-space-create-button"`,
