@@ -440,6 +440,7 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 		`id="audit-timeline"`,
 		`id="audit-timeline-refresh"`,
 		`id="audit-timeline-state"`,
+		`value="local_mode"`,
 		`id="audit-timeline-weak-only"`,
 		`id="audit-timeline-document-id"`,
 		`id="audit-timeline-conversation-id"`,
