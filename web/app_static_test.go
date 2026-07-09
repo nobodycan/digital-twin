@@ -262,9 +262,24 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		`"/admin/tools/policy"`,
 		`"/admin/tools/authorize"`,
 		`"/admin/audit"`,
+		`"/admin/audit/timeline"`,
 		"renderAuditTrust",
 		"renderAuditEvidence",
 		"appendAuditEvidence",
+		"loadAuditTimeline",
+		"renderAuditTimelineItem",
+		"appendAuditTimelineSourceActions",
+		"audit-timeline-body",
+		"audit-timeline-state",
+		"audit-timeline-weak-only",
+		"audit-timeline-document-id",
+		"audit-timeline-conversation-id",
+		"audit-timeline-limit",
+		"auditTimelineBody",
+		"question_summary",
+		"gap unknown",
+		"Open gap queue",
+		"Filter conversation",
 		"knowledge_evidence",
 		"knowledge_answer_state",
 		"No supporting evidence recorded",
@@ -342,6 +357,7 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		"active",
 		"rejected",
 		"archived",
+		"review_gated",
 		"knowledgeReviewPath",
 		"renderKnowledgeReviewQueue",
 		"renderKnowledgeReviewRow",
@@ -421,6 +437,14 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 		`id="knowledge-note-create"`,
 		`id="knowledge-note-gap-context"`,
 		`id="knowledge-status"`,
+		`id="audit-timeline"`,
+		`id="audit-timeline-refresh"`,
+		`id="audit-timeline-state"`,
+		`id="audit-timeline-weak-only"`,
+		`id="audit-timeline-document-id"`,
+		`id="audit-timeline-conversation-id"`,
+		`id="audit-timeline-limit"`,
+		`id="audit-timeline-body"`,
 		"Chunk preview",
 		"Health summary",
 		"Knowledge import",
@@ -436,9 +460,36 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 		"Run diagnostics",
 		"Trust",
 		"Evidence",
+		"Answer timeline",
+		"Weak only",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.html missing %q", want)
+		}
+	}
+}
+
+func TestAdminStylesIncludeTimelineLayout(t *testing.T) {
+	data, err := os.ReadFile("app.css")
+	if err != nil {
+		t.Fatalf("read app.css: %v", err)
+	}
+	styles := string(data)
+	for _, want := range []string{
+		"#audit-timeline",
+		"#audit-timeline-body",
+		".audit-timeline-item",
+		".audit-timeline-summary",
+		".audit-timeline-meta",
+		".audit-timeline-sources",
+		".audit-timeline-snippet",
+		".audit-timeline-actions",
+		".audit-timeline-filters",
+		"-webkit-line-clamp: 2",
+		"min-width: 0",
+	} {
+		if !strings.Contains(styles, want) {
+			t.Fatalf("app.css missing %q", want)
 		}
 	}
 }

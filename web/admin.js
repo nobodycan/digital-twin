@@ -58,6 +58,13 @@ const knowledgeNoteGapContext = document.querySelector("#knowledge-note-gap-cont
 const toolKnowledgeSearch = document.querySelector("#tool-knowledge-search");
 const toolSavePolicy = document.querySelector("#tool-save-policy");
 const toolStatus = document.querySelector("#tool-status");
+const auditTimelineRefresh = document.querySelector("#audit-timeline-refresh");
+const auditTimelineBody = document.querySelector("#audit-timeline-body");
+const auditTimelineState = document.querySelector("#audit-timeline-state");
+const auditTimelineWeakOnly = document.querySelector("#audit-timeline-weak-only");
+const auditTimelineDocumentID = document.querySelector("#audit-timeline-document-id");
+const auditTimelineConversationID = document.querySelector("#audit-timeline-conversation-id");
+const auditTimelineLimit = document.querySelector("#audit-timeline-limit");
 const auditRefresh = document.querySelector("#audit-refresh");
 const auditTableBody = document.querySelector("#audit-table-body");
 const knowledgeDetailPathPrefix = "/admin/knowledge/";
@@ -147,6 +154,132 @@ function appendAuditEvidence(cell, record) {
     });
     cell.append(button);
   }
+}
+
+function auditTimelineQuery() {
+  const params = new URLSearchParams();
+  if (auditTimelineState?.value) {
+    params.set("state", auditTimelineState.value);
+  }
+  if (auditTimelineWeakOnly?.checked) {
+    params.set("weak_only", "true");
+  }
+  if (auditTimelineDocumentID?.value.trim()) {
+    params.set("document_id", auditTimelineDocumentID.value.trim());
+  }
+  if (auditTimelineConversationID?.value.trim()) {
+    params.set("conversation_id", auditTimelineConversationID.value.trim());
+  }
+  if (auditTimelineLimit?.value.trim()) {
+    params.set("limit", auditTimelineLimit.value.trim());
+  }
+  const query = params.toString();
+  return query ? `/admin/audit/timeline?${query}` : "/admin/audit/timeline";
+}
+
+function appendAuditTimelineSourceActions(container, item) {
+  const sources = Array.isArray(item.top_sources) ? item.top_sources.slice(0, 2) : [];
+  for (const source of sources) {
+    if (!source.document_id) {
+      continue;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = source.title || source.document_id;
+    button.addEventListener("click", async () => {
+      await inspectKnowledgeDocument(source.document_id);
+      setKnowledgeStatus(`Inspecting evidence source ${source.document_id}`);
+    });
+    container.append(button);
+  }
+}
+
+function renderAuditTimelineItem(item) {
+  const row = document.createElement("div");
+  row.className = "audit-timeline-item";
+
+  const summary = document.createElement("div");
+  summary.className = "audit-timeline-summary";
+  const summaryLines = [
+    `[${item.answer_state || "unknown"}] ${item.created_at || ""} ${item.conversation_id || ""}`.trim(),
+    item.question_summary || item.summary || "No supporting evidence recorded",
+    `${item.source_count || 0} sources${item.diagnostics?.no_source_reason ? ` | ${item.diagnostics.no_source_reason}` : ""}`,
+  ].filter(Boolean);
+  summary.textContent = summaryLines.join("\n");
+  row.append(summary);
+
+  const meta = document.createElement("div");
+  meta.className = "audit-timeline-meta";
+  meta.textContent = `Agent ${item.agent_name || "unknown"} | ${item.status || "unknown"} | ${item.latency_ms || 0}ms`;
+  row.append(meta);
+
+  const sources = document.createElement("div");
+  sources.className = "audit-timeline-sources";
+  const topSources = Array.isArray(item.top_sources) ? item.top_sources.slice(0, 2) : [];
+  if (topSources.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "audit-timeline-snippet";
+    empty.textContent = item.summary || "No supporting evidence recorded";
+    sources.append(empty);
+  } else {
+    for (const source of topSources) {
+      const snippet = document.createElement("div");
+      snippet.className = "audit-timeline-snippet";
+      snippet.textContent = [
+        source.title || source.document_id || "Untitled source",
+        source.review_status ? `review ${source.review_status}` : "",
+        source.snippet || "",
+      ].filter(Boolean).join(" | ");
+      sources.append(snippet);
+    }
+  }
+  row.append(sources);
+
+  const actions = document.createElement("div");
+  actions.className = "audit-timeline-actions";
+  appendAuditTimelineSourceActions(actions, item);
+
+  if (item.conversation_id) {
+    const filterConversation = document.createElement("button");
+    filterConversation.type = "button";
+    filterConversation.textContent = "Filter conversation";
+    filterConversation.addEventListener("click", async () => {
+      if (auditTimelineConversationID) {
+        auditTimelineConversationID.value = item.conversation_id;
+      }
+      await loadAuditTimeline();
+    });
+    actions.append(filterConversation);
+  }
+
+  if (item.gap?.gap_id) {
+    const gapButton = document.createElement("button");
+    gapButton.type = "button";
+    gapButton.textContent = `Open gap ${item.gap.gap_id}`;
+    gapButton.addEventListener("click", async () => {
+      await loadKnowledgeGaps();
+      setKnowledgeStatus(`Open gap queue for ${item.gap.gap_id}`);
+    });
+    actions.append(gapButton);
+  } else if (item.answer_state === "unsupported" || item.answer_state === "partially_supported" || item.answer_state === "review_gated") {
+    const gapButton = document.createElement("button");
+    gapButton.type = "button";
+    gapButton.textContent = "Open gap queue";
+    gapButton.addEventListener("click", async () => {
+      await loadKnowledgeGaps();
+      setKnowledgeStatus("Open gap queue");
+    });
+    actions.append(gapButton);
+  }
+
+  if (!item.gap && item.diagnostics?.no_source_reason) {
+    const note = document.createElement("span");
+    note.textContent = "gap unknown";
+    actions.append(note);
+  }
+
+  row.append(actions);
+  return row;
 }
 
 function effectiveReviewStatus(documentRecord) {
@@ -1244,6 +1377,25 @@ async function loadAudit() {
   }
 }
 
+async function loadAuditTimeline() {
+  if (!auditTimelineBody) {
+    return;
+  }
+  const response = await fetch(auditTimelineQuery());
+  if (!response.ok) {
+    throw new Error(`audit timeline failed (${response.status})`);
+  }
+  const items = await response.json();
+  clearElement(auditTimelineBody);
+  if (!Array.isArray(items) || items.length === 0) {
+    auditTimelineBody.textContent = "No timeline records";
+    return;
+  }
+  for (const item of items) {
+    auditTimelineBody.append(renderAuditTimelineItem(item));
+  }
+}
+
 saveDraftButton?.addEventListener("click", async () => {
   try {
     const draft = await postJSON("/admin/persona/drafts", draftPayload());
@@ -1283,4 +1435,10 @@ refreshKnowledgeWorkspace().catch(() => {});
 auditRefresh?.addEventListener("click", () => {
   loadAudit().catch(() => {});
 });
+auditTimelineRefresh?.addEventListener("click", () => {
+  loadAuditTimeline().catch((error) => {
+    setKnowledgeStatus(`Audit timeline error: ${error.message}`);
+  });
+});
 loadAudit().catch(() => {});
+loadAuditTimeline().catch(() => {});

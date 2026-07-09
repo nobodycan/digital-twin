@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 19 - Knowledge Review and Activation`
+Current stage: `Phase 21 - Answer Audit Timeline`
 
 What is already working:
 
@@ -27,6 +27,10 @@ What is already working:
 - knowledge document detail with source-gap and resolved-gap relationships, plus in-place local editing for curated notes and uploaded text content
 - local-first knowledge import jobs for text/Markdown files and pasted URL snapshots, with deterministic dedupe and import history
 - knowledge review and activation controls: imported sources default to pending review, `/admin` exposes a review queue, and only review-active documents participate in normal retrieval
+- deterministic `knowledge_evidence` metadata for grounded, partially supported, unsupported, provider fallback, guard-rejected, and local-mode turns
+- compact evidence panels in `/app` with support state, source rows, bounded snippets, and operator next-action cues
+- answer-trust inspection in `/admin`, including recent evidence-bearing turns and document quality flags
+- answer audit timeline in `/admin`, including bounded question summaries, answer-state filters, source links, and weak-answer gap workflow cues
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -71,6 +75,8 @@ flowchart TD
 - `GET /ready`
 - `GET /metrics`
 - `GET /runtime/status`
+- `GET /admin/audit`
+- `GET /admin/audit/timeline`
 - `GET /admin/knowledge`
 - `GET /admin/knowledge/health`
 - `GET /admin/knowledge/{document_id}`
@@ -174,7 +180,7 @@ The smoke script now:
 
 ## Knowledge workflow
 
-Phase 19 extends the local knowledge loop into a governed source-activation workspace:
+Phase 21 extends the local knowledge loop into an inspectable evidence, answer-trust, and audit-timeline workspace:
 
 1. Start the server.
 2. Open [http://localhost:18080/admin](http://localhost:18080/admin).
@@ -187,9 +193,11 @@ Phase 19 extends the local knowledge loop into a governed source-activation work
 9. Inspect document detail to see quality flags, source metadata, review state, and source/resolution relationships.
 10. Edit a local document title, source label, or content in place when curation is needed.
 11. Ask a related or unsupported question in `/app` with the same selected space.
-12. Return to `/admin` and inspect the local knowledge-gap queue.
-13. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
-14. Resolve the gap with an optional document ID and resolution note once evidence is visible.
+12. Inspect the compact evidence panel below the assistant turn, including support state, source rows, bounded snippets, and next action.
+13. Return to `/admin` and inspect the Answer timeline with filters for weak answers, source documents, or a single conversation.
+14. Open a cited source from the timeline or jump to the gap workflow for unsupported and review-gated answers.
+15. Move a gap to `investigating`, create a workbench note, and run diagnostics from the gap question.
+16. Resolve the gap with an optional document ID and resolution note once evidence is visible.
 
 When a turn completes, `/app` can now show:
 
@@ -198,9 +206,10 @@ When a turn completes, `/app` can now show:
 - `No supporting source (Space Name)` when the selected space cannot support the question
 - `Provider fallback` or `Guardrail fallback` when the final answer is not a normal provider-backed grounded turn
 - source citation chips
+- evidence panels with reviewed source rows, snippets, diagnostics, and next-action cues
 - `Memory considered` when memory metadata is present
 
-Local verification for Phase 19:
+Local verification for Phase 21:
 
 ```powershell
 go test ./internal/knowledge ./internal/admin ./internal/server ./internal/agents ./internal/app ./web
@@ -214,6 +223,22 @@ The retrieval pipeline is still local-first:
 - vector retrieval is optional
 - CI does not require DeepSeek, embeddings, or an external vector database
 - `internal/knowledge/testdata` contains deterministic RAG eval fixtures
+
+## Phase 21 highlights
+
+Phase 21 focuses on making answer trust inspectable over time:
+
+- `/admin` now exposes a bounded Answer Timeline powered by persisted audit records and `knowledge_evidence`
+- timeline items include answer state, question summary, source count, top source links, diagnostics, and weak-answer action cues
+- the existing Audit table remains available while timeline filters support weak-only, document, conversation, and bounded recent-history views
+
+## Phase 20 highlights
+
+Phase 20 focuses on making knowledge-backed answers inspectable without overclaiming truth:
+
+- assistant turns now carry additive `knowledge_evidence` metadata alongside existing answer-state and citation metadata
+- `/app` renders compact evidence panels with support summaries, source rows, bounded snippets, and review-gate-safe diagnostics
+- `/admin` surfaces recent answer-trust evidence and deterministic document quality flags for local triage
 
 ## Phase 19 highlights
 

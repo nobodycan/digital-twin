@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -166,6 +167,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/tools/policy", handler.handleToolPolicySave)
 	handler.mux.HandleFunc("POST /admin/tools/authorize", handler.handleToolAuthorize)
 	handler.mux.HandleFunc("GET /admin/audit", handler.handleAuditRecent)
+	handler.mux.HandleFunc("GET /admin/audit/timeline", handler.handleAuditTimeline)
 	return handler
 }
 
@@ -1042,6 +1044,25 @@ func (h *Handler) handleAuditRecent(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, records)
 }
 
+func (h *Handler) handleAuditTimeline(w http.ResponseWriter, r *http.Request) {
+	if h.auditAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "audit_timeline_unavailable"})
+		return
+	}
+	filter, err := parseAuditTimelineFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit", "cause": err.Error()})
+		return
+	}
+	items, err := h.auditAdmin.Timeline(h.adminTenantID(), filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "audit_timeline_failed", "cause": err.Error()})
+		return
+	}
+	h.attachTimelineGaps(items)
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (h *Handler) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	if h.orchestrator == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "orchestrator_unavailable"})
@@ -1251,17 +1272,23 @@ func (h *Handler) recordAudit(conversation types.Conversation, result types.Agen
 		summary = append(summary, string(event.Name))
 	}
 	record := admin.AuditRecord{
-		ConversationID: conversation.ID,
-		UserID:         conversation.UserID,
-		Status:         status,
-		AgentName:      result.AgentName,
-		LatencyMS:      latencyMS,
-		EventSummary:   summary,
+		ConversationID:  conversation.ID,
+		UserID:          conversation.UserID,
+		Status:          status,
+		AgentName:       result.AgentName,
+		LatencyMS:       latencyMS,
+		EventSummary:    summary,
+		QuestionSummary: summarizeAuditQuestion(conversation),
 	}
 	if result.Metadata != nil {
+		record.KnowledgeSpaceID, _ = result.Metadata["knowledge_space_id"].(string)
+		record.KnowledgeNoSourceReason, _ = result.Metadata["knowledge_no_source_reason"].(string)
 		record.KnowledgeAnswerState, _ = result.Metadata["knowledge_answer_state"].(string)
 		record.KnowledgeSourceCount, _ = result.Metadata["knowledge_result_count"].(int)
 		record.KnowledgeEvidence = cloneEvidenceMetadata(result.Metadata["knowledge_evidence"])
+	}
+	if strings.TrimSpace(record.KnowledgeSpaceID) == "" && conversation.Metadata != nil {
+		record.KnowledgeSpaceID, _ = conversation.Metadata["knowledge_space_id"].(string)
 	}
 	_, _ = h.auditAdmin.Record(conversation.TenantID, record)
 }
@@ -1308,6 +1335,91 @@ func lastUserQuestion(conversation types.Conversation) string {
 		}
 	}
 	return ""
+}
+
+func summarizeAuditQuestion(conversation types.Conversation) string {
+	question := lastUserQuestion(conversation)
+	if len(question) <= 160 {
+		return question
+	}
+	trimmed := strings.TrimSpace(question[:157])
+	trimmed = strings.TrimRight(trimmed, " ,.;:")
+	return trimmed + "..."
+}
+
+func (h *Handler) attachTimelineGaps(items []admin.AnswerAuditTimelineItem) {
+	if h.knowledgeGapAdmin == nil {
+		return
+	}
+	for i := range items {
+		if items[i].Gap != nil {
+			continue
+		}
+		if !isTimelineGapCandidate(items[i]) {
+			continue
+		}
+		gap, ok := h.matchTimelineGap(items[i])
+		if !ok {
+			continue
+		}
+		items[i].Gap = &admin.AnswerAuditTimelineGap{
+			GapID:  gap.ID,
+			Status: string(gap.Status),
+			Reason: gap.NoSourceReason,
+		}
+	}
+}
+
+func isTimelineGapCandidate(item admin.AnswerAuditTimelineItem) bool {
+	switch strings.TrimSpace(item.AnswerState) {
+	case "unsupported", "partially_supported", "review_gated":
+		return strings.TrimSpace(item.QuestionSummary) != "" && strings.TrimSpace(item.Diagnostics.NoSourceReason) != ""
+	default:
+		return false
+	}
+}
+
+func (h *Handler) matchTimelineGap(item admin.AnswerAuditTimelineItem) (admin.KnowledgeGap, bool) {
+	records, err := h.knowledgeGapAdmin.List(h.adminTenantID(), item.KnowledgeSpaceID)
+	if err != nil {
+		return admin.KnowledgeGap{}, false
+	}
+	var matches []admin.KnowledgeGap
+	for _, gap := range records {
+		if strings.TrimSpace(gap.Question) != strings.TrimSpace(item.QuestionSummary) {
+			continue
+		}
+		if strings.TrimSpace(gap.NoSourceReason) != strings.TrimSpace(item.Diagnostics.NoSourceReason) {
+			continue
+		}
+		matches = append(matches, gap)
+	}
+	if len(matches) != 1 {
+		return admin.KnowledgeGap{}, false
+	}
+	return matches[0], true
+}
+
+func parseAuditTimelineFilter(r *http.Request) (admin.AnswerAuditTimelineFilter, error) {
+	query := r.URL.Query()
+	filter := admin.AnswerAuditTimelineFilter{
+		State:          strings.TrimSpace(query.Get("state")),
+		WeakOnly:       strings.EqualFold(strings.TrimSpace(query.Get("weak_only")), "true"),
+		DocumentID:     strings.TrimSpace(query.Get("document_id")),
+		ConversationID: strings.TrimSpace(query.Get("conversation_id")),
+		Limit:          50,
+	}
+	if raw := strings.TrimSpace(query.Get("limit")); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 {
+			return admin.AnswerAuditTimelineFilter{}, fmt.Errorf("limit must be between 1 and 100")
+		}
+		if limit > 100 {
+			limit = 100
+		}
+		filter.Limit = limit
+	}
+	return filter, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
