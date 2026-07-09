@@ -728,6 +728,71 @@ input:disabled {
   justify-content: flex-start;
 }
 
+#audit-timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.audit-timeline-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: end;
+}
+
+.audit-timeline-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+#audit-timeline-body {
+  display: grid;
+  gap: 10px;
+}
+
+.audit-timeline-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d5ddd7;
+  border-radius: 6px;
+  background: #fbfcf8;
+}
+
+.audit-timeline-summary,
+.audit-timeline-meta,
+.audit-timeline-snippet {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.audit-timeline-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-timeline-sources {
+  display: grid;
+  gap: 6px;
+}
+
+.audit-timeline-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.audit-timeline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 table {
   width: 100%;
   margin-top: 10px;

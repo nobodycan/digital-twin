@@ -1770,6 +1770,7 @@ func TestHandlerRecordsExperienceStreamAudit(t *testing.T) {
 			Metadata: types.Metadata{
 				"knowledge_answer_state": "grounded",
 				"knowledge_result_count": 1,
+				"knowledge_space_id":     "default",
 				"knowledge_evidence": map[string]any{
 					"answer_state": "grounded",
 					"summary":      "Grounded by 1 reviewed source.",
@@ -1800,6 +1801,11 @@ func TestHandlerRecordsExperienceStreamAudit(t *testing.T) {
 		t.Fatalf("audit body = %s", auditResponse.Body.String())
 	}
 	for _, want := range []string{`"knowledge_answer_state":"grounded"`, `"knowledge_source_count":1`, `"summary":"Grounded by 1 reviewed source."`} {
+		if !strings.Contains(auditResponse.Body.String(), want) {
+			t.Fatalf("audit body = %s, want %s", auditResponse.Body.String(), want)
+		}
+	}
+	for _, want := range []string{`"question_summary":"hello"`, `"knowledge_space_id":"default"`} {
 		if !strings.Contains(auditResponse.Body.String(), want) {
 			t.Fatalf("audit body = %s, want %s", auditResponse.Body.String(), want)
 		}
@@ -2020,6 +2026,135 @@ func TestHandlerRecordsMockVoiceAudit(t *testing.T) {
 	}
 	if !strings.Contains(auditResponse.Body.String(), `"conversation_id":"mock-voice-session"`) {
 		t.Fatalf("audit body = %s", auditResponse.Body.String())
+	}
+}
+
+func TestHandlerAuditQuestionSummaryBoundsLongUserQuestion(t *testing.T) {
+	longQuestion := strings.Repeat("deepseek startup verification ", 20)
+	got := summarizeAuditQuestion(types.Conversation{
+		Messages: []types.Message{{Role: types.RoleUser, Content: longQuestion}},
+	})
+	if len(got) == 0 {
+		t.Fatalf("summary = empty, want bounded text")
+	}
+	if len(got) > 160 {
+		t.Fatalf("summary length = %d, want <= 160", len(got))
+	}
+	if !strings.Contains(got, "deepseek startup verification") {
+		t.Fatalf("summary = %q, want source text", got)
+	}
+}
+
+func TestHandlerReturnsAuditTimelineWithFilters(t *testing.T) {
+	auditService := admin.NewAuditService(admin.NewInMemoryAuditStore())
+	if _, err := auditService.Record("tenant-1", admin.AuditRecord{
+		ID:                   "audit-1",
+		ConversationID:       "conv-1",
+		Status:               admin.AuditStatusCompleted,
+		KnowledgeAnswerState: "grounded",
+		KnowledgeEvidence: map[string]any{
+			"answer_state": "grounded",
+			"summary":      "Grounded by 1 reviewed source.",
+			"citations":    []map[string]any{{"document_id": "kb-1", "title": "Support Playbook"}},
+		},
+	}); err != nil {
+		t.Fatalf("Record(grounded) returned error: %v", err)
+	}
+	if _, err := auditService.Record("tenant-1", admin.AuditRecord{
+		ID:                      "audit-2",
+		ConversationID:          "conv-2",
+		Status:                  admin.AuditStatusCompleted,
+		KnowledgeAnswerState:    "unsupported",
+		KnowledgeNoSourceReason: "no_matching_chunks",
+		KnowledgeEvidence: map[string]any{
+			"answer_state": "unsupported",
+			"summary":      "No supporting evidence recorded.",
+		},
+	}); err != nil {
+		t.Fatalf("Record(unsupported) returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:    observability.NewMemoryMetrics(),
+		AuditAdmin: &auditService,
+		KnowledgeGapAdmin: func() *admin.KnowledgeGapService {
+			service := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+			return &service
+		}(),
+	})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/admin/audit/timeline?weak_only=true&limit=10", nil)
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("timeline status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"conversation_id":"conv-2"`) {
+		t.Fatalf("timeline body = %s, want weak answer", body)
+	}
+	if strings.Contains(body, `"conversation_id":"conv-1"`) {
+		t.Fatalf("timeline body = %s, want weak-only filter applied", body)
+	}
+}
+
+func TestHandlerRejectsInvalidAuditTimelineLimit(t *testing.T) {
+	auditService := admin.NewAuditService(admin.NewInMemoryAuditStore())
+	handler := NewHandler(Config{
+		Metrics:    observability.NewMemoryMetrics(),
+		AuditAdmin: &auditService,
+	})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/admin/audit/timeline?limit=0", nil)
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("timeline status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"error":"invalid_limit"`) {
+		t.Fatalf("timeline body = %s", response.Body.String())
+	}
+}
+
+func TestHandlerAuditTimelineMatchesSingleGapConservatively(t *testing.T) {
+	auditService := admin.NewAuditService(admin.NewInMemoryAuditStore())
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	if _, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
+		SpaceID:        "default",
+		Question:       "hello",
+		NoSourceReason: "no_matching_chunks",
+	}); err != nil {
+		t.Fatalf("Create gap returned error: %v", err)
+	}
+	if _, err := auditService.Record("tenant-1", admin.AuditRecord{
+		ID:                      "audit-weak",
+		ConversationID:          "conv-weak",
+		Status:                  admin.AuditStatusCompleted,
+		QuestionSummary:         "hello",
+		KnowledgeSpaceID:        "default",
+		KnowledgeAnswerState:    "unsupported",
+		KnowledgeNoSourceReason: "no_matching_chunks",
+		KnowledgeEvidence: map[string]any{
+			"answer_state": "unsupported",
+			"summary":      "No supporting evidence recorded.",
+		},
+	}); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	handler := NewHandler(Config{
+		Metrics:           observability.NewMemoryMetrics(),
+		AuditAdmin:        &auditService,
+		KnowledgeGapAdmin: &gapService,
+	})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/admin/audit/timeline?weak_only=true", nil)
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("timeline status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"gap":{"gap_id":"gap-`) || !strings.Contains(body, `"reason":"no_matching_chunks"`) {
+		t.Fatalf("timeline body = %s, want matched gap", body)
 	}
 }
 

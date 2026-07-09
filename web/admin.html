@@ -10,7 +10,7 @@
     <main class="admin-shell">
       <header class="surface-header">
         <h1>Operations Console</h1>
-        <p class="status-line">Local-first controls for Phase 18</p>
+        <p class="status-line">Local-first controls for Phase 21</p>
       </header>
 
       <section id="persona-admin" class="admin-section" aria-label="Persona editor">
@@ -150,6 +150,36 @@
         <label><input id="tool-knowledge-search" type="checkbox" checked> allow knowledge.search</label>
         <button id="tool-save-policy" type="button">Save policy</button>
         <output id="tool-status">Policy not saved</output>
+      </section>
+
+      <section id="audit-timeline" class="admin-section" aria-label="Answer timeline">
+        <h2>Answer timeline</h2>
+        <div class="audit-timeline-filters">
+          <label>State
+            <select id="audit-timeline-state">
+              <option value="">All states</option>
+              <option value="grounded">grounded</option>
+              <option value="partially_supported">partially_supported</option>
+              <option value="unsupported">unsupported</option>
+              <option value="review_gated">review_gated</option>
+              <option value="provider_fallback">provider_fallback</option>
+              <option value="guard_rejected">guard_rejected</option>
+              <option value="local_mode">local_mode</option>
+            </select>
+          </label>
+          <label><input id="audit-timeline-weak-only" type="checkbox"> Weak only</label>
+          <label>Document
+            <input id="audit-timeline-document-id" type="text" placeholder="kb-1">
+          </label>
+          <label>Conversation
+            <input id="audit-timeline-conversation-id" type="text" placeholder="conv-1">
+          </label>
+          <label>Limit
+            <input id="audit-timeline-limit" type="number" min="1" max="100" value="50">
+          </label>
+          <button id="audit-timeline-refresh" type="button">Refresh timeline</button>
+        </div>
+        <div id="audit-timeline-body">No timeline records</div>
       </section>
 
       <section id="audit-admin" class="admin-section" aria-label="Conversation audit">

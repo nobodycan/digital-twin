@@ -1,5 +1,40 @@
 # Release Notes
 
+## Unreleased - Phase 21 Answer Audit Timeline
+
+### Added
+
+- Added additive audit metadata for bounded `question_summary`, `knowledge_space_id`, and `knowledge_no_source_reason` so recent answer history can carry operator-useful context without storing full prompts.
+- Added `AnswerAuditTimelineItem` projection and `GET /admin/audit/timeline` so the server can return bounded, filtered answer-trust history from existing audit records.
+- Added `/admin` Answer Timeline controls for filtering by state, weak-only mode, document ID, conversation ID, and bounded recent limit, plus source-detail and gap-workflow actions.
+
+### Documented
+
+- Added Phase 21 spec, design, and plan docs for the answer audit timeline.
+- README now reflects Phase 21 as the current stage and explains the answer timeline workflow.
+
+### Notes
+
+- Phase 21 stays local-first and operational: no immutable audit ledger, compliance export, chain-of-thought capture, or new event store.
+
+## Unreleased - Phase 20 Knowledge Evidence and Answer Trust
+
+### Added
+
+- Added additive `knowledge_evidence` metadata for assistant turns so answer state, citation evidence, review status, snippets, diagnostics, and gap context can travel beside existing text responses.
+- Added runtime stream/replay allowlisting for `knowledge_evidence` so fresh and replayed completion events preserve the same answer-trust metadata.
+- Added compact `/app` evidence panels that show support summaries, source rows, bounded snippets, review-gate-safe diagnostics, and operator next-action cues.
+- Added `/admin` answer-trust inspection for recent evidence-bearing turns, plus deterministic document quality flags for local knowledge triage.
+
+### Documented
+
+- Added Phase 20 spec, design, and plan docs for knowledge evidence and answer trust.
+- README now reflects Phase 20 as the current stage and explains the evidence inspection workflow.
+
+### Notes
+
+- Phase 20 keeps trust deterministic and local-first: no LLM-as-judge, confidence percentages, semantic entailment scoring, external vector services, SQLite, or provider-required tests.
+
 ## Unreleased - Phase 19 Knowledge Review and Activation
 
 ### Added
