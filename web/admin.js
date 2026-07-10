@@ -48,6 +48,14 @@ const knowledgeEditContent = document.querySelector("#knowledge-edit-content");
 const knowledgeEditSave = document.querySelector("#knowledge-edit-save");
 const knowledgeEditCancel = document.querySelector("#knowledge-edit-cancel");
 const knowledgeDebugResults = document.querySelector("#knowledge-debug-results");
+const knowledgeRepairInbox = document.querySelector("#knowledge-repair-inbox");
+const knowledgeRepairBody = document.querySelector("#knowledge-repair-body");
+const knowledgeRepairStatus = document.querySelector("#knowledge-repair-status");
+const knowledgeRepairReason = document.querySelector("#knowledge-repair-reason");
+const knowledgeRepairWeakOnly = document.querySelector("#knowledge-repair-weak-only");
+const knowledgeRepairUnresolvedOnly = document.querySelector("#knowledge-repair-unresolved-only");
+const knowledgeRepairLinkedEvidence = document.querySelector("#knowledge-repair-linked-evidence");
+const knowledgeRepairRefresh = document.querySelector("#knowledge-repair-refresh");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
 const knowledgeImportJobs = document.querySelector("#knowledge-import-jobs");
 const knowledgeReviewQueue = document.querySelector("#knowledge-review-queue");
@@ -72,6 +80,8 @@ const knowledgeListPath = "/admin/knowledge";
 const knowledgeHealthPath = "/admin/knowledge/health";
 const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
+const knowledgeRepairListPath = "/admin/knowledge/repairs";
+const knowledgeRepairRetestPath = "/admin/knowledge/repairs/retest";
 const knowledgeImportPath = "/admin/knowledge/import";
 const knowledgeImportListPath = "/admin/knowledge/imports";
 const knowledgeReviewPath = "/admin/knowledge/review";
@@ -101,6 +111,27 @@ function clearElement(element) {
   if (element) {
     element.textContent = "";
   }
+}
+
+function knowledgeRepairQuery() {
+  const params = new URLSearchParams({ space_id: selectedKnowledgeSpaceId });
+  if (knowledgeRepairStatus?.value) {
+    params.set("status", knowledgeRepairStatus.value);
+  }
+  if (knowledgeRepairReason?.value) {
+    params.set("reason", knowledgeRepairReason.value);
+  }
+  if (knowledgeRepairWeakOnly?.checked) {
+    params.set("weak_only", "true");
+  }
+  if (knowledgeRepairUnresolvedOnly?.checked) {
+    params.set("unresolved_only", "true");
+  }
+  if (knowledgeRepairLinkedEvidence?.checked) {
+    params.set("linked_evidence", "true");
+  }
+  params.set("limit", "50");
+  return `${knowledgeRepairListPath}?${params.toString()}`;
 }
 
 function renderKnowledgeMetric(label, value) {
@@ -606,6 +637,146 @@ function renderKnowledgeDebugRow(explanation) {
   return row;
 }
 
+function repairActionLabel(item) {
+  if (item.status === "resolved") {
+    return "Reopen";
+  }
+  if (item.status === "ignored") {
+    return "Reopen";
+  }
+  if (item.status === "investigating") {
+    return "Continue";
+  }
+  return "Investigate";
+}
+
+async function retestKnowledgeRepair(item) {
+  const result = await postJSON(knowledgeRepairRetestPath, { gap_id: item.gap_id });
+  const topSource = result.top_sources?.[0];
+  if (topSource?.document_id) {
+    await inspectKnowledgeDocument(topSource.document_id);
+  }
+  setKnowledgeStatus(`Retest ${item.gap_id}: ${result.before_state || "unknown"} -> ${result.after_state || "unknown"} | ${result.next_action || "support improved"}`);
+  await loadKnowledgeRepairs();
+  return result;
+}
+
+function renderKnowledgeRepairItem(item) {
+  const row = document.createElement("div");
+  row.className = "knowledge-gap-row";
+  row.dataset.repairId = item.repair_id || "";
+
+  const summary = document.createElement("div");
+  summary.className = "knowledge-gap-summary";
+  const summaryLines = [
+    `[${item.priority || "medium"}] ${item.status || "open"} | ${item.answer_state || "unknown"} | ${item.reason || "none"}`,
+    item.question_summary || "Untitled repair item",
+    `${item.occurrence_count || 0} weak answers | ${item.source_count || 0} sources | ${(item.priority_reasons || []).join(", ") || "support improved pending"}`,
+    item.next_action || "Run retest",
+  ].filter(Boolean);
+  summary.textContent = summaryLines.join("\n");
+  row.append(summary);
+
+  const linkedDocuments = Array.isArray(item.linked_documents) ? item.linked_documents : [];
+  if (linkedDocuments.length > 0) {
+    const linked = document.createElement("div");
+    linked.className = "audit-timeline-sources";
+    for (const documentRecord of linkedDocuments.slice(0, 2)) {
+      const detail = document.createElement("div");
+      detail.className = "audit-timeline-snippet";
+      detail.textContent = [
+        documentRecord.name || documentRecord.document_id || "Linked source",
+        documentRecord.review_status ? `review ${documentRecord.review_status}` : "",
+        documentRecord.relation || "linked_documents",
+      ].filter(Boolean).join(" | ");
+      linked.append(detail);
+    }
+    row.append(linked);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "knowledge-gap-actions";
+
+  const investigateButton = document.createElement("button");
+  investigateButton.type = "button";
+  investigateButton.textContent = repairActionLabel(item);
+  investigateButton.addEventListener("click", async () => {
+    const nextStatus = item.status === "resolved" || item.status === "ignored" ? "open" : "investigating";
+    await postJSON(knowledgeGapUpdatePath, { gap_id: item.gap_id, status: nextStatus });
+    await refreshKnowledgeWorkspace();
+  });
+  actions.append(investigateButton);
+
+  const diagnosticsButton = document.createElement("button");
+  diagnosticsButton.type = "button";
+  diagnosticsButton.textContent = "Run diagnostics";
+  diagnosticsButton.addEventListener("click", async () => {
+    await runKnowledgeGapDiagnostics({
+      id: item.gap_id,
+      question: item.question_summary,
+      space_id: item.space_id,
+    });
+  });
+  actions.append(diagnosticsButton);
+
+  const noteButton = document.createElement("button");
+  noteButton.type = "button";
+  noteButton.textContent = "Create note";
+  noteButton.addEventListener("click", () => {
+    createKnowledgeNoteFromGap({
+      id: item.gap_id,
+      question: item.question_summary,
+    });
+  });
+  actions.append(noteButton);
+
+  const retestButton = document.createElement("button");
+  retestButton.type = "button";
+  retestButton.textContent = "Run retest";
+  retestButton.addEventListener("click", async () => {
+    await retestKnowledgeRepair(item);
+  });
+  actions.append(retestButton);
+
+  if (linkedDocuments.length > 0) {
+    const reviewSourceButton = document.createElement("button");
+    reviewSourceButton.type = "button";
+    reviewSourceButton.textContent = "Review source";
+    reviewSourceButton.addEventListener("click", async () => {
+      await inspectKnowledgeDocument(linkedDocuments[0].document_id);
+      setKnowledgeStatus(`Review source ${linkedDocuments[0].document_id}`);
+    });
+    actions.append(reviewSourceButton);
+  }
+
+  if (item.status !== "resolved") {
+    const resolveButton = document.createElement("button");
+    resolveButton.type = "button";
+    resolveButton.textContent = "Resolve";
+    resolveButton.addEventListener("click", async () => {
+      await resolveKnowledgeGap({ id: item.gap_id });
+    });
+    actions.append(resolveButton);
+  }
+
+  if (item.status === "open") {
+    const ignoreButton = document.createElement("button");
+    ignoreButton.type = "button";
+    ignoreButton.textContent = "Ignore";
+    ignoreButton.addEventListener("click", async () => {
+      await postJSON(knowledgeGapUpdatePath, {
+        gap_id: item.gap_id,
+        status: "ignored",
+      });
+      await refreshKnowledgeWorkspace();
+    });
+    actions.append(ignoreButton);
+  }
+
+  row.append(actions);
+  return row;
+}
+
 function renderKnowledgeGapRow(gap) {
   const row = document.createElement("div");
   row.className = "knowledge-gap-row";
@@ -726,6 +897,25 @@ function renderKnowledgeImportJob(job) {
   }
 
   return row;
+}
+
+async function loadKnowledgeRepairs() {
+  if (!knowledgeRepairBody) {
+    return;
+  }
+  const response = await fetch(knowledgeRepairQuery());
+  if (!response.ok) {
+    throw new Error(`knowledge repairs failed (${response.status})`);
+  }
+  const items = await response.json() || [];
+  clearElement(knowledgeRepairBody);
+  if (!Array.isArray(items) || items.length === 0) {
+    knowledgeRepairBody.textContent = "No repair items";
+    return;
+  }
+  for (const item of items) {
+    knowledgeRepairBody.append(renderKnowledgeRepairItem(item));
+  }
 }
 
 async function loadKnowledgeGaps() {
@@ -912,6 +1102,7 @@ async function resolveKnowledgeGap(gap) {
 async function refreshKnowledgeWorkspace() {
   await loadKnowledge();
   await loadKnowledgeHealth();
+  await loadKnowledgeRepairs();
   await loadKnowledgeGaps();
   await loadKnowledgeImportJobs();
   await loadKnowledgeReviewQueue();
@@ -1287,6 +1478,14 @@ knowledgeFilterApply?.addEventListener("click", async () => {
 
 knowledgeFilterReset?.addEventListener("click", async () => {
   await resetKnowledgeFilters();
+});
+
+knowledgeRepairRefresh?.addEventListener("click", async () => {
+  try {
+    await loadKnowledgeRepairs();
+  } catch (error) {
+    setKnowledgeStatus(`Knowledge repair error: ${error.message}`);
+  }
 });
 
 knowledgeEditToggle?.addEventListener("click", () => {

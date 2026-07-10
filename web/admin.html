@@ -135,6 +135,29 @@
           <div id="knowledge-detail-body">Chunk preview</div>
         </section>
         <section id="knowledge-debug-results" aria-label="Retrieval debug results">Retrieval debug</section>
+        <section id="knowledge-repair-inbox" aria-label="Knowledge repair inbox">
+          <strong>Knowledge Repair Inbox</strong>
+          <div class="action-row">
+            <select id="knowledge-repair-status" aria-label="Repair status filter">
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="investigating">Investigating</option>
+              <option value="resolved">Resolved</option>
+              <option value="ignored">Ignored</option>
+            </select>
+            <select id="knowledge-repair-reason" aria-label="Repair reason filter">
+              <option value="">All reasons</option>
+              <option value="no_matching_chunks">no_matching_chunks</option>
+              <option value="review_gated_documents">review_gated_documents</option>
+              <option value="no_review_active_documents">no_review_active_documents</option>
+            </select>
+            <label><input id="knowledge-repair-weak-only" type="checkbox"> weak only</label>
+            <label><input id="knowledge-repair-unresolved-only" type="checkbox" checked> unresolved only</label>
+            <label><input id="knowledge-repair-linked-evidence" type="checkbox"> linked evidence</label>
+            <button id="knowledge-repair-refresh" type="button">Refresh inbox</button>
+          </div>
+          <div id="knowledge-repair-body">No repair items</div>
+        </section>
         <section id="knowledge-gap-queue" aria-label="Knowledge gaps">Knowledge gaps</section>
         <section id="knowledge-note" aria-label="Knowledge note">
           <strong>Knowledge note</strong>
