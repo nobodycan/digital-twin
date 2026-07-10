@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.6.0.0 Phase 23 Repair Verification Ledger - 2026-07-10
+
+### Added
+
+- Operators can persist a provider-free verification attempt for a repair gap, including deterministic knowledge and evidence fingerprints plus safe source summaries.
+- Added `POST /admin/knowledge/repairs/verify` and `GET /admin/knowledge/repairs/verifications` for explicit verification and bounded history retrieval.
+- Repair Inbox rows now show `verified`, `stale`, or `unverified` state with verify and history actions.
+
+### Changed
+
+- Verification history is append-only, tenant-scoped, file-backed, and safe for concurrent appends; it never changes gap lifecycle state or stores diagnostic snippets.
+- Existing `POST /admin/knowledge/repairs/retest` remains ephemeral and provider-free.
+
+### Documented
+
+- Added the Phase 23-26 repair verification roadmap, Phase 23 spec, design, and implementation plan.
+- README now reflects Phase 23 as the current stage and lists the verification endpoints.
+
 ## v0.5.0.0 Phase 22 Knowledge Repair Inbox - 2026-07-10
 
 ### Added
