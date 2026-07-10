@@ -18,11 +18,13 @@ func TestHandlerKnowledgeRepairListReturnsProjectedItems(t *testing.T) {
 	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
 	auditService := admin.NewAuditService(admin.NewInMemoryAuditStore())
 	now := time.Date(2026, 7, 9, 14, 0, 0, 0, time.UTC)
-	gapService.Create("tenant-1", admin.KnowledgeGapInput{
+	if _, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{
 		SpaceID:        admin.DefaultKnowledgeSpaceID,
 		Question:       "How should I verify DeepSeek startup?",
 		NoSourceReason: "no_matching_chunks",
-	})
+	}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
 	gaps, err := gapService.List("tenant-1", admin.DefaultKnowledgeSpaceID)
 	if err != nil || len(gaps) != 1 {
 		t.Fatalf("seed gaps = %#v, err = %v", gaps, err)
