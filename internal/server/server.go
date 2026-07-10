@@ -150,6 +150,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /admin/knowledge/imports", handler.handleKnowledgeImportList)
 	handler.mux.HandleFunc("GET /admin/knowledge/health", handler.handleKnowledgeHealth)
 	handler.mux.HandleFunc("GET /admin/knowledge/gaps", handler.handleKnowledgeGapList)
+	handler.mux.HandleFunc("GET /admin/knowledge/repairs", handler.handleKnowledgeRepairList)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}", handler.handleKnowledgeGet)
 	handler.mux.HandleFunc("GET /admin/knowledge/{documentID}/detail", handler.handleKnowledgeDetail)
 	handler.mux.HandleFunc("POST /admin/knowledge/upload", handler.handleKnowledgeUpload)
@@ -161,6 +162,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/delete", handler.handleKnowledgeDelete)
 	handler.mux.HandleFunc("POST /admin/knowledge/update", handler.handleKnowledgeUpdate)
 	handler.mux.HandleFunc("POST /admin/knowledge/gaps/update", handler.handleKnowledgeGapUpdate)
+	handler.mux.HandleFunc("POST /admin/knowledge/repairs/retest", handler.handleKnowledgeRepairRetest)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -562,6 +564,10 @@ type knowledgeDocumentRequest struct {
 	SpaceID    string `json:"space_id,omitempty"`
 }
 
+type knowledgeRepairRetestRequest struct {
+	GapID string `json:"gap_id"`
+}
+
 type knowledgeReviewRequest struct {
 	DocumentID   string                      `json:"document_id"`
 	ReviewStatus admin.KnowledgeReviewStatus `json:"review_status"`
@@ -874,6 +880,25 @@ func (h *Handler) handleKnowledgeGapList(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, records)
 }
 
+func (h *Handler) handleKnowledgeRepairList(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeAdmin == nil || h.knowledgeGapAdmin == nil || h.auditAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_repair_admin_unavailable"})
+		return
+	}
+	filter, err := parseKnowledgeRepairFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit", "cause": err.Error()})
+		return
+	}
+	service := admin.NewKnowledgeRepairService(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin)
+	items, err := service.List(h.adminTenantID(), filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_list_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (h *Handler) handleKnowledgeGapUpdate(w http.ResponseWriter, r *http.Request) {
 	if h.knowledgeGapAdmin == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_gap_admin_unavailable"})
@@ -896,6 +921,60 @@ func (h *Handler) handleKnowledgeGapUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, record)
+}
+
+func (h *Handler) handleKnowledgeRepairRetest(w http.ResponseWriter, r *http.Request) {
+	if h.knowledgeGapAdmin == nil || h.knowledgeRetriever == nil || h.auditAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_repair_retest_unavailable"})
+		return
+	}
+	var request knowledgeRepairRetestRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	gapID := strings.TrimSpace(request.GapID)
+	if !isSafeKnowledgeToken(gapID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_repair_retest_failed", "cause": "invalid gap_id"})
+		return
+	}
+	gap, err := h.knowledgeGapAdmin.Get(h.adminTenantID(), gapID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_repair_retest_failed", "cause": err.Error()})
+		return
+	}
+	beforeState := "unknown"
+	if h.knowledgeAdmin != nil {
+		service := admin.NewKnowledgeRepairService(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin)
+		items, err := service.List(h.adminTenantID(), admin.KnowledgeRepairFilter{SpaceID: gap.SpaceID})
+		if err == nil {
+			for _, item := range items {
+				if item.GapID == gap.ID {
+					beforeState = item.AnswerState
+					break
+				}
+			}
+		}
+	}
+	diagnostics, err := h.knowledgeRetriever.Diagnostics(r.Context(), h.adminTenantID(), knowledge.SearchRequest{
+		Query:   gap.Question,
+		Mode:    knowledge.RetrievalModeLexical,
+		SpaceID: gap.SpaceID,
+		Limit:   3,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_retest_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"gap_id":           gap.ID,
+		"question_summary": gap.Question,
+		"before_state":     beforeState,
+		"after_state":      repairRetestState(diagnostics),
+		"source_count":     len(diagnostics.Results),
+		"top_sources":      repairRetestSources(diagnostics.Results),
+		"next_action":      repairRetestNextAction(repairRetestState(diagnostics)),
+	})
 }
 
 func (h *Handler) handleKnowledgeDisable(w http.ResponseWriter, r *http.Request) {
@@ -1420,6 +1499,68 @@ func parseAuditTimelineFilter(r *http.Request) (admin.AnswerAuditTimelineFilter,
 		filter.Limit = limit
 	}
 	return filter, nil
+}
+
+func parseKnowledgeRepairFilter(r *http.Request) (admin.KnowledgeRepairFilter, error) {
+	query := r.URL.Query()
+	filter := admin.KnowledgeRepairFilter{
+		SpaceID:        strings.TrimSpace(query.Get("space_id")),
+		Status:         strings.TrimSpace(query.Get("status")),
+		Reason:         strings.TrimSpace(query.Get("reason")),
+		WeakOnly:       strings.EqualFold(strings.TrimSpace(query.Get("weak_only")), "true"),
+		UnresolvedOnly: strings.EqualFold(strings.TrimSpace(query.Get("unresolved_only")), "true"),
+		LinkedEvidence: strings.EqualFold(strings.TrimSpace(query.Get("linked_evidence")), "true"),
+		Limit:          50,
+	}
+	if raw := strings.TrimSpace(query.Get("limit")); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 {
+			return admin.KnowledgeRepairFilter{}, fmt.Errorf("limit must be between 1 and 100")
+		}
+		if limit > 100 {
+			limit = 100
+		}
+		filter.Limit = limit
+	}
+	if filter.SpaceID == "" {
+		filter.SpaceID = admin.DefaultKnowledgeSpaceID
+	}
+	return filter, nil
+}
+
+func repairRetestState(response knowledge.SearchResponse) string {
+	if len(response.Results) > 0 {
+		return "grounded"
+	}
+	if strings.TrimSpace(response.NoSourceReason) == "no_review_active_documents" || response.ReviewGatedCount > 0 {
+		return "review_gated"
+	}
+	return "unsupported"
+}
+
+func repairRetestSources(results []knowledge.Result) []admin.AnswerAuditTimelineSource {
+	sources := make([]admin.AnswerAuditTimelineSource, 0, len(results))
+	for _, result := range results {
+		sources = append(sources, admin.AnswerAuditTimelineSource{
+			DocumentID:   result.DocumentID,
+			Title:        result.DocumentName,
+			ReviewStatus: result.ReviewStatus,
+			SourceType:   result.SourceType,
+			Snippet:      result.Snippet,
+		})
+	}
+	return sources
+}
+
+func repairRetestNextAction(afterState string) string {
+	switch strings.TrimSpace(afterState) {
+	case "grounded":
+		return "Active reviewed source found. Resolve the gap if the source is sufficient."
+	case "review_gated":
+		return "Support improved only after review. Activate or review a source before resolving the gap."
+	default:
+		return "No supporting source found yet. Create or review evidence, then retest again."
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

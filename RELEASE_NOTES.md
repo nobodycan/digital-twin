@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.5.0.0 Phase 22 Knowledge Repair Inbox - 2026-07-10
+
+### Added
+
+- Added a derived Knowledge Repair Inbox over knowledge gaps, answer timeline context, and explicitly linked documents, with deterministic priority reasons and bounded filters.
+- Added `GET /admin/knowledge/repairs` and provider-free `POST /admin/knowledge/repairs/retest` for local support-state checks without automatic gap resolution.
+- Added `/admin` repair rows with recurrence, evidence, diagnostics, note, retest, review, resolve, ignore, and reopen actions.
+
+### Documented
+
+- Added Phase 22 spec, design, and plan docs for the Knowledge Repair Inbox.
+- README now reflects Phase 22 as the current stage and lists the repair endpoints.
+
+### Notes
+
+- Phase 22 keeps repair items derived and local-first: no persistent repair queue, autonomous writing, provider calls, confidence score, or raw review-gated text.
+
 ## Unreleased - Phase 21 Answer Audit Timeline
 
 ### Added

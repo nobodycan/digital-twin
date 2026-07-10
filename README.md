@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 21 - Answer Audit Timeline`
+Current stage: `Phase 22 - Knowledge Repair Inbox`
 
 What is already working:
 
@@ -31,6 +31,7 @@ What is already working:
 - compact evidence panels in `/app` with support state, source rows, bounded snippets, and operator next-action cues
 - answer-trust inspection in `/admin`, including recent evidence-bearing turns and document quality flags
 - answer audit timeline in `/admin`, including bounded question summaries, answer-state filters, source links, and weak-answer gap workflow cues
+- knowledge repair inbox in `/admin`, with explainable priority, recurrence context, linked evidence, provider-free retest, and gap actions
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -82,6 +83,7 @@ flowchart TD
 - `GET /admin/knowledge/{document_id}`
 - `GET /admin/knowledge/{document_id}/detail`
 - `GET /admin/knowledge/gaps`
+- `GET /admin/knowledge/repairs`
 - `GET /admin/knowledge/imports`
 - `GET /admin/knowledge/spaces`
 - `POST /chat`
@@ -94,6 +96,7 @@ flowchart TD
 - `POST /admin/knowledge/review`
 - `POST /admin/knowledge/update`
 - `POST /admin/knowledge/gaps/update`
+- `POST /admin/knowledge/repairs/retest`
 - `POST /admin/knowledge/spaces/create`
 - `POST /admin/knowledge/spaces/update`
 - `POST /admin/knowledge/spaces/disable`
