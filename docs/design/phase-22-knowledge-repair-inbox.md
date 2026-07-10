@@ -163,4 +163,3 @@ Stage 2 should lock:
 - how candidate documents are sourced;
 - UI placement and filter defaults;
 - deterministic test matrix.
-

@@ -411,4 +411,3 @@ After approval, Stage 2 should run `$gstack-autoplan` and lock:
 - admin UI placement;
 - TDD slice order;
 - exact regression test matrix.
-
