@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased - Phase 22 Knowledge Repair Inbox
+## v0.5.0.0 Phase 22 Knowledge Repair Inbox - 2026-07-10
 
 ### Added
 
