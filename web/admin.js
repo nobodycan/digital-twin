@@ -82,6 +82,8 @@ const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
 const knowledgeRepairListPath = "/admin/knowledge/repairs";
 const knowledgeRepairRetestPath = "/admin/knowledge/repairs/retest";
+const knowledgeRepairVerifyPath = "/admin/knowledge/repairs/verify";
+const knowledgeRepairVerificationsPath = "/admin/knowledge/repairs/verifications";
 const knowledgeImportPath = "/admin/knowledge/import";
 const knowledgeImportListPath = "/admin/knowledge/imports";
 const knowledgeReviewPath = "/admin/knowledge/review";
@@ -661,6 +663,41 @@ async function retestKnowledgeRepair(item) {
   return result;
 }
 
+async function verifyKnowledgeRepair(item) {
+  const result = await postJSON(knowledgeRepairVerifyPath, { gap_id: item.gap_id });
+  setKnowledgeStatus(`Verification ${item.gap_id}: ${result.result || "unknown"} | ${result.after_state || "unknown"}`);
+  await loadKnowledgeRepairs();
+  return result;
+}
+
+async function showKnowledgeRepairHistory(item, container) {
+  const response = await fetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
+  if (!response.ok) {
+    throw new Error(`repair verification history failed (${response.status})`);
+  }
+  const records = await response.json() || [];
+  clearElement(container);
+  const history = document.createElement("div");
+  history.className = "knowledge-repair-history";
+  if (!Array.isArray(records) || records.length === 0) {
+    history.textContent = "No verification history";
+  } else {
+    for (const record of records.slice(0, 20)) {
+      const line = document.createElement("div");
+      line.className = "knowledge-repair-history-row";
+      line.textContent = [
+        record.completed_at || "unknown time",
+        record.result || "unknown",
+        record.failure_reason || "",
+        `${record.source_count || 0} sources`,
+        record.after_state || "unknown",
+      ].filter(Boolean).join(" | ");
+      history.append(line);
+    }
+  }
+  container.append(history);
+}
+
 function renderKnowledgeRepairItem(item) {
   const row = document.createElement("div");
   row.className = "knowledge-gap-row";
@@ -676,6 +713,11 @@ function renderKnowledgeRepairItem(item) {
   ].filter(Boolean);
   summary.textContent = summaryLines.join("\n");
   row.append(summary);
+
+  const verification = document.createElement("div");
+  verification.className = "knowledge-repair-verification";
+  verification.textContent = `verification: ${item.verification_state || "unverified"}${item.last_verified_at ? ` | ${item.last_verified_at}` : ""}${item.verification_state === "stale" ? " | knowledge changed; verify again" : ""}`;
+  row.append(verification);
 
   const linkedDocuments = Array.isArray(item.linked_documents) ? item.linked_documents : [];
   if (linkedDocuments.length > 0) {
@@ -737,6 +779,26 @@ function renderKnowledgeRepairItem(item) {
     await retestKnowledgeRepair(item);
   });
   actions.append(retestButton);
+
+  const verifyButton = document.createElement("button");
+  verifyButton.type = "button";
+  verifyButton.textContent = "Verify repair";
+  verifyButton.addEventListener("click", async () => {
+    await verifyKnowledgeRepair(item);
+  });
+  actions.append(verifyButton);
+
+  const historyButton = document.createElement("button");
+  historyButton.type = "button";
+  historyButton.textContent = "View history";
+  historyButton.addEventListener("click", async () => {
+    await showKnowledgeRepairHistory(item, historyPanel);
+  });
+  actions.append(historyButton);
+
+  const historyPanel = document.createElement("div");
+  historyPanel.className = "knowledge-repair-history-panel";
+  row.append(historyPanel);
 
   if (linkedDocuments.length > 0) {
     const reviewSourceButton = document.createElement("button");

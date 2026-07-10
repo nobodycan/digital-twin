@@ -116,6 +116,22 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	knowledgeImportAdmin := admin.NewKnowledgeImportService(knowledgeStore, knowledgeAdmin)
 	knowledgeGapAdmin := admin.NewKnowledgeGapService(admin.NewFileKnowledgeGapStore(adminDataDir))
 	knowledgeRetriever := knowledge.NewService(knowledgeStore)
+	verificationAdmin := admin.NewRepairVerificationService(
+		admin.NewFileRepairVerificationStore(adminDataDir),
+		knowledgeGapAdmin,
+		knowledgeAdmin,
+		func(ctx context.Context, tenantID string, request admin.RepairVerificationDiagnosticRequest) (admin.RepairVerificationDiagnosticResponse, error) {
+			response, err := knowledgeRetriever.Diagnostics(ctx, tenantID, knowledge.SearchRequest{Query: request.Query, Limit: request.Limit, Mode: knowledge.RetrievalModeLexical, SpaceID: request.SpaceID})
+			if err != nil {
+				return admin.RepairVerificationDiagnosticResponse{}, err
+			}
+			results := make([]admin.RepairVerificationDiagnosticResult, 0, len(response.Results))
+			for _, result := range response.Results {
+				results = append(results, admin.RepairVerificationDiagnosticResult{DocumentID: result.DocumentID, DocumentName: result.DocumentName, SourceType: result.SourceType, ReviewStatus: result.ReviewStatus, ChunkID: result.ChunkID, Rank: result.Rank})
+			}
+			return admin.RepairVerificationDiagnosticResponse{Results: results, NoSourceReason: response.NoSourceReason, ReviewGated: response.ReviewGatedCount}, nil
+		},
+	)
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{
@@ -140,19 +156,20 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 			GenerationModeHint: runtimeStatusModeHint(cfg.LLM.Provider),
 			BaseURL:            config.SafeURLSummary(cfg.LLM.BaseURL),
 		},
-		PersonaAdmin:       &personaAdmin,
-		MemoryAdmin:        &memoryAdmin,
-		KnowledgeAdmin:     &knowledgeAdmin,
+		PersonaAdmin:         &personaAdmin,
+		MemoryAdmin:          &memoryAdmin,
+		KnowledgeAdmin:       &knowledgeAdmin,
 		KnowledgeImportAdmin: &knowledgeImportAdmin,
-		KnowledgeGapAdmin:  &knowledgeGapAdmin,
-		KnowledgeRetriever: &knowledgeRetriever,
-		ToolPolicyAdmin:    &toolPolicyAdmin,
-		AuditAdmin:         &auditAdmin,
-		StaticDir:          defaultStaticDir(),
-		APIKeys:            apiKeys,
-		RateLimitRequests:  cfg.Server.RateLimitRequests,
-		DefaultTenantID:    cfg.Tenant.DefaultID,
-		DefaultUserID:      cfg.Tenant.DefaultUserID,
+		KnowledgeGapAdmin:    &knowledgeGapAdmin,
+		KnowledgeRetriever:   &knowledgeRetriever,
+		VerificationAdmin:    &verificationAdmin,
+		ToolPolicyAdmin:      &toolPolicyAdmin,
+		AuditAdmin:           &auditAdmin,
+		StaticDir:            defaultStaticDir(),
+		APIKeys:              apiKeys,
+		RateLimitRequests:    cfg.Server.RateLimitRequests,
+		DefaultTenantID:      cfg.Tenant.DefaultID,
+		DefaultUserID:        cfg.Tenant.DefaultUserID,
 	}), nil
 }
 

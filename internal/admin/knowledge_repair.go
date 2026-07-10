@@ -35,35 +35,44 @@ type KnowledgeRepairLinkedDocument struct {
 }
 
 type KnowledgeRepairItem struct {
-	RepairID        string                          `json:"repair_id"`
-	GapID           string                          `json:"gap_id"`
-	SpaceID         string                          `json:"space_id"`
-	SpaceName       string                          `json:"space_name,omitempty"`
-	QuestionSummary string                          `json:"question_summary"`
-	Status          KnowledgeGapStatus              `json:"status"`
-	AnswerState     string                          `json:"answer_state"`
-	Reason          string                          `json:"reason"`
-	Priority        KnowledgeRepairPriority         `json:"priority"`
-	PriorityReasons []string                        `json:"priority_reasons,omitempty"`
-	LastSeenAt      time.Time                       `json:"last_seen_at"`
-	OccurrenceCount int                             `json:"occurrence_count"`
-	SourceCount     int                             `json:"source_count"`
-	LinkedDocuments []KnowledgeRepairLinkedDocument `json:"linked_documents"`
-	NextAction      string                          `json:"next_action"`
+	RepairID                string                          `json:"repair_id"`
+	GapID                   string                          `json:"gap_id"`
+	SpaceID                 string                          `json:"space_id"`
+	SpaceName               string                          `json:"space_name,omitempty"`
+	QuestionSummary         string                          `json:"question_summary"`
+	Status                  KnowledgeGapStatus              `json:"status"`
+	AnswerState             string                          `json:"answer_state"`
+	Reason                  string                          `json:"reason"`
+	Priority                KnowledgeRepairPriority         `json:"priority"`
+	PriorityReasons         []string                        `json:"priority_reasons,omitempty"`
+	LastSeenAt              time.Time                       `json:"last_seen_at"`
+	OccurrenceCount         int                             `json:"occurrence_count"`
+	SourceCount             int                             `json:"source_count"`
+	LinkedDocuments         []KnowledgeRepairLinkedDocument `json:"linked_documents"`
+	NextAction              string                          `json:"next_action"`
+	VerificationState       RepairVerificationState         `json:"verification_state"`
+	LastVerifiedAt          *time.Time                      `json:"last_verified_at,omitempty"`
+	LastVerificationResult  RepairVerificationResult        `json:"last_verification_result,omitempty"`
+	LastVerificationFailure RepairVerificationFailureReason `json:"last_verification_failure_reason,omitempty"`
 }
 
 type KnowledgeRepairService struct {
-	gaps      KnowledgeGapService
-	audit     AuditService
-	knowledge KnowledgeService
+	gaps         KnowledgeGapService
+	audit        AuditService
+	knowledge    KnowledgeService
+	verification *RepairVerificationService
 }
 
-func NewKnowledgeRepairService(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService) KnowledgeRepairService {
-	return KnowledgeRepairService{
+func NewKnowledgeRepairService(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService, verification ...*RepairVerificationService) KnowledgeRepairService {
+	service := KnowledgeRepairService{
 		gaps:      gaps,
 		audit:     audit,
 		knowledge: knowledge,
 	}
+	if len(verification) > 0 {
+		service.verification = verification[0]
+	}
+	return service
 }
 
 func (s KnowledgeRepairService) List(tenantID string, filter KnowledgeRepairFilter) ([]KnowledgeRepairItem, error) {
@@ -88,6 +97,18 @@ func (s KnowledgeRepairService) List(tenantID string, filter KnowledgeRepairFilt
 	items := make([]KnowledgeRepairItem, 0, len(gaps))
 	for _, gap := range gaps {
 		item := s.projectRepairItem(gap, spaceName, timeline, documents)
+		if s.verification != nil {
+			projection, err := s.verification.Project(tenantID, gap, documents)
+			if err != nil {
+				return nil, err
+			}
+			item.VerificationState = projection.State
+			item.LastVerifiedAt = projection.LastVerifiedAt
+			item.LastVerificationResult = projection.LastResult
+			item.LastVerificationFailure = projection.LastFailure
+		} else {
+			item.VerificationState = RepairVerificationUnverified
+		}
 		if !matchesRepairFilter(item, filter) {
 			continue
 		}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,5 +150,27 @@ func TestHandlerKnowledgeRepairRetestRejectsInvalidLimitAndMissingServices(t *te
 	}
 	if !strings.Contains(retestResponse.Body.String(), `knowledge_repair_retest_unavailable`) {
 		t.Fatalf("retest body = %s", retestResponse.Body.String())
+	}
+}
+
+func TestHandlerKnowledgeRepairVerifyPersistsAttempt(t *testing.T) {
+	knowledgeStore := admin.NewInMemoryKnowledgeStore()
+	knowledgeService := admin.NewKnowledgeService(knowledgeStore)
+	gapService := admin.NewKnowledgeGapService(admin.NewInMemoryKnowledgeGapStore())
+	gap, err := gapService.Create("tenant-1", admin.KnowledgeGapInput{SpaceID: admin.DefaultKnowledgeSpaceID, Question: "How do I start?", NoSourceReason: "no_matching_chunks"})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if _, err := knowledgeService.Upload("tenant-1", admin.KnowledgeUpload{ID: "doc-start", Name: "Start", Content: "How do I start? Run the app.", ReviewStatus: admin.KnowledgeReviewActive}); err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	verification := admin.NewRepairVerificationService(admin.NewInMemoryRepairVerificationStore(), gapService, knowledgeService, func(context.Context, string, admin.RepairVerificationDiagnosticRequest) (admin.RepairVerificationDiagnosticResponse, error) {
+		return admin.RepairVerificationDiagnosticResponse{Results: []admin.RepairVerificationDiagnosticResult{{DocumentID: "doc-start", DocumentName: "Start", ReviewStatus: string(admin.KnowledgeReviewActive), SourceType: "text", ChunkID: "doc-start-0", Rank: 1}}}, nil
+	})
+	handler := NewHandler(Config{Metrics: observability.NewMemoryMetrics(), KnowledgeAdmin: &knowledgeService, KnowledgeGapAdmin: &gapService, VerificationAdmin: &verification})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/repairs/verify", strings.NewReader(`{"gap_id":"`+gap.ID+`"}`)))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"result":"passed"`) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
