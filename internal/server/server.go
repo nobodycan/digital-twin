@@ -39,6 +39,7 @@ type Config struct {
 	KnowledgeImportAdmin *admin.KnowledgeImportService
 	KnowledgeGapAdmin    *admin.KnowledgeGapService
 	KnowledgeRetriever   *knowledge.Service
+	VerificationAdmin    *admin.RepairVerificationService
 	ToolPolicyAdmin      *admin.ToolPolicyService
 	AuditAdmin           *admin.AuditService
 	StaticDir            string
@@ -80,6 +81,7 @@ type Handler struct {
 	knowledgeImportAdmin *admin.KnowledgeImportService
 	knowledgeGapAdmin    *admin.KnowledgeGapService
 	knowledgeRetriever   *knowledge.Service
+	verificationAdmin    *admin.RepairVerificationService
 	toolPolicyAdmin      *admin.ToolPolicyService
 	auditAdmin           *admin.AuditService
 	staticDir            string
@@ -111,6 +113,7 @@ func NewHandler(config Config) http.Handler {
 		knowledgeImportAdmin: config.KnowledgeImportAdmin,
 		knowledgeGapAdmin:    config.KnowledgeGapAdmin,
 		knowledgeRetriever:   config.KnowledgeRetriever,
+		verificationAdmin:    config.VerificationAdmin,
 		toolPolicyAdmin:      config.ToolPolicyAdmin,
 		auditAdmin:           config.AuditAdmin,
 		staticDir:            config.StaticDir,
@@ -163,6 +166,8 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/update", handler.handleKnowledgeUpdate)
 	handler.mux.HandleFunc("POST /admin/knowledge/gaps/update", handler.handleKnowledgeGapUpdate)
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/retest", handler.handleKnowledgeRepairRetest)
+	handler.mux.HandleFunc("POST /admin/knowledge/repairs/verify", handler.handleKnowledgeRepairVerify)
+	handler.mux.HandleFunc("GET /admin/knowledge/repairs/verifications", handler.handleKnowledgeRepairVerifications)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -890,10 +895,67 @@ func (h *Handler) handleKnowledgeRepairList(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit", "cause": err.Error()})
 		return
 	}
-	service := admin.NewKnowledgeRepairService(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin)
+	service := admin.NewKnowledgeRepairService(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin, h.verificationAdmin)
 	items, err := service.List(h.adminTenantID(), filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_list_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+type knowledgeRepairVerifyRequest struct {
+	GapID string `json:"gap_id"`
+}
+
+func (h *Handler) handleKnowledgeRepairVerify(w http.ResponseWriter, r *http.Request) {
+	if h.verificationAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_repair_verification_unavailable"})
+		return
+	}
+	var request knowledgeRepairVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	gapID := strings.TrimSpace(request.GapID)
+	if !isSafeKnowledgeToken(gapID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_repair_verify_failed", "cause": "invalid gap_id"})
+		return
+	}
+	attempt, err := h.verificationAdmin.Verify(r.Context(), h.adminTenantID(), gapID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_repair_verify_failed", "cause": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, attempt)
+}
+
+func (h *Handler) handleKnowledgeRepairVerifications(w http.ResponseWriter, r *http.Request) {
+	if h.verificationAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_repair_verification_unavailable"})
+		return
+	}
+	gapID := strings.TrimSpace(r.URL.Query().Get("gap_id"))
+	if !isSafeKnowledgeToken(gapID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_gap_id"})
+		return
+	}
+	limit := 20
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit"})
+			return
+		}
+		if parsed > 100 {
+			parsed = 100
+		}
+		limit = parsed
+	}
+	items, err := h.verificationAdmin.List(h.adminTenantID(), gapID, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_verification_list_failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
