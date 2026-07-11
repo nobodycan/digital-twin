@@ -61,9 +61,13 @@ func TestFileRepairEvalPromotionStoreSurvivesReopen(t *testing.T) {
 	if _, _, err := store.PromoteRepairEval(record); err != nil {
 		t.Fatalf("promotion returned error: %v", err)
 	}
+	second := promotionRevision("tenant-a", "gap-1", "verification-2", "policy-2")
+	if _, _, err := store.PromoteRepairEval(second); err != nil {
+		t.Fatalf("second promotion returned error: %v", err)
+	}
 	reopened := NewFileRepairEvalPromotionStore(dir)
 	active, err := reopened.GetActiveRepairEvalPromotion("tenant-a", "gap-1")
-	if err != nil || active.ID != record.ID || active.Revision != 1 {
+	if err != nil || active.ID != second.ID || active.Revision != 2 {
 		t.Fatalf("reopened active = %#v, err=%v", active, err)
 	}
 }
