@@ -87,6 +87,7 @@ const knowledgeRepairRecurrenceConfirmPath = "/admin/knowledge/repairs/recurrenc
 const knowledgeRepairRecurrenceDismissPath = "/admin/knowledge/repairs/recurrences/dismiss";
 const knowledgeRepairVerifyPath = "/admin/knowledge/repairs/verify";
 const knowledgeRepairVerificationsPath = "/admin/knowledge/repairs/verifications";
+const knowledgeRepairPromotionPath = "/admin/knowledge/repairs/promotions";
 const knowledgeImportPath = "/admin/knowledge/import";
 const knowledgeImportListPath = "/admin/knowledge/imports";
 const knowledgeReviewPath = "/admin/knowledge/review";
@@ -673,6 +674,60 @@ async function verifyKnowledgeRepair(item) {
   return result;
 }
 
+async function promoteKnowledgeRepair(item, supportFloor) {
+  const response = await fetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
+  if (!response.ok) {
+    throw new Error(`repair verification history failed (${response.status})`);
+  }
+  const records = await response.json() || [];
+  const latest = Array.isArray(records) ? records.find((record) => record.result === "passed") : null;
+  if (!latest?.id) {
+    throw new Error("a passed verification attempt is required before promotion");
+  }
+  const documentIDs = (Array.isArray(item.linked_documents) ? item.linked_documents : [])
+    .filter((documentRecord) => documentRecord.review_status === "active" && documentRecord.status === "ready")
+    .map((documentRecord) => documentRecord.document_id)
+    .slice(0, 20);
+  const result = await postJSON(knowledgeRepairPromotionPath, {
+    gap_id: item.gap_id,
+    verification_attempt_id: latest.id,
+    minimum_support_state: supportFloor || "partially_supported",
+    required_document_ids: documentIDs,
+    promoted_by: "operator",
+  });
+  setKnowledgeStatus(`Promoted ${item.gap_id} as ${result.promotion?.case_id || "repair eval"}`);
+  await loadKnowledgeRepairs();
+  return result;
+}
+
+async function showKnowledgePromotionHistory(item, container) {
+  const response = await fetch(`${knowledgeRepairPromotionPath}?gap_id=${encodeURIComponent(item.gap_id)}&active_only=false&limit=20`);
+  if (!response.ok) {
+    throw new Error(`repair promotion history failed (${response.status})`);
+  }
+  const records = await response.json() || [];
+  clearElement(container);
+  const history = document.createElement("div");
+  history.className = "knowledge-repair-promotion-history";
+  if (!Array.isArray(records) || records.length === 0) {
+    history.textContent = "No promotion history";
+  } else {
+    for (const record of records.slice(0, 20)) {
+      const line = document.createElement("div");
+      line.className = "knowledge-repair-promotion-history-row";
+      line.textContent = [
+        `revision ${record.revision || 0}`,
+        record.active ? "active" : "inactive",
+        record.minimum_support_state || "unknown",
+        record.promoted_at || "unknown time",
+        record.promoted_by || "unknown operator",
+      ].join(" | ");
+      history.append(line);
+    }
+  }
+  container.append(history);
+}
+
 async function showKnowledgeRepairHistory(item, container) {
   const response = await fetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
   if (!response.ok) {
@@ -776,6 +831,11 @@ function renderKnowledgeRepairItem(item) {
   recurrence.textContent = `recurrence: ${item.recurrence_state || "none"}${item.recurrence_count ? ` | ${item.recurrence_count} occurrences` : ""}`;
   row.append(recurrence);
 
+  const promotion = document.createElement("div");
+  promotion.className = "knowledge-repair-promotion";
+  promotion.textContent = `promotion: ${item.promotion_state || "not_promoted"}${item.promotion_case_id ? ` | ${item.promotion_case_id} r${item.promotion_revision || 0}` : ""}${item.promotion_blocked_reason ? ` | ${item.promotion_blocked_reason}` : ""}`;
+  row.append(promotion);
+
   const linkedDocuments = Array.isArray(item.linked_documents) ? item.linked_documents : [];
   if (linkedDocuments.length > 0) {
     const linked = document.createElement("div");
@@ -844,6 +904,40 @@ function renderKnowledgeRepairItem(item) {
     await verifyKnowledgeRepair(item);
   });
   actions.append(verifyButton);
+
+  if (item.promotion_state !== "promoted" && item.status === "resolved" && item.verification_state === "verified" && item.last_verification_result === "passed" && item.recurrence_state !== "suspected") {
+    const promotionFloor = document.createElement("select");
+    promotionFloor.className = "knowledge-repair-promotion-floor";
+    promotionFloor.id = `knowledge-repair-promotion-floor-${item.gap_id || "unknown"}`;
+    promotionFloor.setAttribute("aria-label", "Promotion support floor");
+    for (const floor of ["partially_supported", "grounded"]) {
+      const option = document.createElement("option");
+      option.value = floor;
+      option.textContent = floor.replaceAll("_", " ");
+      promotionFloor.append(option);
+    }
+    const promoteButton = document.createElement("button");
+    promoteButton.type = "button";
+    promoteButton.textContent = "Promote to eval";
+    promoteButton.addEventListener("click", async () => {
+      await promoteKnowledgeRepair(item, promotionFloor.value);
+    });
+    actions.append(promotionFloor, promoteButton);
+  }
+
+  if (item.promotion_state === "promoted" || item.promotion_state === "promotion_stale") {
+    const promotionHistoryButton = document.createElement("button");
+    promotionHistoryButton.type = "button";
+    promotionHistoryButton.textContent = "View promotion history";
+    promotionHistoryButton.addEventListener("click", async () => {
+      await showKnowledgePromotionHistory(item, promotionHistoryPanel);
+    });
+    actions.append(promotionHistoryButton);
+  }
+
+  const promotionHistoryPanel = document.createElement("div");
+  promotionHistoryPanel.className = "knowledge-repair-promotion-history-panel";
+  row.append(promotionHistoryPanel);
 
   const historyButton = document.createElement("button");
   historyButton.type = "button";

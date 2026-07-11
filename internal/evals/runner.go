@@ -27,11 +27,28 @@ type Runner struct {
 
 func (r Runner) Run(cases []Case, outputs map[string]EvaluationOutput) SuiteResult {
 	result := SuiteResult{Status: SuitePassed}
+	seenCases := make(map[string]struct{}, len(cases))
+	for _, evalCase := range cases {
+		if _, exists := seenCases[evalCase.ID]; exists {
+			result.Status = SuiteFailed
+			result.FailedCaseIDs = []string{evalCase.ID}
+			result.Checks = append(result.Checks, CheckResult{CaseID: evalCase.ID, Check: "case_validation", Status: CheckFailed, Required: true, Message: "duplicate eval case ID"})
+			return result
+		}
+		seenCases[evalCase.ID] = struct{}{}
+	}
 	seenFailed := make(map[string]bool)
 	for _, evalCase := range cases {
-		output := outputs[evalCase.ID]
+		output, outputPresent := outputs[evalCase.ID]
+		if evalCase.Promotion != nil && !outputPresent {
+			output.ExecutionCategory = "executor_unavailable"
+		}
 		for _, evaluator := range r.Evaluators {
 			check := evaluator.Evaluate(evalCase, output)
+			check.Required = containsString(evalCase.RequiredChecks, check.Check)
+			if evalCase.Promotion != nil {
+				check.Promotion = evalCase.Promotion
+			}
 			result.Checks = append(result.Checks, check)
 			if check.Status == CheckFailed {
 				result.Status = SuiteFailed
