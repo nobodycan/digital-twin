@@ -52,6 +52,7 @@ type PromotionProvenance struct {
 	VerificationSnapshotFingerprint string   `json:"verification_snapshot_fingerprint"`
 	KnowledgeSpaceID                string   `json:"knowledge_space_id"`
 	RequiredDocumentIDs             []string `json:"required_document_ids,omitempty"`
+	Revision                        int      `json:"revision,omitempty"`
 }
 
 type ExpectedBehavior struct {

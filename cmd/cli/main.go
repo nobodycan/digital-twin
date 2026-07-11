@@ -186,7 +186,7 @@ func loadPromotedEvalCases(dir, tenantID string) ([]evals.Case, error) {
 		cases = append(cases, evals.Case{
 			ID: revision.CaseID, Title: "Promoted repair eval: " + revision.Question, TenantID: revision.TenantID,
 			Category: evals.CategoryRAG, RiskLevel: evals.RiskHigh, RequiredChecks: []string{string(evals.CategoryRAG)},
-			Promotion:    &evals.PromotionProvenance{PromotionID: revision.ID, GapID: revision.GapID, VerificationAttemptID: revision.VerificationAttemptID, VerificationSnapshotFingerprint: revision.VerificationSnapshotFingerprint, KnowledgeSpaceID: revision.SpaceID, RequiredDocumentIDs: revision.RequiredDocumentIDs},
+			Promotion:    &evals.PromotionProvenance{PromotionID: revision.ID, GapID: revision.GapID, VerificationAttemptID: revision.VerificationAttemptID, VerificationSnapshotFingerprint: revision.VerificationSnapshotFingerprint, KnowledgeSpaceID: revision.SpaceID, RequiredDocumentIDs: revision.RequiredDocumentIDs, Revision: revision.Revision},
 			Conversation: []types.Message{{ID: "promoted-question", Role: types.RoleUser, Content: revision.Question}},
 			Expected:     evals.ExpectedBehavior{RAG: &evals.RAGExpectation{KnowledgeSpaceID: revision.SpaceID, MinimumSupportState: string(revision.MinimumSupportState), RequiredDocumentIDs: revision.RequiredDocumentIDs}},
 		})

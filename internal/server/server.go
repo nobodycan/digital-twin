@@ -975,7 +975,7 @@ func (h *Handler) handleKnowledgeRepairPromotionList(w http.ResponseWriter, r *h
 		}
 		limit = parsed
 	}
-	activeOnly := r.URL.Query().Get("active_only") == "true"
+	activeOnly := r.URL.Query().Get("active_only") == "true" || r.URL.Query().Get("active") == "true"
 	items, err := h.promotionStore.ListRepairEvalPromotions(h.adminTenantID(), gapID, activeOnly, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_promotion_list_failed"})

@@ -16,12 +16,13 @@ const (
 )
 
 type CheckResult struct {
-	CaseID   string         `json:"case_id"`
-	Check    string         `json:"check"`
-	Status   CheckStatus    `json:"status"`
-	Required bool           `json:"required,omitempty"`
-	Message  string         `json:"message,omitempty"`
-	Evidence types.Metadata `json:"evidence,omitempty"`
+	CaseID    string               `json:"case_id"`
+	Check     string               `json:"check"`
+	Status    CheckStatus          `json:"status"`
+	Required  bool                 `json:"required,omitempty"`
+	Message   string               `json:"message,omitempty"`
+	Evidence  types.Metadata       `json:"evidence,omitempty"`
+	Promotion *PromotionProvenance `json:"promotion,omitempty"`
 }
 
 type EvaluationOutput struct {

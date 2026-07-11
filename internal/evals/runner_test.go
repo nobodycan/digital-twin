@@ -64,3 +64,25 @@ func TestRunnerFailsClosedForDuplicateCaseIDs(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 }
+
+func TestRunnerMarksMissingPromotedExecutorAsRequiredFailure(t *testing.T) {
+	result := (Runner{Evaluators: []Evaluator{RAGEvaluator{}}}).Run([]Case{{
+		ID: "promoted-missing-executor", RequiredChecks: []string{"rag"},
+		Promotion: &PromotionProvenance{PromotionID: "promotion-1"},
+		Expected:  ExpectedBehavior{RAG: &RAGExpectation{}},
+	}}, map[string]EvaluationOutput{})
+	if result.Status != SuiteFailed || len(result.Checks) != 1 || result.Checks[0].Status != CheckFailed || !result.Checks[0].Required {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestRunnerCarriesSafePromotionProvenanceIntoReportChecks(t *testing.T) {
+	provenance := &PromotionProvenance{PromotionID: "promotion-1", GapID: "gap-1", VerificationAttemptID: "verification-1", VerificationSnapshotFingerprint: "sha256-snapshot", KnowledgeSpaceID: "default"}
+	result := (Runner{Evaluators: []Evaluator{RAGEvaluator{}}}).Run([]Case{{
+		ID: "promoted-report", RequiredChecks: []string{"rag"}, Promotion: provenance,
+		Expected: ExpectedBehavior{RAG: &RAGExpectation{}},
+	}}, map[string]EvaluationOutput{"promoted-report": {KnowledgeAnswerState: "grounded"}})
+	if len(result.Checks) != 1 || result.Checks[0].Promotion == nil || result.Checks[0].Promotion.PromotionID != "promotion-1" {
+		t.Fatalf("checks = %#v", result.Checks)
+	}
+}

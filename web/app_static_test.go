@@ -398,7 +398,10 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		"investigating",
 		"knowledgeRepairPromotionPath",
 		"promoteKnowledgeRepair",
+		"showKnowledgePromotionHistory",
+		"minimum_support_state",
 		"promotion_state",
+		"knowledge-repair-promotion-floor",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.js missing %q", want)
