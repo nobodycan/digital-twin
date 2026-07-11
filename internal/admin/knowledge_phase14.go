@@ -248,6 +248,20 @@ func (s KnowledgeGapService) Create(tenantID string, input KnowledgeGapInput) (K
 	}
 	now := s.now()
 	id := fmt.Sprintf("gap-%d", now.UnixNano())
+	for {
+		collision := false
+		for _, gap := range existing {
+			if gap.ID == id {
+				collision = true
+				break
+			}
+		}
+		if !collision {
+			break
+		}
+		now = now.Add(time.Nanosecond)
+		id = fmt.Sprintf("gap-%d", now.UnixNano())
+	}
 	return s.store.SaveKnowledgeGap(KnowledgeGap{
 		ID:             id,
 		TenantID:       tenantID,

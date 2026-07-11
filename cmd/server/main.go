@@ -132,6 +132,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 			return admin.RepairVerificationDiagnosticResponse{Results: results, NoSourceReason: response.NoSourceReason, ReviewGated: response.ReviewGatedCount}, nil
 		},
 	)
+	recurrenceAdmin := admin.NewRepairRecurrenceService(admin.NewFileRepairRecurrenceStore(adminDataDir), knowledgeGapAdmin, verificationAdmin)
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{
@@ -163,6 +164,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		KnowledgeGapAdmin:    &knowledgeGapAdmin,
 		KnowledgeRetriever:   &knowledgeRetriever,
 		VerificationAdmin:    &verificationAdmin,
+		RecurrenceAdmin:      &recurrenceAdmin,
 		ToolPolicyAdmin:      &toolPolicyAdmin,
 		AuditAdmin:           &auditAdmin,
 		StaticDir:            defaultStaticDir(),

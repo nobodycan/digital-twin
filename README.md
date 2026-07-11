@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 23 - Repair Verification Ledger`
+Current stage: `Phase 24 - Recurrence Watch`
 
 What is already working:
 
@@ -33,6 +33,7 @@ What is already working:
 - answer audit timeline in `/admin`, including bounded question summaries, answer-state filters, source links, and weak-answer gap workflow cues
 - knowledge repair inbox in `/admin`, with explainable priority, recurrence context, linked evidence, provider-free retest, and gap actions
 - repair verification ledger in `/admin`, with durable verification history, deterministic snapshot/evidence fingerprints, and verified/stale/unverified state projection
+- recurrence watch in `/admin`, with exact-match suspected recurrence records, bounded history, and human-confirmed reopen/dismiss actions
 - `/runtime/status` for sanitized provider diagnostics
 - DeepSeek-friendly local startup and smoke scripts
 
@@ -86,6 +87,7 @@ flowchart TD
 - `GET /admin/knowledge/gaps`
 - `GET /admin/knowledge/repairs`
 - `GET /admin/knowledge/repairs/verifications`
+- `GET /admin/knowledge/repairs/recurrences`
 - `GET /admin/knowledge/imports`
 - `GET /admin/knowledge/spaces`
 - `POST /chat`
@@ -100,6 +102,8 @@ flowchart TD
 - `POST /admin/knowledge/gaps/update`
 - `POST /admin/knowledge/repairs/retest`
 - `POST /admin/knowledge/repairs/verify`
+- `POST /admin/knowledge/repairs/recurrences/confirm`
+- `POST /admin/knowledge/repairs/recurrences/dismiss`
 - `POST /admin/knowledge/spaces/create`
 - `POST /admin/knowledge/spaces/update`
 - `POST /admin/knowledge/spaces/disable`

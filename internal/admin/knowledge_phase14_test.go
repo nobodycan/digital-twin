@@ -383,6 +383,26 @@ func TestKnowledgeGapServiceDedupesOpenGapByQuestionAndReason(t *testing.T) {
 	}
 }
 
+func TestKnowledgeGapServiceGeneratesUniqueIDsWhenClockRepeats(t *testing.T) {
+	service := NewKnowledgeGapService(NewInMemoryKnowledgeGapStore())
+	fixed := time.Date(2026, 7, 11, 8, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return fixed }
+	first, err := service.Create("tenant-1", KnowledgeGapInput{SpaceID: DefaultKnowledgeSpaceID, Question: "First?", NoSourceReason: "no_matching_chunks"})
+	if err != nil {
+		t.Fatalf("first create returned error: %v", err)
+	}
+	if _, err := service.UpdateStatus("tenant-1", first.ID, KnowledgeGapResolved, "doc-1", "covered"); err != nil {
+		t.Fatalf("resolve returned error: %v", err)
+	}
+	second, err := service.Create("tenant-1", KnowledgeGapInput{SpaceID: DefaultKnowledgeSpaceID, Question: "Second?", NoSourceReason: "no_matching_chunks"})
+	if err != nil {
+		t.Fatalf("second create returned error: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("gap IDs collided: %q", first.ID)
+	}
+}
+
 func TestFileKnowledgeGapStoreLeavesNoTemporaryFilesBehind(t *testing.T) {
 	dir := t.TempDir()
 	service := NewKnowledgeGapService(NewFileKnowledgeGapStore(dir))
