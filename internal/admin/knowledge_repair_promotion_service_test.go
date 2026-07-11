@@ -36,6 +36,16 @@ func TestRepairEvalPromotionServiceFailsClosedWhenStoreUnavailable(t *testing.T)
 	}
 }
 
+func TestRepairEvalPromotionServiceRejectsUnsafeActorBeforePersistence(t *testing.T) {
+	fixture := newRepairEvalPromotionServiceFixture(t)
+	_, _, err := fixture.service.Promote(context.Background(), "tenant-a", RepairEvalPromotionRequest{
+		GapID: fixture.gap.ID, VerificationAttemptID: fixture.attempt.ID, MinimumSupportState: RepairEvalSupportGrounded, PromotedBy: "operator/unsafe",
+	})
+	if !errors.Is(err, ErrRepairEvalPromotionInvalidRequest) {
+		t.Fatalf("err = %v, want invalid request", err)
+	}
+}
+
 func TestRepairEvalPromotionServiceRejectsUnresolvedGap(t *testing.T) {
 	fixture := newRepairEvalPromotionServiceFixture(t)
 	request := RepairEvalPromotionRequest{GapID: fixture.gap.ID, VerificationAttemptID: fixture.attempt.ID, MinimumSupportState: RepairEvalSupportGrounded, PromotedBy: "operator-a"}

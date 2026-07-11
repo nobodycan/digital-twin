@@ -59,6 +59,11 @@ func (s RepairEvalPromotionService) Promote(ctx context.Context, tenantID string
 	if tenantID == "" || strings.TrimSpace(request.GapID) == "" || strings.TrimSpace(request.VerificationAttemptID) == "" || strings.TrimSpace(request.PromotedBy) == "" {
 		return RepairEvalPromotionRevision{}, false, ErrRepairEvalPromotionInvalidRequest
 	}
+	for _, value := range []string{tenantID, strings.TrimSpace(request.GapID), strings.TrimSpace(request.VerificationAttemptID), strings.TrimSpace(request.PromotedBy)} {
+		if err := validateKnowledgeID(value); err != nil {
+			return RepairEvalPromotionRevision{}, false, ErrRepairEvalPromotionInvalidRequest
+		}
+	}
 	if request.MinimumSupportState != RepairEvalSupportPartiallySupported && request.MinimumSupportState != RepairEvalSupportGrounded {
 		return RepairEvalPromotionRevision{}, false, ErrRepairEvalPromotionInvalidRequest
 	}
