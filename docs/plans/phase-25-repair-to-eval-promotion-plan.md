@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-Status: Draft; awaiting Stage 2 approval
+Status: Approved; Stage 2 gate passed; Stage 3 in progress
 
 Mode: SDD Stage 2 / gstack autoplan
 
