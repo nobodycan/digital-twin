@@ -14,6 +14,7 @@ import (
 
 var (
 	ErrRepairEvalPromotionInvalidRequest      = errors.New("invalid repair eval promotion request")
+	ErrRepairEvalPromotionUnavailable         = errors.New("repair eval promotion service unavailable")
 	ErrRepairEvalPromotionGapNotEligible      = errors.New("knowledge gap is not eligible for repair eval promotion")
 	ErrRepairEvalPromotionVerificationStale   = errors.New("repair verification is stale or does not match the requested attempt")
 	ErrRepairEvalPromotionRecurrencePending   = errors.New("repair recurrence requires review before promotion")
@@ -51,6 +52,9 @@ func NewRepairEvalPromotionService(store RepairEvalPromotionStore, gaps Knowledg
 
 func (s RepairEvalPromotionService) Promote(ctx context.Context, tenantID string, request RepairEvalPromotionRequest) (RepairEvalPromotionRevision, bool, error) {
 	_ = ctx
+	if s.store == nil {
+		return RepairEvalPromotionRevision{}, false, ErrRepairEvalPromotionUnavailable
+	}
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" || strings.TrimSpace(request.GapID) == "" || strings.TrimSpace(request.VerificationAttemptID) == "" || strings.TrimSpace(request.PromotedBy) == "" {
 		return RepairEvalPromotionRevision{}, false, ErrRepairEvalPromotionInvalidRequest

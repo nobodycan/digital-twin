@@ -986,6 +986,8 @@ func (h *Handler) handleKnowledgeRepairPromotionList(w http.ResponseWriter, r *h
 
 func promotionErrorResponse(err error) (int, string) {
 	switch {
+	case errors.Is(err, admin.ErrRepairEvalPromotionUnavailable):
+		return http.StatusServiceUnavailable, "knowledge_repair_promotion_unavailable"
 	case errors.Is(err, admin.ErrRepairEvalPromotionInvalidRequest), errors.Is(err, admin.ErrRepairEvalPromotionDocumentNotEligible):
 		return http.StatusBadRequest, "invalid_knowledge_repair_promotion"
 	case errors.Is(err, admin.ErrRepairEvalPromotionGapNotEligible), errors.Is(err, admin.ErrRepairEvalPromotionVerificationStale), errors.Is(err, admin.ErrRepairEvalPromotionRecurrencePending):

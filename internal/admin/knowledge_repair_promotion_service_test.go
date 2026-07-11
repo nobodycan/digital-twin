@@ -25,6 +25,17 @@ func TestRepairEvalPromotionServicePromotesCurrentResolvedVerification(t *testin
 	}
 }
 
+func TestRepairEvalPromotionServiceFailsClosedWhenStoreUnavailable(t *testing.T) {
+	fixture := newRepairEvalPromotionServiceFixture(t)
+	service := NewRepairEvalPromotionService(nil, fixture.gaps, fixture.knowledge, fixture.verification, nil)
+	_, _, err := service.Promote(context.Background(), "tenant-a", RepairEvalPromotionRequest{
+		GapID: fixture.gap.ID, VerificationAttemptID: fixture.attempt.ID, MinimumSupportState: RepairEvalSupportGrounded, PromotedBy: "operator-a",
+	})
+	if !errors.Is(err, ErrRepairEvalPromotionUnavailable) {
+		t.Fatalf("err = %v, want unavailable error", err)
+	}
+}
+
 func TestRepairEvalPromotionServiceRejectsUnresolvedGap(t *testing.T) {
 	fixture := newRepairEvalPromotionServiceFixture(t)
 	request := RepairEvalPromotionRequest{GapID: fixture.gap.ID, VerificationAttemptID: fixture.attempt.ID, MinimumSupportState: RepairEvalSupportGrounded, PromotedBy: "operator-a"}
