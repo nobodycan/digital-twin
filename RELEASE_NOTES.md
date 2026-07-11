@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.7.0.0 Phase 24 Recurrence Watch - 2026-07-11
+
+### Added
+
+- Added durable, tenant-scoped recurrence records for later weak answers that exactly match a currently verified resolved repair.
+- Added bounded recurrence history plus human-confirmed reopen and reasoned dismiss actions in `/admin`.
+
+### Changed
+
+- Recurrence detection is idempotent and best-effort; ambiguous matches and detector failures preserve the existing gap-capture fallback.
+- Repair Inbox verification freshness and recurrence state remain separate projections.
+
 ## v0.6.0.0 Phase 23 Repair Verification Ledger - 2026-07-10
 
 ### Added

@@ -82,6 +82,9 @@ const knowledgeGapListPath = "/admin/knowledge/gaps";
 const knowledgeGapUpdatePath = "/admin/knowledge/gaps/update";
 const knowledgeRepairListPath = "/admin/knowledge/repairs";
 const knowledgeRepairRetestPath = "/admin/knowledge/repairs/retest";
+const knowledgeRepairRecurrencesPath = "/admin/knowledge/repairs/recurrences";
+const knowledgeRepairRecurrenceConfirmPath = "/admin/knowledge/repairs/recurrences/confirm";
+const knowledgeRepairRecurrenceDismissPath = "/admin/knowledge/repairs/recurrences/dismiss";
 const knowledgeRepairVerifyPath = "/admin/knowledge/repairs/verify";
 const knowledgeRepairVerificationsPath = "/admin/knowledge/repairs/verifications";
 const knowledgeImportPath = "/admin/knowledge/import";
@@ -698,6 +701,55 @@ async function showKnowledgeRepairHistory(item, container) {
   container.append(history);
 }
 
+async function showKnowledgeRecurrenceHistory(item, container) {
+  const response = await fetch(`${knowledgeRepairRecurrencesPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
+  if (!response.ok) {
+    throw new Error(`repair recurrence history failed (${response.status})`);
+  }
+  const records = await response.json() || [];
+  clearElement(container);
+  const history = document.createElement("div");
+  history.className = "knowledge-recurrence-history";
+  if (!Array.isArray(records) || records.length === 0) {
+    history.textContent = "No recurrence history";
+  } else {
+    for (const record of records.slice(0, 20)) {
+      const line = document.createElement("div");
+      line.className = "knowledge-recurrence-history-row";
+      line.textContent = [
+        record.status || "unknown",
+        record.updated_at || "unknown time",
+        `${record.occurrence_count || 0} occurrences`,
+        record.answer_state || "unknown",
+        record.no_source_reason || "",
+        record.latest_audit_id || "",
+      ].filter(Boolean).join(" | ");
+      history.append(line);
+    }
+  }
+  container.append(history);
+}
+
+async function confirmKnowledgeRecurrence(item) {
+  const result = await postJSON(knowledgeRepairRecurrenceConfirmPath, {
+    recurrence_id: item.recurrence_record_id,
+    confirmed_by: "operator",
+  });
+  setKnowledgeStatus(`Recurrence confirmed ${item.gap_id}: ${result.status || "confirmed"}`);
+  await loadKnowledgeRepairs();
+  return result;
+}
+
+async function dismissKnowledgeRecurrence(item, reason) {
+  const result = await postJSON(knowledgeRepairRecurrenceDismissPath, {
+    recurrence_id: item.recurrence_record_id,
+    reason,
+  });
+  setKnowledgeStatus(`Recurrence dismissed ${item.gap_id}`);
+  await loadKnowledgeRepairs();
+  return result;
+}
+
 function renderKnowledgeRepairItem(item) {
   const row = document.createElement("div");
   row.className = "knowledge-gap-row";
@@ -718,6 +770,11 @@ function renderKnowledgeRepairItem(item) {
   verification.className = "knowledge-repair-verification";
   verification.textContent = `verification: ${item.verification_state || "unverified"}${item.last_verified_at ? ` | ${item.last_verified_at}` : ""}${item.verification_state === "stale" ? " | knowledge changed; verify again" : ""}`;
   row.append(verification);
+
+  const recurrence = document.createElement("div");
+  recurrence.className = "knowledge-repair-recurrence";
+  recurrence.textContent = `recurrence: ${item.recurrence_state || "none"}${item.recurrence_count ? ` | ${item.recurrence_count} occurrences` : ""}`;
+  row.append(recurrence);
 
   const linkedDocuments = Array.isArray(item.linked_documents) ? item.linked_documents : [];
   if (linkedDocuments.length > 0) {
@@ -799,6 +856,45 @@ function renderKnowledgeRepairItem(item) {
   const historyPanel = document.createElement("div");
   historyPanel.className = "knowledge-repair-history-panel";
   row.append(historyPanel);
+
+  const recurrenceHistoryButton = document.createElement("button");
+  recurrenceHistoryButton.type = "button";
+  recurrenceHistoryButton.textContent = "View recurrence history";
+  recurrenceHistoryButton.addEventListener("click", async () => {
+    await showKnowledgeRecurrenceHistory(item, recurrencePanel);
+  });
+  actions.append(recurrenceHistoryButton);
+
+  const recurrencePanel = document.createElement("div");
+  recurrencePanel.className = "knowledge-recurrence-history-panel";
+  row.append(recurrencePanel);
+
+  if (item.recurrence_state === "suspected" && item.recurrence_record_id) {
+    const confirmRecurrenceButton = document.createElement("button");
+    confirmRecurrenceButton.type = "button";
+    confirmRecurrenceButton.textContent = "Confirm recurrence";
+    confirmRecurrenceButton.addEventListener("click", async () => {
+      await confirmKnowledgeRecurrence(item);
+    });
+    actions.append(confirmRecurrenceButton);
+
+    const dismissReason = document.createElement("input");
+    dismissReason.type = "text";
+    dismissReason.maxLength = 240;
+    dismissReason.placeholder = "Dismiss reason";
+    dismissReason.setAttribute("aria-label", "Dismiss recurrence reason");
+    const dismissRecurrenceButton = document.createElement("button");
+    dismissRecurrenceButton.type = "button";
+    dismissRecurrenceButton.textContent = "Dismiss recurrence";
+    dismissRecurrenceButton.addEventListener("click", async () => {
+      if (!dismissReason.value.trim()) {
+        setKnowledgeStatus("Dismiss reason is required");
+        return;
+      }
+      await dismissKnowledgeRecurrence(item, dismissReason.value);
+    });
+    actions.append(dismissReason, dismissRecurrenceButton);
+  }
 
   if (linkedDocuments.length > 0) {
     const reviewSourceButton = document.createElement("button");

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,6 +41,7 @@ type Config struct {
 	KnowledgeGapAdmin    *admin.KnowledgeGapService
 	KnowledgeRetriever   *knowledge.Service
 	VerificationAdmin    *admin.RepairVerificationService
+	RecurrenceAdmin      *admin.RepairRecurrenceService
 	ToolPolicyAdmin      *admin.ToolPolicyService
 	AuditAdmin           *admin.AuditService
 	StaticDir            string
@@ -82,6 +84,7 @@ type Handler struct {
 	knowledgeGapAdmin    *admin.KnowledgeGapService
 	knowledgeRetriever   *knowledge.Service
 	verificationAdmin    *admin.RepairVerificationService
+	recurrenceAdmin      *admin.RepairRecurrenceService
 	toolPolicyAdmin      *admin.ToolPolicyService
 	auditAdmin           *admin.AuditService
 	staticDir            string
@@ -114,6 +117,7 @@ func NewHandler(config Config) http.Handler {
 		knowledgeGapAdmin:    config.KnowledgeGapAdmin,
 		knowledgeRetriever:   config.KnowledgeRetriever,
 		verificationAdmin:    config.VerificationAdmin,
+		recurrenceAdmin:      config.RecurrenceAdmin,
 		toolPolicyAdmin:      config.ToolPolicyAdmin,
 		auditAdmin:           config.AuditAdmin,
 		staticDir:            config.StaticDir,
@@ -168,6 +172,9 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/retest", handler.handleKnowledgeRepairRetest)
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/verify", handler.handleKnowledgeRepairVerify)
 	handler.mux.HandleFunc("GET /admin/knowledge/repairs/verifications", handler.handleKnowledgeRepairVerifications)
+	handler.mux.HandleFunc("GET /admin/knowledge/repairs/recurrences", handler.handleKnowledgeRecurrenceList)
+	handler.mux.HandleFunc("POST /admin/knowledge/repairs/recurrences/confirm", handler.handleKnowledgeRecurrenceConfirm)
+	handler.mux.HandleFunc("POST /admin/knowledge/repairs/recurrences/dismiss", handler.handleKnowledgeRecurrenceDismiss)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -895,7 +902,7 @@ func (h *Handler) handleKnowledgeRepairList(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit", "cause": err.Error()})
 		return
 	}
-	service := admin.NewKnowledgeRepairService(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin, h.verificationAdmin)
+	service := admin.NewKnowledgeRepairServiceWithRecurrence(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin, h.verificationAdmin, h.recurrenceAdmin)
 	items, err := service.List(h.adminTenantID(), filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_list_failed", "cause": err.Error()})
@@ -937,7 +944,7 @@ func (h *Handler) handleKnowledgeRepairVerifications(w http.ResponseWriter, r *h
 		return
 	}
 	gapID := strings.TrimSpace(r.URL.Query().Get("gap_id"))
-	if !isSafeKnowledgeToken(gapID) {
+	if gapID != "" && !isSafeKnowledgeToken(gapID) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_gap_id"})
 		return
 	}
@@ -959,6 +966,92 @@ func (h *Handler) handleKnowledgeRepairVerifications(w http.ResponseWriter, r *h
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) handleKnowledgeRecurrenceList(w http.ResponseWriter, r *http.Request) {
+	if h.recurrenceAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_recurrence_unavailable"})
+		return
+	}
+	gapID := strings.TrimSpace(r.URL.Query().Get("gap_id"))
+	if gapID != "" && !isSafeKnowledgeToken(gapID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_gap_id"})
+		return
+	}
+	limit := 20
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit"})
+			return
+		}
+		if parsed > 100 {
+			parsed = 100
+		}
+		limit = parsed
+	}
+	items, err := h.recurrenceAdmin.List(h.adminTenantID(), gapID, strings.TrimSpace(r.URL.Query().Get("status")), limit)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		errorCode := "knowledge_recurrence_list_failed"
+		if errors.Is(err, admin.ErrRepairRecurrenceInvalidStatus) {
+			statusCode = http.StatusBadRequest
+			errorCode = "invalid_recurrence_status"
+		}
+		writeJSON(w, statusCode, map[string]any{"error": errorCode})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+type knowledgeRecurrenceActionRequest struct {
+	RecurrenceID string `json:"recurrence_id"`
+	ConfirmedBy  string `json:"confirmed_by,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+func (h *Handler) handleKnowledgeRecurrenceConfirm(w http.ResponseWriter, r *http.Request) {
+	if h.recurrenceAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_recurrence_unavailable"})
+		return
+	}
+	var request knowledgeRecurrenceActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	if !isSafeKnowledgeToken(strings.TrimSpace(request.RecurrenceID)) || strings.TrimSpace(request.ConfirmedBy) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_recurrence_confirmation"})
+		return
+	}
+	record, err := h.recurrenceAdmin.Confirm(h.adminTenantID(), strings.TrimSpace(request.RecurrenceID), request.ConfirmedBy)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_recurrence_confirm_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, record)
+}
+
+func (h *Handler) handleKnowledgeRecurrenceDismiss(w http.ResponseWriter, r *http.Request) {
+	if h.recurrenceAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_recurrence_unavailable"})
+		return
+	}
+	var request knowledgeRecurrenceActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	if !isSafeKnowledgeToken(strings.TrimSpace(request.RecurrenceID)) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_recurrence_dismissal"})
+		return
+	}
+	record, err := h.recurrenceAdmin.Dismiss(h.adminTenantID(), strings.TrimSpace(request.RecurrenceID), request.Reason)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "knowledge_recurrence_dismiss_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, record)
 }
 
 func (h *Handler) handleKnowledgeGapUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1278,8 +1371,8 @@ func (h *Handler) handleExperienceStream(w http.ResponseWriter, r *http.Request)
 			writeSSEJSON(w, string(presentation.EventDone), map[string]any{"status": "failed"})
 			return
 		}
-		h.recordAudit(conversation, result, presentationSink.events, admin.AuditStatusCompleted, 0)
-		h.captureKnowledgeGap(conversation, result)
+		auditRecord, _ := h.recordAudit(conversation, result, presentationSink.events, admin.AuditStatusCompleted, 0)
+		h.captureKnowledgeGapAfterAudit(conversation, result, auditRecord)
 		return
 	}
 	result, err := h.orchestrator.Handle(r.Context(), conversation)
@@ -1300,8 +1393,8 @@ func (h *Handler) handleExperienceStream(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "presentation_error", "cause": err.Error()})
 		return
 	}
-	h.recordAudit(conversation, result, events, admin.AuditStatusCompleted, 0)
-	h.captureKnowledgeGap(conversation, result)
+	auditRecord, _ := h.recordAudit(conversation, result, events, admin.AuditStatusCompleted, 0)
+	h.captureKnowledgeGapAfterAudit(conversation, result, auditRecord)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	for _, event := range events {
@@ -1364,8 +1457,8 @@ func (h *Handler) handleMockVoiceStream(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "presentation_error", "cause": err.Error()})
 		return
 	}
-	h.recordAudit(conversation, result, events, admin.AuditStatusCompleted, 0)
-	h.captureKnowledgeGap(conversation, result)
+	auditRecord, _ := h.recordAudit(conversation, result, events, admin.AuditStatusCompleted, 0)
+	h.captureKnowledgeGapAfterAudit(conversation, result, auditRecord)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
@@ -1404,9 +1497,9 @@ func (h *Handler) recordedEventsSince(start int, conversationID string) []runtim
 	return filtered
 }
 
-func (h *Handler) recordAudit(conversation types.Conversation, result types.AgentResult, events []presentation.Event, status admin.AuditStatus, latencyMS int64) {
+func (h *Handler) recordAudit(conversation types.Conversation, result types.AgentResult, events []presentation.Event, status admin.AuditStatus, latencyMS int64) (admin.AuditRecord, bool) {
 	if h.auditAdmin == nil {
-		return
+		return admin.AuditRecord{}, false
 	}
 	summary := make([]string, 0, len(events))
 	for _, event := range events {
@@ -1431,7 +1524,17 @@ func (h *Handler) recordAudit(conversation types.Conversation, result types.Agen
 	if strings.TrimSpace(record.KnowledgeSpaceID) == "" && conversation.Metadata != nil {
 		record.KnowledgeSpaceID, _ = conversation.Metadata["knowledge_space_id"].(string)
 	}
-	_, _ = h.auditAdmin.Record(conversation.TenantID, record)
+	saved, err := h.auditAdmin.Record(conversation.TenantID, record)
+	return saved, err == nil
+}
+
+func (h *Handler) captureKnowledgeGapAfterAudit(conversation types.Conversation, result types.AgentResult, audit admin.AuditRecord) {
+	if h.recurrenceAdmin != nil && strings.TrimSpace(audit.ID) != "" {
+		if _, handled, err := h.recurrenceAdmin.Detect(conversation.TenantID, audit); err == nil && handled {
+			return
+		}
+	}
+	h.captureKnowledgeGap(conversation, result)
 }
 
 func (h *Handler) captureKnowledgeGap(conversation types.Conversation, result types.AgentResult) {

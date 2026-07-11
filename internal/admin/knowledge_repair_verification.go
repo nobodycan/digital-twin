@@ -99,10 +99,12 @@ type RepairVerificationService struct {
 }
 
 type RepairVerificationProjection struct {
-	State          RepairVerificationState
-	LastVerifiedAt *time.Time
-	LastResult     RepairVerificationResult
-	LastFailure    RepairVerificationFailureReason
+	State                       RepairVerificationState
+	LastVerifiedAt              *time.Time
+	LastResult                  RepairVerificationResult
+	LastFailure                 RepairVerificationFailureReason
+	VerifiedAttemptID           string
+	VerifiedSnapshotFingerprint string
 }
 
 func NewRepairVerificationService(store RepairVerificationStore, gaps KnowledgeGapService, knowledge KnowledgeService, diagnose RepairVerificationDiagnosticRunner) RepairVerificationService {
@@ -202,6 +204,8 @@ func (s RepairVerificationService) Project(tenantID string, gap KnowledgeGap, do
 		if item.Result == RepairVerificationPassed {
 			verifiedAt := item.CompletedAt
 			projection.LastVerifiedAt = &verifiedAt
+			projection.VerifiedAttemptID = item.ID
+			projection.VerifiedSnapshotFingerprint = item.KnowledgeSnapshotFingerprint
 			current, fingerprintErr := repairVerificationSnapshotFingerprint(documents, gap.SpaceID)
 			if fingerprintErr == nil && current == item.KnowledgeSnapshotFingerprint {
 				projection.State = RepairVerificationVerified
@@ -212,6 +216,14 @@ func (s RepairVerificationService) Project(tenantID string, gap KnowledgeGap, do
 		}
 	}
 	return projection, nil
+}
+
+func (s RepairVerificationService) CurrentProjection(tenantID string, gap KnowledgeGap) (RepairVerificationProjection, error) {
+	documents, err := s.knowledge.ListBySpace(tenantID, gap.SpaceID)
+	if err != nil {
+		return RepairVerificationProjection{}, err
+	}
+	return s.Project(tenantID, gap, documents)
 }
 
 func (s RepairVerificationService) beforeState(tenantID, gapID string) string {

@@ -54,6 +54,12 @@ type KnowledgeRepairItem struct {
 	LastVerifiedAt          *time.Time                      `json:"last_verified_at,omitempty"`
 	LastVerificationResult  RepairVerificationResult        `json:"last_verification_result,omitempty"`
 	LastVerificationFailure RepairVerificationFailureReason `json:"last_verification_failure_reason,omitempty"`
+	RecurrenceState         RepairRecurrenceProjectionState `json:"recurrence_state"`
+	RecurrenceCount         int                             `json:"recurrence_count,omitempty"`
+	LatestRecurrenceAt      *time.Time                      `json:"latest_recurrence_at,omitempty"`
+	LatestRecurrenceAnswer  string                          `json:"latest_recurrence_answer,omitempty"`
+	LatestRecurrenceReason  string                          `json:"latest_recurrence_reason,omitempty"`
+	RecurrenceRecordID      string                          `json:"recurrence_record_id,omitempty"`
 }
 
 type KnowledgeRepairService struct {
@@ -61,6 +67,7 @@ type KnowledgeRepairService struct {
 	audit        AuditService
 	knowledge    KnowledgeService
 	verification *RepairVerificationService
+	recurrence   *RepairRecurrenceService
 }
 
 func NewKnowledgeRepairService(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService, verification ...*RepairVerificationService) KnowledgeRepairService {
@@ -72,6 +79,12 @@ func NewKnowledgeRepairService(gaps KnowledgeGapService, audit AuditService, kno
 	if len(verification) > 0 {
 		service.verification = verification[0]
 	}
+	return service
+}
+
+func NewKnowledgeRepairServiceWithRecurrence(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService, verification *RepairVerificationService, recurrence *RepairRecurrenceService) KnowledgeRepairService {
+	service := NewKnowledgeRepairService(gaps, audit, knowledge, verification)
+	service.recurrence = recurrence
 	return service
 }
 
@@ -108,6 +121,20 @@ func (s KnowledgeRepairService) List(tenantID string, filter KnowledgeRepairFilt
 			item.LastVerificationFailure = projection.LastFailure
 		} else {
 			item.VerificationState = RepairVerificationUnverified
+		}
+		if s.recurrence != nil {
+			projection, err := s.recurrence.Project(tenantID, gap.ID)
+			if err != nil {
+				return nil, err
+			}
+			item.RecurrenceState = projection.State
+			item.RecurrenceCount = projection.Count
+			item.LatestRecurrenceAt = projection.LatestAt
+			item.LatestRecurrenceAnswer = projection.LatestAnswer
+			item.LatestRecurrenceReason = projection.LatestReason
+			item.RecurrenceRecordID = projection.LatestRecordID
+		} else {
+			item.RecurrenceState = RepairRecurrenceProjectionNone
 		}
 		if !matchesRepairFilter(item, filter) {
 			continue
