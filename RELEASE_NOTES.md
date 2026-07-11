@@ -1,6 +1,6 @@
 # Release Notes
 
-## Phase 25 Repair-to-Eval Promotion - 2026-07-11
+## v0.8.0.0 Phase 25 Repair-to-Eval Promotion - 2026-07-11
 
 ### Added
 
