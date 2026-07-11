@@ -25,14 +25,17 @@ type CheckResult struct {
 }
 
 type EvaluationOutput struct {
-	AssistantText   string                 `json:"assistant_text,omitempty"`
-	Citations       []string               `json:"citations,omitempty"`
-	ToolCalls       []ToolCallEvidence     `json:"tool_calls,omitempty"`
-	MemoryWrites    []MemoryWriteEvidence  `json:"memory_writes,omitempty"`
-	TenantAccesses  []TenantAccessEvidence `json:"tenant_accesses,omitempty"`
-	PolicyAction    string                 `json:"policy_action,omitempty"`
-	EstimatedTokens int                    `json:"estimated_tokens,omitempty"`
-	LatencyMS       int                    `json:"latency_ms,omitempty"`
+	AssistantText        string                 `json:"assistant_text,omitempty"`
+	Citations            []string               `json:"citations,omitempty"`
+	ToolCalls            []ToolCallEvidence     `json:"tool_calls,omitempty"`
+	MemoryWrites         []MemoryWriteEvidence  `json:"memory_writes,omitempty"`
+	TenantAccesses       []TenantAccessEvidence `json:"tenant_accesses,omitempty"`
+	PolicyAction         string                 `json:"policy_action,omitempty"`
+	EstimatedTokens      int                    `json:"estimated_tokens,omitempty"`
+	LatencyMS            int                    `json:"latency_ms,omitempty"`
+	KnowledgeAnswerState string                 `json:"knowledge_answer_state,omitempty"`
+	KnowledgeSpaceID     string                 `json:"knowledge_space_id,omitempty"`
+	SourceDocumentIDs    []string               `json:"source_document_ids,omitempty"`
 }
 
 type ToolCallEvidence struct {
@@ -91,10 +94,36 @@ func (RAGEvaluator) Evaluate(evalCase Case, output EvaluationOutput) CheckResult
 			failures = append(failures, "missing required citation "+required)
 		}
 	}
+	if expect.KnowledgeSpaceID != "" && output.KnowledgeSpaceID != expect.KnowledgeSpaceID {
+		failures = append(failures, fmt.Sprintf("knowledge space mismatch: expected %s, got %s", expect.KnowledgeSpaceID, output.KnowledgeSpaceID))
+	}
+	if expect.MinimumSupportState != "" && supportStateRank(output.KnowledgeAnswerState) < supportStateRank(expect.MinimumSupportState) {
+		failures = append(failures, fmt.Sprintf("support state below minimum: expected %s, got %s", expect.MinimumSupportState, output.KnowledgeAnswerState))
+	}
+	presentDocuments := make(map[string]bool, len(output.SourceDocumentIDs))
+	for _, documentID := range output.SourceDocumentIDs {
+		presentDocuments[documentID] = true
+	}
+	for _, documentID := range expect.RequiredDocumentIDs {
+		if !presentDocuments[documentID] {
+			failures = append(failures, "missing required source document "+documentID)
+		}
+	}
 	if expect.UnsupportedClaims {
 		failures = append(failures, "unsupported claims present")
 	}
 	return resultFromFailures(evalCase.ID, "rag", failures)
+}
+
+func supportStateRank(state string) int {
+	switch strings.TrimSpace(state) {
+	case "grounded":
+		return 2
+	case "partially_supported":
+		return 1
+	default:
+		return 0
+	}
 }
 
 type ToolEvaluator struct{}

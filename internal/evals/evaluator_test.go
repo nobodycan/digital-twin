@@ -44,6 +44,20 @@ func TestRAGEvaluatorFailsUnsupportedCitations(t *testing.T) {
 	}
 }
 
+func TestRAGEvaluatorEnforcesPromotedKnowledgeContract(t *testing.T) {
+	result := (RAGEvaluator{}).Evaluate(Case{
+		ID: "promoted-rag",
+		Expected: ExpectedBehavior{RAG: &RAGExpectation{
+			KnowledgeSpaceID:    "space-a",
+			MinimumSupportState: "grounded",
+			RequiredDocumentIDs: []string{"doc-a"},
+		}},
+	}, EvaluationOutput{KnowledgeSpaceID: "space-b", KnowledgeAnswerState: "partially_supported", SourceDocumentIDs: []string{"doc-b"}})
+	if result.Status != CheckFailed || !containsAll(result.Message, "knowledge space", "support state", "doc-a") {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestToolEvaluatorFailsDeniedToolThatExecuted(t *testing.T) {
 	evaluator := ToolEvaluator{}
 	result := evaluator.Evaluate(Case{

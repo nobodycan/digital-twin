@@ -33,14 +33,25 @@ const (
 )
 
 type Case struct {
-	ID           string           `json:"id"`
-	Title        string           `json:"title"`
-	TenantID     string           `json:"tenant_id"`
-	Category     Category         `json:"category"`
-	RiskLevel    RiskLevel        `json:"risk_level"`
-	Conversation []types.Message  `json:"conversation"`
-	Expected     ExpectedBehavior `json:"expected"`
-	Output       EvaluationOutput `json:"output,omitempty"`
+	ID             string               `json:"id"`
+	Title          string               `json:"title"`
+	TenantID       string               `json:"tenant_id"`
+	Category       Category             `json:"category"`
+	RiskLevel      RiskLevel            `json:"risk_level"`
+	RequiredChecks []string             `json:"required_checks,omitempty"`
+	Promotion      *PromotionProvenance `json:"promotion,omitempty"`
+	Conversation   []types.Message      `json:"conversation"`
+	Expected       ExpectedBehavior     `json:"expected"`
+	Output         EvaluationOutput     `json:"output,omitempty"`
+}
+
+type PromotionProvenance struct {
+	PromotionID                     string   `json:"promotion_id"`
+	GapID                           string   `json:"gap_id"`
+	VerificationAttemptID           string   `json:"verification_attempt_id"`
+	VerificationSnapshotFingerprint string   `json:"verification_snapshot_fingerprint"`
+	KnowledgeSpaceID                string   `json:"knowledge_space_id"`
+	RequiredDocumentIDs             []string `json:"required_document_ids,omitempty"`
 }
 
 type ExpectedBehavior struct {
@@ -74,8 +85,11 @@ type SafetyExpectation struct {
 }
 
 type RAGExpectation struct {
-	RequiredCitations []string `json:"required_citations,omitempty"`
-	UnsupportedClaims bool     `json:"unsupported_claims,omitempty"`
+	RequiredCitations   []string `json:"required_citations,omitempty"`
+	UnsupportedClaims   bool     `json:"unsupported_claims,omitempty"`
+	KnowledgeSpaceID    string   `json:"knowledge_space_id,omitempty"`
+	MinimumSupportState string   `json:"minimum_support_state,omitempty"`
+	RequiredDocumentIDs []string `json:"required_document_ids,omitempty"`
 }
 
 type TenantExpectation struct {
@@ -111,6 +125,13 @@ func LoadCases(dir string) ([]Case, error) {
 	sort.Slice(cases, func(i, j int) bool {
 		return cases[i].ID < cases[j].ID
 	})
+	seen := make(map[string]struct{}, len(cases))
+	for _, evalCase := range cases {
+		if _, ok := seen[evalCase.ID]; ok {
+			return nil, fmt.Errorf("duplicate eval case id %s: %w", evalCase.ID, core.ErrInvalidInput)
+		}
+		seen[evalCase.ID] = struct{}{}
+	}
 	return cases, nil
 }
 
@@ -144,7 +165,46 @@ func validateCase(file string, evalCase Case) error {
 			return caseFieldError(file, fmt.Sprintf("conversation[%d].content", i), "expected non-empty string")
 		}
 	}
+	for _, check := range evalCase.RequiredChecks {
+		if !validCheckName(check) {
+			return caseFieldError(file, "required_checks", "expected known evaluator name")
+		}
+	}
+	if evalCase.Promotion != nil {
+		if evalCase.Expected.RAG == nil || !containsString(evalCase.RequiredChecks, string(CategoryRAG)) {
+			return caseFieldError(file, "promotion", "promoted cases require a required rag check")
+		}
+		for field, value := range map[string]string{
+			"promotion_id":                      evalCase.Promotion.PromotionID,
+			"gap_id":                            evalCase.Promotion.GapID,
+			"verification_attempt_id":           evalCase.Promotion.VerificationAttemptID,
+			"verification_snapshot_fingerprint": evalCase.Promotion.VerificationSnapshotFingerprint,
+			"knowledge_space_id":                evalCase.Promotion.KnowledgeSpaceID,
+		} {
+			if value == "" {
+				return caseFieldError(file, "promotion."+field, "expected non-empty string")
+			}
+		}
+	}
 	return nil
+}
+
+func validCheckName(check string) bool {
+	switch check {
+	case string(CategoryPersona), string(CategoryRAG), string(CategoryTools), string(CategoryMemory), string(CategorySafety), string(CategoryTenant), string(CategoryCostPerf):
+		return true
+	default:
+		return false
+	}
+}
+
+func containsString(values []string, value string) bool {
+	for _, existing := range values {
+		if existing == value {
+			return true
+		}
+	}
+	return false
 }
 
 func validCategory(category Category) bool {
