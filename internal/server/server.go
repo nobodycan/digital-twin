@@ -42,6 +42,8 @@ type Config struct {
 	KnowledgeRetriever   *knowledge.Service
 	VerificationAdmin    *admin.RepairVerificationService
 	RecurrenceAdmin      *admin.RepairRecurrenceService
+	PromotionAdmin       *admin.RepairEvalPromotionService
+	PromotionStore       admin.RepairEvalPromotionStore
 	ToolPolicyAdmin      *admin.ToolPolicyService
 	AuditAdmin           *admin.AuditService
 	StaticDir            string
@@ -85,6 +87,8 @@ type Handler struct {
 	knowledgeRetriever   *knowledge.Service
 	verificationAdmin    *admin.RepairVerificationService
 	recurrenceAdmin      *admin.RepairRecurrenceService
+	promotionAdmin       *admin.RepairEvalPromotionService
+	promotionStore       admin.RepairEvalPromotionStore
 	toolPolicyAdmin      *admin.ToolPolicyService
 	auditAdmin           *admin.AuditService
 	staticDir            string
@@ -118,6 +122,8 @@ func NewHandler(config Config) http.Handler {
 		knowledgeRetriever:   config.KnowledgeRetriever,
 		verificationAdmin:    config.VerificationAdmin,
 		recurrenceAdmin:      config.RecurrenceAdmin,
+		promotionAdmin:       config.PromotionAdmin,
+		promotionStore:       config.PromotionStore,
 		toolPolicyAdmin:      config.ToolPolicyAdmin,
 		auditAdmin:           config.AuditAdmin,
 		staticDir:            config.StaticDir,
@@ -175,6 +181,8 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /admin/knowledge/repairs/recurrences", handler.handleKnowledgeRecurrenceList)
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/recurrences/confirm", handler.handleKnowledgeRecurrenceConfirm)
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/recurrences/dismiss", handler.handleKnowledgeRecurrenceDismiss)
+	handler.mux.HandleFunc("POST /admin/knowledge/repairs/promotions", handler.handleKnowledgeRepairPromotion)
+	handler.mux.HandleFunc("GET /admin/knowledge/repairs/promotions", handler.handleKnowledgeRepairPromotionList)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -902,13 +910,91 @@ func (h *Handler) handleKnowledgeRepairList(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit", "cause": err.Error()})
 		return
 	}
-	service := admin.NewKnowledgeRepairServiceWithRecurrence(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin, h.verificationAdmin, h.recurrenceAdmin)
+	service := admin.NewKnowledgeRepairServiceWithRecurrenceAndPromotion(*h.knowledgeGapAdmin, *h.auditAdmin, *h.knowledgeAdmin, h.verificationAdmin, h.recurrenceAdmin, h.promotionStore)
 	items, err := service.List(h.adminTenantID(), filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_list_failed", "cause": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+type knowledgeRepairPromotionRequest struct {
+	GapID                 string                       `json:"gap_id"`
+	VerificationAttemptID string                       `json:"verification_attempt_id"`
+	MinimumSupportState   admin.RepairEvalSupportState `json:"minimum_support_state"`
+	RequiredDocumentIDs   []string                     `json:"required_document_ids,omitempty"`
+	PromotedBy            string                       `json:"promoted_by"`
+}
+
+func (h *Handler) handleKnowledgeRepairPromotion(w http.ResponseWriter, r *http.Request) {
+	if h.promotionAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_repair_promotion_unavailable"})
+		return
+	}
+	var request knowledgeRepairPromotionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
+		return
+	}
+	if !isSafeKnowledgeToken(strings.TrimSpace(request.GapID)) || !isSafeKnowledgeToken(strings.TrimSpace(request.VerificationAttemptID)) || strings.TrimSpace(request.PromotedBy) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_knowledge_repair_promotion"})
+		return
+	}
+	record, applied, err := h.promotionAdmin.Promote(r.Context(), h.adminTenantID(), admin.RepairEvalPromotionRequest{
+		GapID: request.GapID, VerificationAttemptID: request.VerificationAttemptID, MinimumSupportState: request.MinimumSupportState,
+		RequiredDocumentIDs: request.RequiredDocumentIDs, PromotedBy: request.PromotedBy,
+	})
+	if err != nil {
+		statusCode, errorCode := promotionErrorResponse(err)
+		writeJSON(w, statusCode, map[string]any{"error": errorCode})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"promotion": record, "applied": applied})
+}
+
+func (h *Handler) handleKnowledgeRepairPromotionList(w http.ResponseWriter, r *http.Request) {
+	if h.promotionStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_repair_promotion_unavailable"})
+		return
+	}
+	gapID := strings.TrimSpace(r.URL.Query().Get("gap_id"))
+	if gapID != "" && !isSafeKnowledgeToken(gapID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_gap_id"})
+		return
+	}
+	limit := 20
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_limit"})
+			return
+		}
+		if parsed > 100 {
+			parsed = 100
+		}
+		limit = parsed
+	}
+	activeOnly := r.URL.Query().Get("active_only") == "true"
+	items, err := h.promotionStore.ListRepairEvalPromotions(h.adminTenantID(), gapID, activeOnly, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_repair_promotion_list_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func promotionErrorResponse(err error) (int, string) {
+	switch {
+	case errors.Is(err, admin.ErrRepairEvalPromotionInvalidRequest), errors.Is(err, admin.ErrRepairEvalPromotionDocumentNotEligible):
+		return http.StatusBadRequest, "invalid_knowledge_repair_promotion"
+	case errors.Is(err, admin.ErrRepairEvalPromotionGapNotEligible), errors.Is(err, admin.ErrRepairEvalPromotionVerificationStale), errors.Is(err, admin.ErrRepairEvalPromotionRecurrencePending):
+		return http.StatusConflict, "knowledge_repair_promotion_not_eligible"
+	case errors.Is(err, admin.ErrKnowledgeDocumentNotFound), errors.Is(err, admin.ErrKnowledgeSpaceNotFound):
+		return http.StatusNotFound, "knowledge_repair_promotion_target_not_found"
+	default:
+		return http.StatusInternalServerError, "knowledge_repair_promotion_failed"
+	}
 }
 
 type knowledgeRepairVerifyRequest struct {

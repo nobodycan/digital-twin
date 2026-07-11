@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
 
@@ -116,6 +118,33 @@ func TestRunEvalWritesReportsAndReturnsFailureForRequiredFailures(t *testing.T) 
 		if _, err := os.Stat(filepath.Join(reportsDir, name)); err != nil {
 			t.Fatalf("missing report %s: %v", name, err)
 		}
+	}
+}
+
+func TestRunEvalIncludesPromotedCasesWithDynamicKnowledgeOutput(t *testing.T) {
+	casesDir := t.TempDir()
+	reportsDir := t.TempDir()
+	adminDir := t.TempDir()
+	store := admin.NewFileRepairEvalPromotionStore(adminDir)
+	if _, _, err := store.PromoteRepairEval(admin.RepairEvalPromotionRevision{
+		TenantID: "tenant-a", CaseID: "repair-eval-tenant-a-gap-1", GapID: "gap-1", SpaceID: "default", Question: "How do I start?",
+		VerificationAttemptID: "verification-1", VerificationSnapshotFingerprint: "snapshot-1", MinimumSupportState: admin.RepairEvalSupportGrounded,
+		PolicyFingerprint: "policy-1", PromotedBy: "operator-a", PromotedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed promotion: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"eval", "--cases", casesDir, "--reports", reportsDir, "--admin-data", adminDir, "--tenant", "tenant-a", "--run-id", "promoted-run"}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stdout.String(), "status=failed") {
+		t.Fatalf("run() code=%d stdout=%q stderr=%q, want failed promoted eval", code, stdout.String(), stderr.String())
+	}
+	report, err := os.ReadFile(filepath.Join(reportsDir, "promoted-run.json"))
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	if !strings.Contains(string(report), "promoted case requires a dynamic executor") && !strings.Contains(string(report), "missing required source document") && !strings.Contains(string(report), "support state below minimum") {
+		t.Fatalf("report = %s, want promoted dynamic evaluation evidence", report)
 	}
 }
 

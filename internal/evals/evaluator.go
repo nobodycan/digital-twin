@@ -36,6 +36,7 @@ type EvaluationOutput struct {
 	KnowledgeAnswerState string                 `json:"knowledge_answer_state,omitempty"`
 	KnowledgeSpaceID     string                 `json:"knowledge_space_id,omitempty"`
 	SourceDocumentIDs    []string               `json:"source_document_ids,omitempty"`
+	ExecutionCategory    string                 `json:"execution_category,omitempty"`
 }
 
 type ToolCallEvidence struct {
@@ -89,6 +90,9 @@ func (RAGEvaluator) Evaluate(evalCase Case, output EvaluationOutput) CheckResult
 		present[citation] = true
 	}
 	var failures []string
+	if evalCase.Promotion != nil && output.ExecutionCategory == "executor_unavailable" {
+		failures = append(failures, "promoted case requires a dynamic executor")
+	}
 	for _, required := range expect.RequiredCitations {
 		if !present[required] {
 			failures = append(failures, "missing required citation "+required)

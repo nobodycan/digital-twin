@@ -396,6 +396,9 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 		"relations",
 		"resolution_note",
 		"investigating",
+		"knowledgeRepairPromotionPath",
+		"promoteKnowledgeRepair",
+		"promotion_state",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("admin.js missing %q", want)
@@ -429,6 +432,7 @@ func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 		`id="knowledge-repair-unresolved-only"`,
 		`id="knowledge-repair-linked-evidence"`,
 		`id="knowledge-repair-refresh"`,
+		`promotion_state`,
 		`id="knowledge-review-queue"`,
 		`id="knowledge-review-filter"`,
 		`value="local_text_file"`,

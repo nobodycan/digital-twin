@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nobodycan/digital-twin/internal/admin"
 	"github.com/nobodycan/digital-twin/internal/app"
 	"github.com/nobodycan/digital-twin/internal/evals"
 	"github.com/nobodycan/digital-twin/internal/governance"
+	"github.com/nobodycan/digital-twin/internal/knowledge"
 	"github.com/nobodycan/digital-twin/internal/llm"
 	"github.com/nobodycan/digital-twin/pkg/types"
 )
@@ -115,6 +117,9 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	casesDir := flags.String("cases", "evals/conversations", "directory containing eval case JSON files")
 	reportsDir := flags.String("reports", "evals/reports", "directory for generated eval reports")
 	runID := flags.String("run-id", "local-eval", "eval run id used for report file names")
+	tenantID := flags.String("tenant", "local", "tenant id for promoted repair eval cases")
+	adminDataDir := flags.String("admin-data", "data/admin", "admin data directory containing promoted repair eval cases")
+	includePromoted := flags.Bool("include-promoted", true, "include active repair eval promotions")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -123,9 +128,22 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "load eval cases: %v\n", err)
 		return 1
 	}
+	if *includePromoted {
+		promoted, err := loadPromotedEvalCases(*adminDataDir, *tenantID)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "load promoted eval cases: %v\n", err)
+			return 1
+		}
+		cases = append(cases, promoted...)
+	}
 	outputs := make(map[string]evals.EvaluationOutput, len(cases))
+	retriever := knowledge.NewService(admin.NewFileKnowledgeStore(*adminDataDir))
 	for _, evalCase := range cases {
-		outputs[evalCase.ID] = evalCase.Output
+		if evalCase.Promotion == nil {
+			outputs[evalCase.ID] = evalCase.Output
+			continue
+		}
+		outputs[evalCase.ID] = executePromotedEvalCase(evalCase, retriever)
 	}
 	runner := evals.Runner{Evaluators: []evals.Evaluator{
 		evals.PersonaEvaluator{},
@@ -139,7 +157,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	result := runner.Run(cases, outputs)
 	result.ID = *runID
 	result.VersionMetadata = types.Metadata{
-		"tenant_id":                "local",
+		"tenant_id":                *tenantID,
 		"persona_version_id":       "fixture",
 		"tool_policy_version_id":   "fixture",
 		"knowledge_version_id":     "fixture",
@@ -156,4 +174,47 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func loadPromotedEvalCases(dir, tenantID string) ([]evals.Case, error) {
+	revisions, err := admin.NewFileRepairEvalPromotionStore(dir).ListRepairEvalPromotions(tenantID, "", true, 100)
+	if err != nil {
+		return nil, err
+	}
+	cases := make([]evals.Case, 0, len(revisions))
+	for _, revision := range revisions {
+		cases = append(cases, evals.Case{
+			ID: revision.CaseID, Title: "Promoted repair eval: " + revision.Question, TenantID: revision.TenantID,
+			Category: evals.CategoryRAG, RiskLevel: evals.RiskHigh, RequiredChecks: []string{string(evals.CategoryRAG)},
+			Promotion:    &evals.PromotionProvenance{PromotionID: revision.ID, GapID: revision.GapID, VerificationAttemptID: revision.VerificationAttemptID, VerificationSnapshotFingerprint: revision.VerificationSnapshotFingerprint, KnowledgeSpaceID: revision.SpaceID, RequiredDocumentIDs: revision.RequiredDocumentIDs},
+			Conversation: []types.Message{{ID: "promoted-question", Role: types.RoleUser, Content: revision.Question}},
+			Expected:     evals.ExpectedBehavior{RAG: &evals.RAGExpectation{KnowledgeSpaceID: revision.SpaceID, MinimumSupportState: string(revision.MinimumSupportState), RequiredDocumentIDs: revision.RequiredDocumentIDs}},
+		})
+	}
+	return cases, nil
+}
+
+func executePromotedEvalCase(evalCase evals.Case, retriever knowledge.Service) evals.EvaluationOutput {
+	query := ""
+	for _, message := range evalCase.Conversation {
+		if message.Role == types.RoleUser {
+			query = message.Content
+		}
+	}
+	response, err := retriever.Diagnostics(context.Background(), evalCase.TenantID, knowledge.SearchRequest{Query: query, Limit: 5, Mode: knowledge.RetrievalModeLexical, SpaceID: evalCase.Promotion.KnowledgeSpaceID})
+	output := evals.EvaluationOutput{KnowledgeSpaceID: evalCase.Promotion.KnowledgeSpaceID, ExecutionCategory: "knowledge_diagnostics"}
+	if err != nil {
+		output.ExecutionCategory = "executor_unavailable"
+		return output
+	}
+	for _, result := range response.Results {
+		output.Citations = append(output.Citations, result.DocumentID+"#"+result.ChunkID)
+		output.SourceDocumentIDs = append(output.SourceDocumentIDs, result.DocumentID)
+	}
+	if len(response.Results) > 0 {
+		output.KnowledgeAnswerState = "grounded"
+	} else {
+		output.KnowledgeAnswerState = "unsupported"
+	}
+	return output
 }
