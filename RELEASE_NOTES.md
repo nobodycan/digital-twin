@@ -1,5 +1,13 @@
 # Release Notes
 
+## Phase 25 Repair-to-Eval Promotion - 2026-07-11
+
+### Added
+
+- Added tenant-scoped, file-backed repair eval promotions with idempotent revisions and active-history projection in Repair Inbox.
+- Added fail-closed promotion eligibility checks for resolved gaps, current verification, recurrence state, and reviewed source documents.
+- Added promoted RAG eval contracts, CLI dynamic knowledge diagnostics, admin promotion API, and Repair Inbox promotion controls.
+
 ## v0.7.0.0 Phase 24 Recurrence Watch - 2026-07-11
 
 ### Added

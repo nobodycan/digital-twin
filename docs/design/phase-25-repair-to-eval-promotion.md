@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-Status: Approved; Stage 1 spec accepted
+Status: Implemented; Stage 1 spec accepted
 
 Source spec: [Phase 25 Repair-to-Eval Promotion Spec](../specs/phase-25-repair-to-eval-promotion.md)
 
