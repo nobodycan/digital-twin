@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-Status: Draft; awaiting Stage 1 approval
+Status: Approved; Stage 1 gate passed
 
 Source roadmap: [Phase 23-26 Repair Verification Roadmap](../design/phase-23-26-repair-verification-roadmap.md)
 
