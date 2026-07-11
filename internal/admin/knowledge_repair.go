@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -35,31 +36,37 @@ type KnowledgeRepairLinkedDocument struct {
 }
 
 type KnowledgeRepairItem struct {
-	RepairID                string                          `json:"repair_id"`
-	GapID                   string                          `json:"gap_id"`
-	SpaceID                 string                          `json:"space_id"`
-	SpaceName               string                          `json:"space_name,omitempty"`
-	QuestionSummary         string                          `json:"question_summary"`
-	Status                  KnowledgeGapStatus              `json:"status"`
-	AnswerState             string                          `json:"answer_state"`
-	Reason                  string                          `json:"reason"`
-	Priority                KnowledgeRepairPriority         `json:"priority"`
-	PriorityReasons         []string                        `json:"priority_reasons,omitempty"`
-	LastSeenAt              time.Time                       `json:"last_seen_at"`
-	OccurrenceCount         int                             `json:"occurrence_count"`
-	SourceCount             int                             `json:"source_count"`
-	LinkedDocuments         []KnowledgeRepairLinkedDocument `json:"linked_documents"`
-	NextAction              string                          `json:"next_action"`
-	VerificationState       RepairVerificationState         `json:"verification_state"`
-	LastVerifiedAt          *time.Time                      `json:"last_verified_at,omitempty"`
-	LastVerificationResult  RepairVerificationResult        `json:"last_verification_result,omitempty"`
-	LastVerificationFailure RepairVerificationFailureReason `json:"last_verification_failure_reason,omitempty"`
-	RecurrenceState         RepairRecurrenceProjectionState `json:"recurrence_state"`
-	RecurrenceCount         int                             `json:"recurrence_count,omitempty"`
-	LatestRecurrenceAt      *time.Time                      `json:"latest_recurrence_at,omitempty"`
-	LatestRecurrenceAnswer  string                          `json:"latest_recurrence_answer,omitempty"`
-	LatestRecurrenceReason  string                          `json:"latest_recurrence_reason,omitempty"`
-	RecurrenceRecordID      string                          `json:"recurrence_record_id,omitempty"`
+	RepairID                string                             `json:"repair_id"`
+	GapID                   string                             `json:"gap_id"`
+	SpaceID                 string                             `json:"space_id"`
+	SpaceName               string                             `json:"space_name,omitempty"`
+	QuestionSummary         string                             `json:"question_summary"`
+	Status                  KnowledgeGapStatus                 `json:"status"`
+	AnswerState             string                             `json:"answer_state"`
+	Reason                  string                             `json:"reason"`
+	Priority                KnowledgeRepairPriority            `json:"priority"`
+	PriorityReasons         []string                           `json:"priority_reasons,omitempty"`
+	LastSeenAt              time.Time                          `json:"last_seen_at"`
+	OccurrenceCount         int                                `json:"occurrence_count"`
+	SourceCount             int                                `json:"source_count"`
+	LinkedDocuments         []KnowledgeRepairLinkedDocument    `json:"linked_documents"`
+	NextAction              string                             `json:"next_action"`
+	VerificationState       RepairVerificationState            `json:"verification_state"`
+	LastVerifiedAt          *time.Time                         `json:"last_verified_at,omitempty"`
+	LastVerificationResult  RepairVerificationResult           `json:"last_verification_result,omitempty"`
+	LastVerificationFailure RepairVerificationFailureReason    `json:"last_verification_failure_reason,omitempty"`
+	RecurrenceState         RepairRecurrenceProjectionState    `json:"recurrence_state"`
+	RecurrenceCount         int                                `json:"recurrence_count,omitempty"`
+	LatestRecurrenceAt      *time.Time                         `json:"latest_recurrence_at,omitempty"`
+	LatestRecurrenceAnswer  string                             `json:"latest_recurrence_answer,omitempty"`
+	LatestRecurrenceReason  string                             `json:"latest_recurrence_reason,omitempty"`
+	RecurrenceRecordID      string                             `json:"recurrence_record_id,omitempty"`
+	PromotionState          RepairEvalPromotionProjectionState `json:"promotion_state"`
+	PromotionCaseID         string                             `json:"promotion_case_id,omitempty"`
+	PromotionRevision       int                                `json:"promotion_revision,omitempty"`
+	PromotionPromotedAt     *time.Time                         `json:"promotion_promoted_at,omitempty"`
+	PromotionSupportState   RepairEvalSupportState             `json:"promotion_support_state,omitempty"`
+	PromotionBlockedReason  string                             `json:"promotion_blocked_reason,omitempty"`
 }
 
 type KnowledgeRepairService struct {
@@ -68,6 +75,7 @@ type KnowledgeRepairService struct {
 	knowledge    KnowledgeService
 	verification *RepairVerificationService
 	recurrence   *RepairRecurrenceService
+	promotion    RepairEvalPromotionStore
 }
 
 func NewKnowledgeRepairService(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService, verification ...*RepairVerificationService) KnowledgeRepairService {
@@ -85,6 +93,12 @@ func NewKnowledgeRepairService(gaps KnowledgeGapService, audit AuditService, kno
 func NewKnowledgeRepairServiceWithRecurrence(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService, verification *RepairVerificationService, recurrence *RepairRecurrenceService) KnowledgeRepairService {
 	service := NewKnowledgeRepairService(gaps, audit, knowledge, verification)
 	service.recurrence = recurrence
+	return service
+}
+
+func NewKnowledgeRepairServiceWithRecurrenceAndPromotion(gaps KnowledgeGapService, audit AuditService, knowledge KnowledgeService, verification *RepairVerificationService, recurrence *RepairRecurrenceService, promotion RepairEvalPromotionStore) KnowledgeRepairService {
+	service := NewKnowledgeRepairServiceWithRecurrence(gaps, audit, knowledge, verification, recurrence)
+	service.promotion = promotion
 	return service
 }
 
@@ -136,6 +150,27 @@ func (s KnowledgeRepairService) List(tenantID string, filter KnowledgeRepairFilt
 		} else {
 			item.RecurrenceState = RepairRecurrenceProjectionNone
 		}
+		if s.promotion != nil {
+			promotion, promotionErr := s.promotion.GetActiveRepairEvalPromotion(tenantID, gap.ID)
+			if promotionErr != nil && !errors.Is(promotionErr, ErrRepairEvalPromotionNotFound) {
+				return nil, promotionErr
+			}
+			item.PromotionState = RepairEvalPromotionNotPromoted
+			if promotionErr == nil {
+				item.PromotionCaseID = promotion.CaseID
+				item.PromotionRevision = promotion.Revision
+				item.PromotionPromotedAt = timePointer(promotion.PromotedAt)
+				item.PromotionSupportState = promotion.MinimumSupportState
+				if item.Status == KnowledgeGapResolved && item.VerificationState == RepairVerificationVerified && item.LastVerificationResult == RepairVerificationPassed && item.RecurrenceState != RepairRecurrenceProjectionSuspected {
+					item.PromotionState = RepairEvalPromotionPromoted
+				} else {
+					item.PromotionState = RepairEvalPromotionStale
+					item.PromotionBlockedReason = repairEvalPromotionBlockedReason(item)
+				}
+			}
+		} else {
+			item.PromotionState = RepairEvalPromotionNotPromoted
+		}
 		if !matchesRepairFilter(item, filter) {
 			continue
 		}
@@ -149,6 +184,19 @@ func (s KnowledgeRepairService) List(tenantID string, filter KnowledgeRepairFilt
 		items = items[:filter.Limit]
 	}
 	return items, nil
+}
+
+func repairEvalPromotionBlockedReason(item KnowledgeRepairItem) string {
+	if item.Status != KnowledgeGapResolved {
+		return "gap_not_resolved"
+	}
+	if item.RecurrenceState == RepairRecurrenceProjectionSuspected {
+		return "recurrence_pending"
+	}
+	if item.VerificationState != RepairVerificationVerified || item.LastVerificationResult != RepairVerificationPassed {
+		return "verification_stale"
+	}
+	return "promotion_policy_stale"
 }
 
 func (s KnowledgeRepairService) projectRepairItem(gap KnowledgeGap, spaceName string, timeline []AnswerAuditTimelineItem, documents []KnowledgeDocument) KnowledgeRepairItem {

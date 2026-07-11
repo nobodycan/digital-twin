@@ -162,9 +162,6 @@ func (s *FileRepairEvalPromotionStore) save(data repairEvalPromotionFileData) er
 }
 
 func promoteRepairEval(revisions *[]RepairEvalPromotionRevision, candidate RepairEvalPromotionRevision) (RepairEvalPromotionRevision, bool, error) {
-	if err := validateRepairEvalPromotion(candidate); err != nil {
-		return RepairEvalPromotionRevision{}, false, err
-	}
 	maxRevision := 0
 	activeIndex := -1
 	for i, existing := range *revisions {
@@ -181,14 +178,17 @@ func promoteRepairEval(revisions *[]RepairEvalPromotionRevision, candidate Repai
 			}
 		}
 	}
+	if candidate.ID == "" {
+		candidate.ID = fmt.Sprintf("promotion-%s-r%d", candidate.GapID, maxRevision+1)
+	}
+	if err := validateRepairEvalPromotion(candidate); err != nil {
+		return RepairEvalPromotionRevision{}, false, err
+	}
 	if activeIndex >= 0 {
 		(*revisions)[activeIndex].Active = false
 	}
 	candidate.Revision = maxRevision + 1
 	candidate.Active = true
-	if candidate.ID == "" {
-		candidate.ID = fmt.Sprintf("promotion-%s-r%d", candidate.GapID, candidate.Revision)
-	}
 	*revisions = append(*revisions, cloneRepairEvalPromotion(candidate))
 	return cloneRepairEvalPromotion(candidate), true, nil
 }
