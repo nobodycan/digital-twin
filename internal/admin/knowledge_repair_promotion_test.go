@@ -99,6 +99,20 @@ func TestFileRepairEvalPromotionStoreKeepsConcurrentPromotionsConsistent(t *test
 	}
 }
 
+func TestRepairEvalPromotionStoreAllowsExplicitTrendReadLimit(t *testing.T) {
+	store := NewInMemoryRepairEvalPromotionStore()
+	for index := 0; index < 105; index++ {
+		record := promotionRevision("tenant-a", fmt.Sprintf("gap-%d", index), fmt.Sprintf("verification-%d", index), "policy-1")
+		if _, _, err := store.PromoteRepairEval(record); err != nil {
+			t.Fatalf("promotion %d returned error: %v", index, err)
+		}
+	}
+	items, err := store.ListRepairEvalPromotions("tenant-a", "", false, 1000)
+	if err != nil || len(items) != 105 {
+		t.Fatalf("trend promotion items = %d, err=%v", len(items), err)
+	}
+}
+
 func promotionRevision(tenantID, gapID, attemptID, policy string) RepairEvalPromotionRevision {
 	now := time.Date(2026, 7, 11, 8, 0, 0, 0, time.UTC)
 	return RepairEvalPromotionRevision{

@@ -176,6 +176,24 @@ func TestFileRepairVerificationStoreKeepsConcurrentAppends(t *testing.T) {
 	}
 }
 
+func TestRepairVerificationServiceListsAllAttemptsWithoutInboxLimit(t *testing.T) {
+	store := NewInMemoryRepairVerificationStore()
+	for index := 0; index < 105; index++ {
+		attempt := RepairVerificationAttempt{
+			ID: fmt.Sprintf("verification-%d", index), TenantID: "tenant-a", GapID: "gap-1",
+			SpaceID: DefaultKnowledgeSpaceID, CompletedAt: time.Date(2026, 7, 11, 8, index%60, 0, 0, time.UTC),
+		}
+		if _, err := store.AppendRepairVerification(attempt); err != nil {
+			t.Fatalf("append %d returned error: %v", index, err)
+		}
+	}
+	service := RepairVerificationService{store: store}
+	items, err := service.ListAll("tenant-a")
+	if err != nil || len(items) != 105 {
+		t.Fatalf("all verification attempts = %d, err=%v", len(items), err)
+	}
+}
+
 func TestRepairVerificationProjectionBecomesStaleWhenActiveDocumentChanges(t *testing.T) {
 	knowledgeStore := NewInMemoryKnowledgeStore()
 	knowledgeService := NewKnowledgeService(knowledgeStore)

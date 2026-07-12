@@ -85,6 +85,20 @@ func TestFileRepairRecurrenceStoreKeepsConcurrentObservations(t *testing.T) {
 	}
 }
 
+func TestRepairRecurrenceStoreAllowsExplicitTrendReadLimit(t *testing.T) {
+	store := NewInMemoryRepairRecurrenceStore()
+	for index := 0; index < 105; index++ {
+		record := recurrenceRecord(fmt.Sprintf("recurrence-%d", index), "tenant-a", fmt.Sprintf("gap-%d", index), "audit-1")
+		if _, err := store.SaveRepairRecurrence(record); err != nil {
+			t.Fatalf("save %d returned error: %v", index, err)
+		}
+	}
+	items, err := store.ListRepairRecurrences("tenant-a", "", "", 1000)
+	if err != nil || len(items) != 105 {
+		t.Fatalf("trend recurrence items = %d, err=%v", len(items), err)
+	}
+}
+
 func recurrenceObservation(tenantID, gapID, auditID string) RepairRecurrenceObservation {
 	return RepairRecurrenceObservation{TenantID: tenantID, GapID: gapID, AuditID: auditID, RecordedAt: time.Date(2026, 7, 11, 8, 0, 0, 0, time.UTC)}
 }

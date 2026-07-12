@@ -436,6 +436,24 @@ func TestFileKnowledgeGapStoreLeavesNoTemporaryFilesBehind(t *testing.T) {
 	}
 }
 
+func TestKnowledgeGapServiceListsAllTenantSpacesForTrends(t *testing.T) {
+	store := NewInMemoryKnowledgeGapStore()
+	service := NewKnowledgeGapService(store)
+	for _, gap := range []KnowledgeGap{
+		{ID: "gap-default", TenantID: "tenant-a", SpaceID: DefaultKnowledgeSpaceID, Question: "default", NoSourceReason: "missing", Status: KnowledgeGapResolved},
+		{ID: "gap-ops", TenantID: "tenant-a", SpaceID: "ops", Question: "ops", NoSourceReason: "missing", Status: KnowledgeGapResolved},
+		{ID: "gap-other", TenantID: "tenant-b", SpaceID: "ops", Question: "other", NoSourceReason: "missing", Status: KnowledgeGapResolved},
+	} {
+		if _, err := store.SaveKnowledgeGap(gap); err != nil {
+			t.Fatalf("save gap %s returned error: %v", gap.ID, err)
+		}
+	}
+	items, err := service.ListAll("tenant-a")
+	if err != nil || len(items) != 2 || items[0].TenantID != "tenant-a" || items[1].TenantID != "tenant-a" {
+		t.Fatalf("all tenant gaps = %#v, err=%v", items, err)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

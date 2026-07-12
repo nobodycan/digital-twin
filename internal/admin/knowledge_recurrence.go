@@ -327,9 +327,6 @@ func filterRepairRecurrences(records []RepairRecurrence, tenantID, gapID, status
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
-	}
 	if len(out) > limit {
 		out = out[:limit]
 	}
