@@ -421,6 +421,42 @@ func TestAdminShellLoadsPersonaAdminScript(t *testing.T) {
 	}
 }
 
+func TestAdminShellStartsLockedBehindCapabilityGate(t *testing.T) {
+	html, err := os.ReadFile("admin.html")
+	if err != nil {
+		t.Fatalf("read admin.html: %v", err)
+	}
+	script, err := os.ReadFile("admin.js")
+	if err != nil {
+		t.Fatalf("read admin.js: %v", err)
+	}
+	for _, want := range []string{
+		`id="admin-unlock"`,
+		`id="admin-credential"`,
+		`id="admin-app"`,
+		`id="admin-auth-status"`,
+	} {
+		if !strings.Contains(string(html), want) {
+			t.Fatalf("admin.html missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"/admin-access",
+		"function adminFetch",
+		"function initializeAdmin",
+		"Authorization",
+	} {
+		if !strings.Contains(string(script), want) {
+			t.Fatalf("admin.js missing auth contract marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{"localStorage", "sessionStorage", "document.cookie", "history.pushState"} {
+		if strings.Contains(string(script), forbidden) {
+			t.Fatalf("admin.js contains forbidden credential persistence marker %q", forbidden)
+		}
+	}
+}
+
 func TestAdminShellIncludesKnowledgeLifecycleControls(t *testing.T) {
 	html, err := os.ReadFile("admin.html")
 	if err != nil {

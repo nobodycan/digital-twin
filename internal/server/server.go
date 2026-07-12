@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,8 @@ type Config struct {
 	AuditAdmin           *admin.AuditService
 	StaticDir            string
 	APIKeys              []string
+	AdminAPIKeys         []string
+	AllowAnonymousAdmin  bool
 	RateLimitRequests    int
 	DefaultTenantID      string
 	DefaultUserID        string
@@ -94,7 +97,9 @@ type Handler struct {
 	toolPolicyAdmin      *admin.ToolPolicyService
 	auditAdmin           *admin.AuditService
 	staticDir            string
-	apiKeys              map[string]struct{}
+	apiKeys              []string
+	adminAPIKeys         []string
+	allowAnonymousAdmin  bool
 	rateLimitRequests    int
 	defaultTenantID      string
 	defaultUserID        string
@@ -130,7 +135,9 @@ func NewHandler(config Config) http.Handler {
 		toolPolicyAdmin:      config.ToolPolicyAdmin,
 		auditAdmin:           config.AuditAdmin,
 		staticDir:            config.StaticDir,
-		apiKeys:              apiKeySet(config.APIKeys),
+		apiKeys:              normalizedKeys(config.APIKeys),
+		adminAPIKeys:         normalizedKeys(config.AdminAPIKeys),
+		allowAnonymousAdmin:  config.AllowAnonymousAdmin || (len(config.APIKeys) == 0 && len(config.AdminAPIKeys) == 0),
 		rateLimitRequests:    config.RateLimitRequests,
 		defaultTenantID:      strings.TrimSpace(config.DefaultTenantID),
 		defaultUserID:        strings.TrimSpace(config.DefaultUserID),
@@ -140,6 +147,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("GET /ready", handler.handleReady)
 	handler.mux.HandleFunc("GET /metrics", handler.handleMetrics)
 	handler.mux.HandleFunc("GET /runtime/status", handler.handleRuntimeStatus)
+	handler.mux.HandleFunc("GET /admin-access", handler.handleAdminAccess)
 	handler.mux.HandleFunc("GET /favicon.ico", handler.handleFavicon)
 	handler.mux.HandleFunc("GET /app", handler.handleStaticHTML("app.html"))
 	handler.mux.HandleFunc("GET /admin", handler.handleStaticHTML("admin.html"))
@@ -200,8 +208,18 @@ func NewHandler(config Config) http.Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	requestID := requestIDFrom(r)
 	w.Header().Set("X-Request-ID", requestID)
-	if protectedRoute(r.URL.Path) {
-		key, ok := h.authorizedKey(r)
+	if adminRoute(r.URL.Path) {
+		key, ok := h.authorizedKey(h.adminAPIKeys, h.allowAnonymousAdmin, r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			return
+		}
+		if !h.allow(key) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "rate_limited"})
+			return
+		}
+	} else if runtimeProtectedRoute(r.URL.Path) {
+		key, ok := h.authorizedKey(h.apiKeys, true, r)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
@@ -212,6 +230,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.mux.ServeHTTP(w, r)
+}
+
+func (h *Handler) handleAdminAccess(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"auth_required": !h.allowAnonymousAdmin})
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -1898,42 +1921,53 @@ func writeSSEJSON(w http.ResponseWriter, event string, value any) {
 	writeSSE(w, event, string(body))
 }
 
-func apiKeySet(keys []string) map[string]struct{} {
-	if len(keys) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(keys))
+func normalizedKeys(keys []string) []string {
+	set := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if trimmed := strings.TrimSpace(key); trimmed != "" {
-			set[trimmed] = struct{}{}
+			set = append(set, trimmed)
 		}
 	}
 	return set
 }
 
-func protectedRoute(path string) bool {
+func runtimeProtectedRoute(path string) bool {
 	return path == "/chat" ||
 		path == "/chat/stream" ||
 		path == "/experience/stream" ||
-		path == "/experience/mock-voice/stream" ||
-		strings.HasPrefix(path, "/admin/persona/") ||
-		strings.HasPrefix(path, "/admin/memory") ||
-		path == "/admin/knowledge" ||
-		strings.HasPrefix(path, "/admin/knowledge/") ||
-		strings.HasPrefix(path, "/admin/tools/") ||
-		path == "/admin/audit"
+		path == "/experience/mock-voice/stream"
 }
 
-func (h *Handler) authorizedKey(r *http.Request) (string, bool) {
-	if len(h.apiKeys) == 0 {
+func adminRoute(path string) bool {
+	return path == "/admin/" || strings.HasPrefix(path, "/admin/")
+}
+
+func (h *Handler) authorizedKey(keys []string, allowAnonymous bool, r *http.Request) (string, bool) {
+	if len(keys) == 0 && allowAnonymous {
 		return "anonymous", true
 	}
-	key := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if key == "" {
-		key = strings.TrimSpace(r.Header.Get("X-API-Key"))
+	key, present := requestKey(r)
+	if !present {
+		return "", false
 	}
-	_, ok := h.apiKeys[key]
-	return key, ok
+	matched := 0
+	for _, candidate := range keys {
+		matched |= subtle.ConstantTimeCompare([]byte(key), []byte(candidate))
+	}
+	return key, matched == 1
+}
+
+func requestKey(r *http.Request) (string, bool) {
+	authorization := r.Header.Get("Authorization")
+	if authorization != "" {
+		if !strings.HasPrefix(authorization, "Bearer ") {
+			return "", false
+		}
+		key := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+		return key, key != ""
+	}
+	key := strings.TrimSpace(r.Header.Get("X-API-Key"))
+	return key, key != ""
 }
 
 func (h *Handler) allow(key string) bool {

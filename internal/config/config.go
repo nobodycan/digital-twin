@@ -26,7 +26,13 @@ type ServerConfig struct {
 	Host              string
 	Port              int
 	APIKey            string
+	AdminAPIKey       string
 	RateLimitRequests int
+}
+
+type AdminAccessPolicy struct {
+	EffectiveAPIKey string
+	AllowAnonymous  bool
 }
 
 type LogConfig struct {
@@ -168,6 +174,7 @@ func applyEnv(cfg *AppConfig) error {
 		"server.port":                firstEnv("DIGITAL_TWIN_SERVER_PORT", "SERVER_PORT"),
 		"server.host":                firstEnv("DIGITAL_TWIN_SERVER_HOST", "SERVER_HOST"),
 		"server.api_key":             firstEnv("DIGITAL_TWIN_SERVER_API_KEY", "SERVER_API_KEY"),
+		"server.admin_api_key":       firstEnv("DIGITAL_TWIN_SERVER_ADMIN_API_KEY", "SERVER_ADMIN_API_KEY"),
 		"server.rate_limit_requests": firstEnv("DIGITAL_TWIN_SERVER_RATE_LIMIT_REQUESTS", "SERVER_RATE_LIMIT_REQUESTS"),
 		"log.level":                  firstEnv("DIGITAL_TWIN_LOG_LEVEL", "LOG_LEVEL"),
 		"llm.provider":               firstEnv("DIGITAL_TWIN_LLM_PROVIDER", "LLM_PROVIDER"),
@@ -213,6 +220,8 @@ func setValue(cfg *AppConfig, key, value string) error {
 		cfg.Server.Host = value
 	case "server.api_key":
 		cfg.Server.APIKey = value
+	case "server.admin_api_key":
+		cfg.Server.AdminAPIKey = value
 	case "server.rate_limit_requests":
 		limit, err := strconv.Atoi(value)
 		if err != nil {
@@ -269,6 +278,10 @@ func validate(cfg AppConfig) error {
 	}
 	if strings.TrimSpace(cfg.Server.Host) == "" {
 		return fmt.Errorf("server.host is required")
+	}
+	adminPolicy := cfg.AdminAccessPolicy()
+	if !adminPolicy.AllowAnonymous && adminPolicy.EffectiveAPIKey == "" {
+		return fmt.Errorf("server.admin_api_key is required outside local loopback mode; set DIGITAL_TWIN_SERVER_ADMIN_API_KEY or server.admin_api_key")
 	}
 	if !isLocalBindHost(cfg.Server.Host) && strings.TrimSpace(cfg.Server.APIKey) == "" {
 		return fmt.Errorf("server.api_key is required when server.host is non-local")
@@ -357,6 +370,7 @@ func (cfg AppConfig) SafeSummary() string {
 		"asr.base_url=" + safeURLSummary(cfg.ASR.BaseURL),
 		"asr.api_key=" + redactedMarker(cfg.ASR.APIKey),
 		"server.api_key=" + redactedMarker(cfg.Server.APIKey),
+		"server.admin_api_key=" + redactedMarker(cfg.Server.AdminAPIKey),
 	}
 	return strings.Join(fields, " ")
 }
@@ -372,6 +386,7 @@ func (cfg AppConfig) RedactSecrets(text string) string {
 func (cfg AppConfig) secretValues() []string {
 	candidates := []string{
 		cfg.Server.APIKey,
+		cfg.Server.AdminAPIKey,
 		cfg.LLM.APIKey,
 		cfg.TTS.APIKey,
 		cfg.ASR.APIKey,
@@ -383,6 +398,17 @@ func (cfg AppConfig) secretValues() []string {
 		}
 	}
 	return secrets
+}
+
+func (cfg AppConfig) AdminAccessPolicy() AdminAccessPolicy {
+	key := strings.TrimSpace(cfg.Server.AdminAPIKey)
+	if key == "" {
+		key = strings.TrimSpace(cfg.Server.APIKey)
+	}
+	return AdminAccessPolicy{
+		EffectiveAPIKey: key,
+		AllowAnonymous:  strings.EqualFold(strings.TrimSpace(cfg.Environment), "local") && isLocalBindHost(cfg.Server.Host) && key == "",
+	}
 }
 
 func redactedMarker(secret string) string {

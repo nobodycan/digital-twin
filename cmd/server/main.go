@@ -91,6 +91,11 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 	if cfg.Server.APIKey != "" {
 		apiKeys = []string{cfg.Server.APIKey}
 	}
+	adminPolicy := cfg.AdminAccessPolicy()
+	adminAPIKeys := []string(nil)
+	if adminPolicy.EffectiveAPIKey != "" {
+		adminAPIKeys = []string{adminPolicy.EffectiveAPIKey}
+	}
 	metrics := observability.NewMemoryMetrics()
 	avatarMachine, err := avatar.NewStateMachine(avatar.Manifest{
 		Supported: []avatar.State{
@@ -180,6 +185,8 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		AuditAdmin:           &auditAdmin,
 		StaticDir:            defaultStaticDir(),
 		APIKeys:              apiKeys,
+		AdminAPIKeys:         adminAPIKeys,
+		AllowAnonymousAdmin:  adminPolicy.AllowAnonymous,
 		RateLimitRequests:    cfg.Server.RateLimitRequests,
 		DefaultTenantID:      cfg.Tenant.DefaultID,
 		DefaultUserID:        cfg.Tenant.DefaultUserID,

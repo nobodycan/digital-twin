@@ -25,6 +25,40 @@ func TestDefaultConfigPathUsesEnvironment(t *testing.T) {
 	}
 }
 
+func TestBuildHandlerWiresDedicatedAdminKeySeparatelyFromRuntimeKey(t *testing.T) {
+	handler, err := buildHandler(config.AppConfig{
+		Environment: "local",
+		Server: config.ServerConfig{
+			Host:        "127.0.0.1",
+			APIKey:      "runtime-secret",
+			AdminAPIKey: "admin-secret",
+		},
+		LLM:    config.LLMConfig{Provider: "local", FallbackPolicy: "fallback_to_local"},
+		TTS:    config.ProviderConfig{Provider: "local"},
+		ASR:    config.ProviderConfig{Provider: "local"},
+		Tenant: config.TenantConfig{DefaultID: "tenant-a", DefaultUserID: "user-a"},
+	})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+
+	adminWithDedicatedKey := httptest.NewRequest(http.MethodGet, "/admin/future", nil)
+	adminWithDedicatedKey.Header.Set("Authorization", "Bearer admin-secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, adminWithDedicatedKey)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("admin with dedicated key status = %d, want 404 after auth", response.Code)
+	}
+
+	chatWithAdminKey := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{}`))
+	chatWithAdminKey.Header.Set("Authorization", "Bearer admin-secret")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, chatWithAdminKey)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("chat with admin key status = %d, want 401", response.Code)
+	}
+}
+
 func TestParseLogLevel(t *testing.T) {
 	tests := map[string]slog.Level{
 		"debug":   slog.LevelDebug,
