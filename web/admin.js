@@ -56,6 +56,12 @@ const knowledgeRepairWeakOnly = document.querySelector("#knowledge-repair-weak-o
 const knowledgeRepairUnresolvedOnly = document.querySelector("#knowledge-repair-unresolved-only");
 const knowledgeRepairLinkedEvidence = document.querySelector("#knowledge-repair-linked-evidence");
 const knowledgeRepairRefresh = document.querySelector("#knowledge-repair-refresh");
+const qualityTrendsFrom = document.querySelector("#quality-trends-from");
+const qualityTrendsTo = document.querySelector("#quality-trends-to");
+const qualityTrendsSpace = document.querySelector("#quality-trends-space");
+const qualityTrendsRefresh = document.querySelector("#quality-trends-refresh");
+const qualityTrendsStatus = document.querySelector("#quality-trends-status");
+const qualityTrendsBody = document.querySelector("#quality-trends-body");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
 const knowledgeImportJobs = document.querySelector("#knowledge-import-jobs");
 const knowledgeReviewQueue = document.querySelector("#knowledge-review-queue");
@@ -88,6 +94,7 @@ const knowledgeRepairRecurrenceDismissPath = "/admin/knowledge/repairs/recurrenc
 const knowledgeRepairVerifyPath = "/admin/knowledge/repairs/verify";
 const knowledgeRepairVerificationsPath = "/admin/knowledge/repairs/verifications";
 const knowledgeRepairPromotionPath = "/admin/knowledge/repairs/promotions";
+const qualityTrendsPath = "/admin/knowledge/quality-trends";
 const knowledgeImportPath = "/admin/knowledge/import";
 const knowledgeImportListPath = "/admin/knowledge/imports";
 const knowledgeReviewPath = "/admin/knowledge/review";
@@ -1170,6 +1177,66 @@ async function loadKnowledgeRepairs() {
   }
 }
 
+function qualityTrendDate(daysAgo) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
+}
+
+function renderKnowledgeQualityTrends(projection) {
+  clearElement(qualityTrendsBody);
+  const rows = [
+    ["Verification attempts", projection.verification?.attempt_count ?? 0],
+    ["Repairs with a passed verification", projection.verification?.passed_gap_count ?? 0],
+    ["Current stale verifications", projection.verification?.stale?.count ?? 0],
+    ["Suspected recurrences", projection.recurrence?.suspected_count ?? 0],
+    ["Confirmed recurrences", projection.recurrence?.confirmed_count ?? 0],
+    ["Promoted eval passed", projection.promoted_eval?.passed_count ?? 0],
+    ["Promoted eval failed", projection.promoted_eval?.failed_count ?? 0],
+    ["Promoted eval unavailable", projection.promoted_eval?.unavailable_count ?? 0],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "knowledge-quality-trends-row";
+    row.textContent = `${label}: ${value}`;
+    qualityTrendsBody.append(row);
+  }
+  for (const item of projection.repeated_failures?.questions || []) {
+    const row = document.createElement("div");
+    row.textContent = `Repeated question ${item.gap_id}: ${item.occurrence_count} occurrences`;
+    qualityTrendsBody.append(row);
+  }
+  for (const item of projection.repeated_failures?.promoted_cases || []) {
+    const row = document.createElement("div");
+    row.textContent = `Promoted eval ${item.case_id}: ${item.failed_count} failures`;
+    qualityTrendsBody.append(row);
+  }
+  const metrics = [projection.recurrence?.rate, projection.promoted_eval?.rate, projection.verification?.time_to_verify];
+  for (const metric of metrics) {
+    if (!metric || metric.status === "observed") continue;
+    const note = document.createElement("div");
+    note.textContent = `${metric.status}: sample is not sufficient for a rate or median`;
+    qualityTrendsBody.append(note);
+  }
+  qualityTrendsStatus.textContent = "Quality trends loaded from observed records";
+}
+
+async function loadKnowledgeQualityTrends() {
+  if (!qualityTrendsBody || !qualityTrendsFrom || !qualityTrendsTo) return;
+  if (!qualityTrendsFrom.value) qualityTrendsFrom.value = qualityTrendDate(29);
+  if (!qualityTrendsTo.value) qualityTrendsTo.value = qualityTrendDate(0);
+  const query = new URLSearchParams({ from: qualityTrendsFrom.value, to: qualityTrendsTo.value });
+  if (qualityTrendsSpace?.value) query.set("space_id", qualityTrendsSpace.value);
+  qualityTrendsStatus.textContent = "Loading quality trends";
+  const response = await fetch(`${qualityTrendsPath}?${query}`);
+  if (!response.ok) {
+    qualityTrendsStatus.textContent = `Quality trends unavailable (${response.status})`;
+    throw new Error(`quality trends failed (${response.status})`);
+  }
+  const result = await response.json();
+  renderKnowledgeQualityTrends(result.projection || result);
+}
+
 async function loadKnowledgeGaps() {
   const response = await fetch(`${knowledgeGapListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
   if (!response.ok) throw new Error(`knowledge gaps failed (${response.status})`);
@@ -1358,6 +1425,7 @@ async function refreshKnowledgeWorkspace() {
   await loadKnowledgeGaps();
   await loadKnowledgeImportJobs();
   await loadKnowledgeReviewQueue();
+  await loadKnowledgeQualityTrends();
 }
 
 function draftPayload() {
@@ -1502,6 +1570,13 @@ async function loadKnowledgeSpaces() {
   if (!response.ok) return;
   const spaces = await response.json();
   knowledgeSpaceSelect.textContent = "";
+	if (qualityTrendsSpace) {
+		qualityTrendsSpace.textContent = "";
+		const allOption = document.createElement("option");
+		allOption.value = "";
+		allOption.textContent = "All spaces";
+		qualityTrendsSpace.append(allOption);
+	}
   for (const space of spaces) {
     const option = document.createElement("option");
     option.value = space.id;
@@ -1510,6 +1585,12 @@ async function loadKnowledgeSpaces() {
       option.selected = true;
     }
     knowledgeSpaceSelect.append(option);
+		if (qualityTrendsSpace) {
+			const trendOption = document.createElement("option");
+			trendOption.value = space.id;
+			trendOption.textContent = space.name;
+			qualityTrendsSpace.append(trendOption);
+		}
   }
   if (spaces.length > 0) {
     const selected = spaces.find((space) => space.id === selectedKnowledgeSpaceId) || spaces[0];
@@ -1737,6 +1818,14 @@ knowledgeRepairRefresh?.addEventListener("click", async () => {
     await loadKnowledgeRepairs();
   } catch (error) {
     setKnowledgeStatus(`Knowledge repair error: ${error.message}`);
+  }
+});
+
+qualityTrendsRefresh?.addEventListener("click", async () => {
+  try {
+    await loadKnowledgeQualityTrends();
+  } catch (error) {
+    qualityTrendsStatus.textContent = `Quality trends error: ${error.message}`;
   }
 });
 
