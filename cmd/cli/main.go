@@ -187,10 +187,11 @@ func writePromotedEvalObservations(store admin.RepairEvalObservationStore, tenan
 		}
 		status := admin.RepairEvalObservationFailed
 		reason := "assertion_failed"
-		if check.Status == evals.CheckPassed {
+		switch check.Status {
+		case evals.CheckPassed:
 			status = admin.RepairEvalObservationPassed
 			reason = ""
-		} else if check.Status == evals.CheckSkipped {
+		case evals.CheckSkipped:
 			status = admin.RepairEvalObservationUnavailable
 			reason = "required_check_unavailable"
 		}
