@@ -254,9 +254,6 @@ func filterRepairEvalPromotions(revisions []RepairEvalPromotionRevision, tenantI
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
-	}
 	if len(items) > limit {
 		items = items[:limit]
 	}

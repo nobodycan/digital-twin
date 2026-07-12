@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.9.0.0 Phase 26 Knowledge Quality Trends - 2026-07-12
+
+### Added
+
+- Operators can review bounded verification throughput, time-to-verify, stale repair counts, recurrence observations, and promoted eval outcomes by date and knowledge space.
+- Added durable promoted-eval observations with idempotent tenant-scoped storage, safe failure categories, and deterministic seven-day trend buckets.
+- Added the `/admin/knowledge/quality-trends` endpoint and an Operations Console trend panel with honest empty and small-sample states.
+
+### Changed
+
+- Extended tenant-scoped knowledge ledger reads for all-space trend aggregation without changing Repair Inbox list limits.
+- Documented that the current default admin configuration is local-only until the anonymous admin access risk is remediated before public deployment.
+
 ## v0.8.0.0 Phase 25 Repair-to-Eval Promotion - 2026-07-11
 
 ### Added

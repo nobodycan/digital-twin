@@ -44,6 +44,7 @@ type Config struct {
 	RecurrenceAdmin      *admin.RepairRecurrenceService
 	PromotionAdmin       *admin.RepairEvalPromotionService
 	PromotionStore       admin.RepairEvalPromotionStore
+	QualityTrendsAdmin   *admin.QualityTrendService
 	ToolPolicyAdmin      *admin.ToolPolicyService
 	AuditAdmin           *admin.AuditService
 	StaticDir            string
@@ -89,6 +90,7 @@ type Handler struct {
 	recurrenceAdmin      *admin.RepairRecurrenceService
 	promotionAdmin       *admin.RepairEvalPromotionService
 	promotionStore       admin.RepairEvalPromotionStore
+	qualityTrendsAdmin   *admin.QualityTrendService
 	toolPolicyAdmin      *admin.ToolPolicyService
 	auditAdmin           *admin.AuditService
 	staticDir            string
@@ -124,6 +126,7 @@ func NewHandler(config Config) http.Handler {
 		recurrenceAdmin:      config.RecurrenceAdmin,
 		promotionAdmin:       config.PromotionAdmin,
 		promotionStore:       config.PromotionStore,
+		qualityTrendsAdmin:   config.QualityTrendsAdmin,
 		toolPolicyAdmin:      config.ToolPolicyAdmin,
 		auditAdmin:           config.AuditAdmin,
 		staticDir:            config.StaticDir,
@@ -183,6 +186,7 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/recurrences/dismiss", handler.handleKnowledgeRecurrenceDismiss)
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/promotions", handler.handleKnowledgeRepairPromotion)
 	handler.mux.HandleFunc("GET /admin/knowledge/repairs/promotions", handler.handleKnowledgeRepairPromotionList)
+	handler.mux.HandleFunc("GET /admin/knowledge/quality-trends", handler.handleKnowledgeQualityTrends)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -982,6 +986,25 @@ func (h *Handler) handleKnowledgeRepairPromotionList(w http.ResponseWriter, r *h
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) handleKnowledgeQualityTrends(w http.ResponseWriter, r *http.Request) {
+	if h.qualityTrendsAdmin == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_quality_trends_unavailable"})
+		return
+	}
+	projection, err := h.qualityTrendsAdmin.Project(h.adminTenantID(), admin.QualityTrendRequest{
+		From: r.URL.Query().Get("from"), To: r.URL.Query().Get("to"), SpaceID: r.URL.Query().Get("space_id"),
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "date") || strings.Contains(err.Error(), "from and to") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_quality_trend_filter"})
+			return
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_quality_trends_unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tenant_id": h.adminTenantID(), "projection": projection})
 }
 
 func promotionErrorResponse(err error) (int, string) {

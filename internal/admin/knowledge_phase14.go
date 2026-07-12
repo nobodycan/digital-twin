@@ -212,6 +212,7 @@ type KnowledgeGapInput struct {
 type KnowledgeGapStore interface {
 	SaveKnowledgeGap(KnowledgeGap) (KnowledgeGap, error)
 	ListKnowledgeGaps(tenantID, spaceID string) ([]KnowledgeGap, error)
+	ListKnowledgeGapsAll(tenantID string) ([]KnowledgeGap, error)
 	GetKnowledgeGap(tenantID, gapID string) (KnowledgeGap, error)
 }
 
@@ -276,6 +277,12 @@ func (s KnowledgeGapService) Create(tenantID string, input KnowledgeGapInput) (K
 
 func (s KnowledgeGapService) List(tenantID, spaceID string) ([]KnowledgeGap, error) {
 	return s.store.ListKnowledgeGaps(tenantID, normalizeDocumentSpaceID(spaceID))
+}
+
+// ListAll returns every gap for one tenant without applying the Repair Inbox
+// space default. Trend projections use it before applying their own filter.
+func (s KnowledgeGapService) ListAll(tenantID string) ([]KnowledgeGap, error) {
+	return s.store.ListKnowledgeGapsAll(tenantID)
 }
 
 func (s KnowledgeGapService) Get(tenantID, gapID string) (KnowledgeGap, error) {
@@ -354,6 +361,17 @@ func (s *InMemoryKnowledgeGapStore) ListKnowledgeGaps(tenantID, spaceID string) 
 	return out, nil
 }
 
+func (s *InMemoryKnowledgeGapStore) ListKnowledgeGapsAll(tenantID string) ([]KnowledgeGap, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]KnowledgeGap, 0, len(s.gaps[tenantID]))
+	for _, gap := range s.gaps[tenantID] {
+		items = append(items, gap)
+	}
+	sortKnowledgeGaps(items)
+	return items, nil
+}
+
 func (s *InMemoryKnowledgeGapStore) GetKnowledgeGap(tenantID, gapID string) (KnowledgeGap, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -407,6 +425,21 @@ func (s *FileKnowledgeGapStore) ListKnowledgeGaps(tenantID, spaceID string) ([]K
 	normalizedSpaceID := normalizeDocumentSpaceID(spaceID)
 	for _, gap := range gaps {
 		if gap.TenantID == tenantID && gap.SpaceID == normalizedSpaceID {
+			out = append(out, gap)
+		}
+	}
+	sortKnowledgeGaps(out)
+	return out, nil
+}
+
+func (s *FileKnowledgeGapStore) ListKnowledgeGapsAll(tenantID string) ([]KnowledgeGap, error) {
+	gaps, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KnowledgeGap, 0, len(gaps))
+	for _, gap := range gaps {
+		if gap.TenantID == tenantID {
 			out = append(out, gap)
 		}
 	}

@@ -169,11 +169,43 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "write eval reports: %v\n", err)
 		return 1
 	}
+	if err := writePromotedEvalObservations(admin.NewFileRepairEvalObservationStore(*adminDataDir), *tenantID, result, time.Now().UTC()); err != nil {
+		_, _ = fmt.Fprintf(stderr, "write eval observations: %v\n", err)
+		return 1
+	}
 	_, _ = fmt.Fprintf(stdout, "eval run %s status=%s json=%s markdown=%s\n", result.ID, result.Status, paths.JSONPath, paths.MarkdownPath)
 	if result.Status == evals.SuiteFailed {
 		return 1
 	}
 	return 0
+}
+
+func writePromotedEvalObservations(store admin.RepairEvalObservationStore, tenantID string, result evals.SuiteResult, observedAt time.Time) error {
+	for _, check := range result.Checks {
+		if !check.Required || check.Check != string(evals.CategoryRAG) || check.Promotion == nil {
+			continue
+		}
+		status := admin.RepairEvalObservationFailed
+		reason := "assertion_failed"
+		switch check.Status {
+		case evals.CheckPassed:
+			status = admin.RepairEvalObservationPassed
+			reason = ""
+		case evals.CheckSkipped:
+			status = admin.RepairEvalObservationUnavailable
+			reason = "required_check_unavailable"
+		}
+		record := admin.RepairEvalObservation{
+			ID:       "repair-eval-observation-" + result.ID + "-" + check.CaseID,
+			TenantID: tenantID, RunID: result.ID, CaseID: check.CaseID, GapID: check.Promotion.GapID,
+			SpaceID: check.Promotion.KnowledgeSpaceID, PromotionID: check.Promotion.PromotionID,
+			PromotionRevision: check.Promotion.Revision, ObservedAt: observedAt, Status: status, FailureReason: reason,
+		}
+		if _, _, err := store.AppendRepairEvalObservation(record); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func loadPromotedEvalCases(dir, tenantID string) ([]evals.Case, error) {

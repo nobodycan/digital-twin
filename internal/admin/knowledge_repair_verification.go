@@ -188,6 +188,15 @@ func (s RepairVerificationService) List(tenantID, gapID string, limit int) ([]Re
 	return items, nil
 }
 
+// ListAll returns the complete tenant-scoped verification ledger. The Repair
+// Inbox list remains capped; trend aggregation needs the uncapped source.
+func (s RepairVerificationService) ListAll(tenantID string) ([]RepairVerificationAttempt, error) {
+	if s.store == nil {
+		return nil, errors.New("repair verification service unavailable")
+	}
+	return s.store.ListRepairVerifications(tenantID, "")
+}
+
 func (s RepairVerificationService) Project(tenantID string, gap KnowledgeGap, documents []KnowledgeDocument) (RepairVerificationProjection, error) {
 	items, err := s.List(tenantID, gap.ID, 100)
 	if err != nil {
