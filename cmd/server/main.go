@@ -132,9 +132,15 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 			return admin.RepairVerificationDiagnosticResponse{Results: results, NoSourceReason: response.NoSourceReason, ReviewGated: response.ReviewGatedCount}, nil
 		},
 	)
-	recurrenceAdmin := admin.NewRepairRecurrenceService(admin.NewFileRepairRecurrenceStore(adminDataDir), knowledgeGapAdmin, verificationAdmin)
+	recurrenceStore := admin.NewFileRepairRecurrenceStore(adminDataDir)
+	recurrenceAdmin := admin.NewRepairRecurrenceService(recurrenceStore, knowledgeGapAdmin, verificationAdmin)
 	promotionStore := admin.NewFileRepairEvalPromotionStore(adminDataDir)
+	evalObservationStore := admin.NewFileRepairEvalObservationStore(adminDataDir)
 	promotionAdmin := admin.NewRepairEvalPromotionService(promotionStore, knowledgeGapAdmin, knowledgeAdmin, verificationAdmin, &recurrenceAdmin)
+	qualityTrendsAdmin := admin.NewQualityTrendService(admin.QualityTrendDependencies{
+		Gaps: knowledgeGapAdmin, Knowledge: knowledgeAdmin, Verification: verificationAdmin,
+		Recurrences: recurrenceStore, Observations: evalObservationStore,
+	})
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{
@@ -169,6 +175,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		RecurrenceAdmin:      &recurrenceAdmin,
 		PromotionAdmin:       &promotionAdmin,
 		PromotionStore:       promotionStore,
+		QualityTrendsAdmin:   &qualityTrendsAdmin,
 		ToolPolicyAdmin:      &toolPolicyAdmin,
 		AuditAdmin:           &auditAdmin,
 		StaticDir:            defaultStaticDir(),
