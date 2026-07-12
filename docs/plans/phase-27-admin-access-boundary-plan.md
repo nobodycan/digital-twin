@@ -2,7 +2,7 @@
 
 Date: 2026-07-12
 
-Status: Draft; awaiting Stage 2 approval
+Status: Approved; implemented in `b1c8365`; awaiting ship
 
 Branch: `codex/phase-27-admin-access-boundary`
 

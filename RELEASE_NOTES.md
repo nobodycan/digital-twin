@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.10.0.0 Phase 27 Admin Access Boundary - 2026-07-12
+
+### Added
+
+- Operators can keep the local loopback admin console frictionless while staging,
+  production, unknown environments, and non-loopback listeners fail closed without
+  an admin credential.
+- Added dedicated `server.admin_api_key` configuration with environment override,
+  legacy-key migration fallback, redacted summaries, and centralized `/admin/*`
+  authentication.
+- Added `/admin-access` capability discovery and an in-memory browser unlock flow
+  that relocks after unauthorized responses without persisting credentials.
+
+### Changed
+
+- Separated admin and runtime API-key authorization and made admin route matching
+  prefix-safe for future endpoints.
+- Updated the local-first README with deployment configuration and unlock guidance.
+
 ## v0.9.0.0 Phase 26 Knowledge Quality Trends - 2026-07-12
 
 ### Added
