@@ -146,6 +146,10 @@ func TestRunEvalIncludesPromotedCasesWithDynamicKnowledgeOutput(t *testing.T) {
 	if !strings.Contains(string(report), "promoted case requires a dynamic executor") && !strings.Contains(string(report), "missing required source document") && !strings.Contains(string(report), "support state below minimum") {
 		t.Fatalf("report = %s, want promoted dynamic evaluation evidence", report)
 	}
+	observations, truncated, err := admin.NewFileRepairEvalObservationStore(adminDir).ListRepairEvalObservations("tenant-a", 20)
+	if err != nil || truncated || len(observations) != 1 || observations[0].CaseID != "repair-eval-tenant-a-gap-1" || observations[0].Status != admin.RepairEvalObservationFailed {
+		t.Fatalf("observations = %#v, truncated=%v, err=%v", observations, truncated, err)
+	}
 }
 
 func TestRunDecisionsListsOnlyRequestedTenantGovernanceRecords(t *testing.T) {
