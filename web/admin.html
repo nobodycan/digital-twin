@@ -13,6 +13,18 @@
         <p class="status-line">Local-first controls for Phase 21</p>
       </header>
 
+      <section id="admin-unlock" class="admin-section" aria-label="Admin access" hidden>
+        <h2>Admin access required</h2>
+        <form id="admin-unlock-form">
+          <label for="admin-credential">Admin API key</label>
+          <input id="admin-credential" type="password" autocomplete="off" required>
+          <button id="admin-unlock-button" type="submit">Unlock</button>
+        </form>
+        <p id="admin-auth-status" class="status-line" role="status" aria-live="polite"></p>
+      </section>
+
+      <div id="admin-app" hidden>
+
       <section id="persona-admin" class="admin-section" aria-label="Persona editor">
         <h2>Persona</h2>
         <textarea id="persona-draft" rows="8">Digital Twin, professional digital advisor</textarea>
@@ -225,6 +237,7 @@
           <tbody id="audit-table-body"><tr><td colspan="5">No audit records</td></tr></tbody>
         </table>
       </section>
+      </div>
     </main>
     <script src="/web/admin.js"></script>
   </body>

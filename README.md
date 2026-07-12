@@ -4,7 +4,7 @@ Planning and implementation repo for a local-first professional digital human sy
 
 ## Status
 
-Current stage: `Phase 24 - Recurrence Watch`
+Current stage: `Phase 27 - Admin Access Boundary`
 
 What is already working:
 
@@ -41,7 +41,7 @@ What is still intentionally out of scope in this repo:
 
 - real 3D avatar or Live2D
 - real TTS / ASR providers in CI
-- auth / RBAC / billing
+- user accounts, RBAC, billing, and durable admin sessions
 - cloud deployment platform work
 - SQLite or other DB migration in the current local-first slice
 
@@ -78,6 +78,7 @@ flowchart TD
 - `GET /ready`
 - `GET /metrics`
 - `GET /runtime/status`
+- `GET /admin-access`
 - `GET /admin/audit`
 - `GET /admin/audit/timeline`
 - `GET /admin/knowledge`
@@ -148,6 +149,29 @@ Stop the tracked server:
 ```powershell
 .\scripts\stop-server.ps1
 ```
+
+## Admin access
+
+The default `local` server on a loopback host keeps the admin console usable
+without a key. Staging, production, unknown environments, and non-loopback
+listeners require an admin credential before startup. Configure it with either
+the YAML field below or the environment variable:
+
+```yaml
+server:
+  admin_api_key: "set-a-secret-outside-source-control"
+```
+
+```powershell
+$env:DIGITAL_TWIN_SERVER_ADMIN_API_KEY = "set-a-secret-outside-source-control"
+```
+
+For one migration phase, an existing `server.api_key` is accepted as the admin
+fallback when `server.admin_api_key` is empty. When both are configured, the
+dedicated admin key is required for `/admin/*`; the legacy key continues to
+protect chat and experience routes. The browser keeps the entered admin key only
+in page memory, so a reload requires entering it again. Use TLS and a real secret
+in any shared environment; this project does not provide accounts or RBAC.
 
 ## Runtime status and fallback policy
 

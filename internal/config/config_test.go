@@ -12,6 +12,7 @@ func TestLoadFromYAML(t *testing.T) {
 server:
   port: 9090
   api_key: yaml-api-key
+  admin_api_key: yaml-admin-key
   rate_limit_requests: 12
 log:
   level: debug
@@ -45,6 +46,9 @@ tenant:
 	}
 	if cfg.Server.APIKey != "yaml-api-key" {
 		t.Fatalf("Server.APIKey = %q, want yaml-api-key", cfg.Server.APIKey)
+	}
+	if cfg.Server.AdminAPIKey != "yaml-admin-key" {
+		t.Fatalf("Server.AdminAPIKey = %q, want yaml-admin-key", cfg.Server.AdminAPIKey)
 	}
 	if cfg.Server.RateLimitRequests != 12 {
 		t.Fatalf("Server.RateLimitRequests = %d, want 12", cfg.Server.RateLimitRequests)
@@ -130,6 +134,7 @@ tenant:
 
 	t.Setenv("SERVER_PORT", "10080")
 	t.Setenv("SERVER_API_KEY", "env-api-key")
+	t.Setenv("DIGITAL_TWIN_SERVER_ADMIN_API_KEY", "env-admin-key")
 	t.Setenv("SERVER_RATE_LIMIT_REQUESTS", "7")
 	t.Setenv("LOG_LEVEL", "warn")
 	t.Setenv("LLM_PROVIDER", "openai-compatible")
@@ -155,6 +160,9 @@ tenant:
 	}
 	if cfg.Server.APIKey != "env-api-key" {
 		t.Fatalf("Server.APIKey = %q, want env-api-key", cfg.Server.APIKey)
+	}
+	if cfg.Server.AdminAPIKey != "env-admin-key" {
+		t.Fatalf("Server.AdminAPIKey = %q, want env-admin-key", cfg.Server.AdminAPIKey)
 	}
 	if cfg.Server.RateLimitRequests != 7 {
 		t.Fatalf("Server.RateLimitRequests = %d, want 7", cfg.Server.RateLimitRequests)
@@ -234,6 +242,7 @@ func TestLoadProductionLikeProviderConfig(t *testing.T) {
 environment: production
 server:
   port: 9090
+  admin_api_key: admin-prod-key
 llm:
   provider: openai-compatible
   base_url: https://llm.example.test/v1
@@ -290,6 +299,7 @@ tts:
 `)
 
 	t.Setenv("DIGITAL_TWIN_ENVIRONMENT", "production")
+	t.Setenv("DIGITAL_TWIN_SERVER_ADMIN_API_KEY", "env-admin-key")
 	t.Setenv("DIGITAL_TWIN_TTS_PROVIDER", "http")
 	t.Setenv("DIGITAL_TWIN_TTS_BASE_URL", "https://env-tts.example.test")
 	t.Setenv("DIGITAL_TWIN_TTS_API_KEY", "env-tts-key")
@@ -316,6 +326,8 @@ tts:
 func TestLoadRejectsProductionHTTPProviderWithoutSecretLeak(t *testing.T) {
 	path := writeConfig(t, `
 environment: production
+server:
+  admin_api_key: admin-key
 tts:
   provider: http
   base_url: https://tts.example.test
@@ -342,6 +354,8 @@ asr:
 func TestLoadRejectsProductionLikeLLMConfigWithoutRequiredFields(t *testing.T) {
 	path := writeConfig(t, `
 environment: production
+server:
+  admin_api_key: admin-key
 llm:
   provider: openai-compatible
   api_key: super-secret-llm-key
@@ -364,6 +378,8 @@ llm:
 func TestLoadRejectsProductionLikeLLMConfigWithoutModel(t *testing.T) {
 	path := writeConfig(t, `
 environment: staging
+server:
+  admin_api_key: admin-key
 llm:
   provider: openai-compatible
   base_url: https://llm.example.test/v1
@@ -379,6 +395,8 @@ llm:
 func TestLoadRejectsProductionLikeLLMConfigWithoutAPIKey(t *testing.T) {
 	path := writeConfig(t, `
 environment: production
+server:
+  admin_api_key: admin-key
 llm:
   provider: openai-compatible
   base_url: https://llm.example.test/v1
@@ -419,8 +437,9 @@ func TestSafeSummaryRedactsSecrets(t *testing.T) {
 	cfg := AppConfig{
 		Environment: "production",
 		Server: ServerConfig{
-			Port:   8080,
-			APIKey: "server-secret",
+			Port:        8080,
+			APIKey:      "server-secret",
+			AdminAPIKey: "admin-secret",
 		},
 		Log: LogConfig{Level: "info"},
 		LLM: LLMConfig{
@@ -445,7 +464,7 @@ func TestSafeSummaryRedactsSecrets(t *testing.T) {
 
 	summary := cfg.SafeSummary()
 
-	for _, secret := range []string{"server-secret", "llm-secret", "tts-secret", "asr-secret"} {
+	for _, secret := range []string{"server-secret", "admin-secret", "llm-secret", "tts-secret", "asr-secret"} {
 		if strings.Contains(summary, secret) {
 			t.Fatalf("SafeSummary() leaked %q in %q", secret, summary)
 		}
@@ -453,6 +472,7 @@ func TestSafeSummaryRedactsSecrets(t *testing.T) {
 	for _, want := range []string{
 		"environment=production",
 		"server.port=8080",
+		"server.admin_api_key=<redacted>",
 		"llm.provider=openai-compatible",
 		"llm.base_url=https://llm.example.test/v1/chat",
 		"llm.model=gpt-secret",
@@ -495,16 +515,17 @@ func TestRedactSecretsMasksKnownSecretValues(t *testing.T) {
 		ASR:    ProviderConfig{APIKey: "asr-secret"},
 	}
 
-	text := "Authorization: Bearer server-secret llm=llm-secret tts=tts-secret asr=asr-secret"
+	cfg.Server.AdminAPIKey = "admin-secret"
+	text := "Authorization: Bearer server-secret admin=admin-secret llm=llm-secret tts=tts-secret asr=asr-secret"
 	redacted := cfg.RedactSecrets(text)
 
-	for _, secret := range []string{"server-secret", "llm-secret", "tts-secret", "asr-secret"} {
+	for _, secret := range []string{"server-secret", "admin-secret", "llm-secret", "tts-secret", "asr-secret"} {
 		if strings.Contains(redacted, secret) {
 			t.Fatalf("RedactSecrets() leaked %q in %q", secret, redacted)
 		}
 	}
-	if strings.Count(redacted, "<redacted>") != 4 {
-		t.Fatalf("RedactSecrets() = %q, want four redactions", redacted)
+	if strings.Count(redacted, "<redacted>") != 5 {
+		t.Fatalf("RedactSecrets() = %q, want five redactions", redacted)
 	}
 }
 
@@ -570,6 +591,7 @@ environment: local
 server:
   host: 0.0.0.0
   port: 8080
+  admin_api_key: admin-key
 `)
 
 	_, err := Load(path)
@@ -578,6 +600,77 @@ server:
 	}
 	if !strings.Contains(err.Error(), "server.api_key is required when server.host is non-local") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadRejectsNonLocalEnvironmentWithoutAdminAPIKey(t *testing.T) {
+	path := writeConfig(t, `
+environment: production
+server:
+  host: 127.0.0.1
+`)
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "server.admin_api_key") {
+		t.Fatalf("Load() error = %v, want admin key validation error", err)
+	}
+}
+
+func TestLoadAcceptsNonLocalEnvironmentWithAdminAPIKey(t *testing.T) {
+	path := writeConfig(t, `
+environment: staging
+server:
+  host: 127.0.0.1
+  admin_api_key: admin-secret
+`)
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+}
+
+func TestLoadRejectsUnknownEnvironmentWithoutAdminAPIKey(t *testing.T) {
+	path := writeConfig(t, `
+environment: preview
+server:
+  host: 127.0.0.1
+`)
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "server.admin_api_key") {
+		t.Fatalf("Load() error = %v, want fail-closed admin key validation error", err)
+	}
+}
+
+func TestAdminAccessPolicyUsesDedicatedKeyAndLocalLoopbackException(t *testing.T) {
+	tests := []struct {
+		name          string
+		environment   string
+		host          string
+		serverKey     string
+		adminKey      string
+		wantKey       string
+		wantAnonymous bool
+	}{
+		{name: "local loopback anonymous", environment: "local", host: "127.0.0.1", wantAnonymous: true},
+		{name: "local loopback dedicated", environment: "local", host: "127.0.0.1", serverKey: "runtime", adminKey: "admin", wantKey: "admin"},
+		{name: "staging loopback", environment: "staging", host: "127.0.0.1", adminKey: "admin", wantKey: "admin"},
+		{name: "local non-loopback", environment: "local", host: "0.0.0.0", adminKey: "admin", wantKey: "admin"},
+		{name: "unknown environment", environment: "preview", host: "127.0.0.1", adminKey: "admin", wantKey: "admin"},
+		{name: "legacy fallback", environment: "production", host: "0.0.0.0", serverKey: "legacy", wantKey: "legacy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := AppConfig{Environment: tt.environment, Server: ServerConfig{Host: tt.host, APIKey: tt.serverKey, AdminAPIKey: tt.adminKey}}
+			policy := cfg.AdminAccessPolicy()
+			if policy.EffectiveAPIKey != tt.wantKey {
+				t.Fatalf("EffectiveAPIKey = %q, want %q", policy.EffectiveAPIKey, tt.wantKey)
+			}
+			if policy.AllowAnonymous != tt.wantAnonymous {
+				t.Fatalf("AllowAnonymous = %t, want %t", policy.AllowAnonymous, tt.wantAnonymous)
+			}
+		})
 	}
 }
 

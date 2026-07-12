@@ -1,3 +1,109 @@
+const adminUnlock = document.querySelector("#admin-unlock");
+const adminUnlockForm = document.querySelector("#admin-unlock-form");
+const adminCredentialInput = document.querySelector("#admin-credential");
+const adminAuthStatus = document.querySelector("#admin-auth-status");
+const adminApp = document.querySelector("#admin-app");
+const adminAccessPath = "/admin-access";
+let adminCredential = null;
+let adminAuthRequired = null;
+let adminInitialized = false;
+
+function setAdminAuthStatus(message) {
+  if (adminAuthStatus) {
+    adminAuthStatus.textContent = message;
+  }
+}
+
+function lockAdmin(message = "Enter the admin API key to continue") {
+  adminCredential = null;
+  adminInitialized = false;
+  if (adminApp) {
+    adminApp.hidden = true;
+  }
+  if (adminUnlock) {
+    adminUnlock.hidden = false;
+  }
+  setAdminAuthStatus(message);
+  adminCredentialInput?.focus();
+}
+
+async function adminFetch(input, init = {}) {
+  const headers = new Headers(init.headers || {});
+  if (adminCredential) {
+    headers.set("Authorization", `Bearer ${adminCredential}`);
+  }
+  const response = await fetch(input, { ...init, headers });
+  if (response.status === 401) {
+    lockAdmin("The admin key is missing or invalid. Enter it again.");
+  }
+  return response;
+}
+
+async function initializeAdmin() {
+  if (adminInitialized) {
+    return;
+  }
+  adminInitialized = true;
+  if (adminUnlock) {
+    adminUnlock.hidden = true;
+  }
+  if (adminApp) {
+    adminApp.hidden = false;
+  }
+  loadActivePersona().catch((error) => {
+    setPersonaStatus(`Active error: ${error.message}`);
+  });
+  loadKnowledgeSpaces().catch(() => {});
+  loadMemory().catch(() => {});
+  updateKnowledgeImportMode();
+  refreshKnowledgeWorkspace().catch(() => {});
+  loadAudit().catch(() => {});
+  loadAuditTimeline().catch(() => {});
+}
+
+async function startAdminAccess() {
+  try {
+    const response = await fetch(adminAccessPath, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`capability failed (${response.status})`);
+    }
+    const capability = await response.json();
+    adminAuthRequired = capability.auth_required === true;
+    if (!adminAuthRequired) {
+      await initializeAdmin();
+      return;
+    }
+    lockAdmin("Enter the admin API key to continue");
+  } catch (error) {
+    lockAdmin(`Unable to check admin access: ${error.message}`);
+  }
+}
+
+adminUnlockForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const credential = adminCredentialInput?.value.trim() || "";
+  if (!credential) {
+    setAdminAuthStatus("Enter an admin API key.");
+    adminCredentialInput?.focus();
+    return;
+  }
+  adminCredential = credential;
+  setAdminAuthStatus("Checking admin access...");
+  try {
+    const response = await adminFetch("/admin/persona/active");
+    if (!response.ok) {
+      throw new Error(`validation failed (${response.status})`);
+    }
+    if (adminCredentialInput) {
+      adminCredentialInput.value = "";
+    }
+    setAdminAuthStatus("Admin access unlocked.");
+    await initializeAdmin();
+  } catch (error) {
+    lockAdmin(error.message);
+  }
+});
+
 const personaDraft = document.querySelector("#persona-draft");
 const personaStatus = document.querySelector("#persona-status");
 const saveDraftButton = document.querySelector("#persona-save-draft");
@@ -383,7 +489,7 @@ async function loadKnowledgeReviewQueue() {
     space_id: selectedKnowledgeSpaceId,
     review_status: "pending_review",
   });
-  const response = await fetch(`${knowledgeListPath}?${params.toString()}`);
+  const response = await adminFetch(`${knowledgeListPath}?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`knowledge review queue failed (${response.status})`);
   }
@@ -469,7 +575,7 @@ function renderKnowledgeHealth(summary) {
 }
 
 async function loadKnowledgeHealth() {
-  const response = await fetch(`${knowledgeHealthPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  const response = await adminFetch(`${knowledgeHealthPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
   if (!response.ok) throw new Error(`health failed (${response.status})`);
   const summary = await response.json();
   renderKnowledgeHealth(summary);
@@ -628,7 +734,7 @@ async function inspectKnowledgeDocument(documentID) {
     return;
   }
   const detailURL = `${knowledgeDetailPathPrefix}${documentID}/detail`;
-  const detail = await fetch(detailURL);
+  const detail = await adminFetch(detailURL);
   if (!detail.ok) {
     throw new Error(`${detailURL} failed (${detail.status})`);
   }
@@ -682,7 +788,7 @@ async function verifyKnowledgeRepair(item) {
 }
 
 async function promoteKnowledgeRepair(item, supportFloor) {
-  const response = await fetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
+  const response = await adminFetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
   if (!response.ok) {
     throw new Error(`repair verification history failed (${response.status})`);
   }
@@ -708,7 +814,7 @@ async function promoteKnowledgeRepair(item, supportFloor) {
 }
 
 async function showKnowledgePromotionHistory(item, container) {
-  const response = await fetch(`${knowledgeRepairPromotionPath}?gap_id=${encodeURIComponent(item.gap_id)}&active_only=false&limit=20`);
+  const response = await adminFetch(`${knowledgeRepairPromotionPath}?gap_id=${encodeURIComponent(item.gap_id)}&active_only=false&limit=20`);
   if (!response.ok) {
     throw new Error(`repair promotion history failed (${response.status})`);
   }
@@ -736,7 +842,7 @@ async function showKnowledgePromotionHistory(item, container) {
 }
 
 async function showKnowledgeRepairHistory(item, container) {
-  const response = await fetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
+  const response = await adminFetch(`${knowledgeRepairVerificationsPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
   if (!response.ok) {
     throw new Error(`repair verification history failed (${response.status})`);
   }
@@ -764,7 +870,7 @@ async function showKnowledgeRepairHistory(item, container) {
 }
 
 async function showKnowledgeRecurrenceHistory(item, container) {
-  const response = await fetch(`${knowledgeRepairRecurrencesPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
+  const response = await adminFetch(`${knowledgeRepairRecurrencesPath}?gap_id=${encodeURIComponent(item.gap_id)}&limit=20`);
   if (!response.ok) {
     throw new Error(`repair recurrence history failed (${response.status})`);
   }
@@ -1162,7 +1268,7 @@ async function loadKnowledgeRepairs() {
   if (!knowledgeRepairBody) {
     return;
   }
-  const response = await fetch(knowledgeRepairQuery());
+  const response = await adminFetch(knowledgeRepairQuery());
   if (!response.ok) {
     throw new Error(`knowledge repairs failed (${response.status})`);
   }
@@ -1228,7 +1334,7 @@ async function loadKnowledgeQualityTrends() {
   const query = new URLSearchParams({ from: qualityTrendsFrom.value, to: qualityTrendsTo.value });
   if (qualityTrendsSpace?.value) query.set("space_id", qualityTrendsSpace.value);
   qualityTrendsStatus.textContent = "Loading quality trends";
-  const response = await fetch(`${qualityTrendsPath}?${query}`);
+  const response = await adminFetch(`${qualityTrendsPath}?${query}`);
   if (!response.ok) {
     qualityTrendsStatus.textContent = `Quality trends unavailable (${response.status})`;
     throw new Error(`quality trends failed (${response.status})`);
@@ -1238,7 +1344,7 @@ async function loadKnowledgeQualityTrends() {
 }
 
 async function loadKnowledgeGaps() {
-  const response = await fetch(`${knowledgeGapListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  const response = await adminFetch(`${knowledgeGapListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
   if (!response.ok) throw new Error(`knowledge gaps failed (${response.status})`);
   const gaps = await response.json() || [];
   clearElement(knowledgeGapQueue);
@@ -1255,7 +1361,7 @@ async function loadKnowledgeImportJobs() {
   if (!knowledgeImportJobs) {
     return;
   }
-  const response = await fetch(`${knowledgeImportListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
+  const response = await adminFetch(`${knowledgeImportListPath}?space_id=${encodeURIComponent(selectedKnowledgeSpaceId)}`);
   if (!response.ok) {
     throw new Error(`knowledge imports failed (${response.status})`);
   }
@@ -1338,7 +1444,7 @@ async function saveKnowledgeEdit() {
   cancelKnowledgeEdit();
   await refreshKnowledgeWorkspace();
   const detailURL = `${knowledgeDetailPathPrefix}${updated.id}/detail`;
-  const detail = await fetch(detailURL);
+  const detail = await adminFetch(detailURL);
   if (!detail.ok) throw new Error(`${detailURL} failed (${detail.status})`);
   renderKnowledgeDetail(await detail.json());
 }
@@ -1442,7 +1548,7 @@ function draftPayload() {
 }
 
 async function postJSON(url, body) {
-  const response = await fetch(url, {
+  const response = await adminFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -1460,7 +1566,7 @@ async function postJSON(url, body) {
 }
 
 async function loadActivePersona() {
-  const response = await fetch("/admin/persona/active");
+  const response = await adminFetch("/admin/persona/active");
   if (!response.ok) throw new Error(`active failed (${response.status})`);
   const active = await response.json();
   if (active.status === "none") {
@@ -1472,7 +1578,7 @@ async function loadActivePersona() {
 }
 
 async function loadMemory() {
-  const response = await fetch("/admin/memory");
+  const response = await adminFetch("/admin/memory");
   if (!response.ok) return;
   const records = await response.json();
   memoryTableBody.textContent = "";
@@ -1530,7 +1636,7 @@ async function loadKnowledge() {
   if (knowledgeFilterGapLinked?.checked) {
     params.set("gap_linked", "true");
   }
-  const response = await fetch(`${knowledgeListPath}?${params.toString()}`);
+  const response = await adminFetch(`${knowledgeListPath}?${params.toString()}`);
   if (!response.ok) return;
   const documents = await response.json();
   knowledgeTableBody.textContent = "";
@@ -1566,7 +1672,7 @@ async function loadKnowledge() {
 }
 
 async function loadKnowledgeSpaces() {
-  const response = await fetch("/admin/knowledge/spaces");
+  const response = await adminFetch("/admin/knowledge/spaces");
   if (!response.ok) return;
   const spaces = await response.json();
   knowledgeSpaceSelect.textContent = "";
@@ -1887,7 +1993,7 @@ toolSavePolicy?.addEventListener("click", async () => {
 });
 
 async function loadAudit() {
-  const response = await fetch("/admin/audit");
+  const response = await adminFetch("/admin/audit");
   if (!response.ok) return;
   const records = await response.json();
   auditTableBody.textContent = "";
@@ -1921,7 +2027,7 @@ async function loadAuditTimeline() {
   if (!auditTimelineBody) {
     return;
   }
-  const response = await fetch(auditTimelineQuery());
+  const response = await adminFetch(auditTimelineQuery());
   if (!response.ok) {
     throw new Error(`audit timeline failed (${response.status})`);
   }
@@ -1965,13 +2071,6 @@ rollbackButton?.addEventListener("click", async () => {
   }
 });
 
-loadActivePersona().catch((error) => {
-  setPersonaStatus(`Active error: ${error.message}`);
-});
-loadKnowledgeSpaces().catch(() => {});
-loadMemory().catch(() => {});
-updateKnowledgeImportMode();
-refreshKnowledgeWorkspace().catch(() => {});
 auditRefresh?.addEventListener("click", () => {
   loadAudit().catch(() => {});
 });
@@ -1980,5 +2079,4 @@ auditTimelineRefresh?.addEventListener("click", () => {
     setKnowledgeStatus(`Audit timeline error: ${error.message}`);
   });
 });
-loadAudit().catch(() => {});
-loadAuditTimeline().catch(() => {});
+startAdminAccess();

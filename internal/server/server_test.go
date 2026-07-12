@@ -284,6 +284,114 @@ func TestHandlerRequiresAPIKeyWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestHandlerProtectsAdminRoutesWithDedicatedKey(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		AdminAPIKeys: []string{"admin-secret"},
+		StaticDir:    t.TempDir(),
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/admin/future", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", response.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/admin/future", nil)
+	request.Header.Set("Authorization", "Bearer admin-secret")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("authenticated unknown admin route status = %d, want 404", response.Code)
+	}
+}
+
+func TestHandlerDoesNotTreatAdminPrefixLookalikesAsAdmin(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		AdminAPIKeys: []string{"admin-secret"},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/administrator", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want public 404 for prefix lookalike", response.Code)
+	}
+}
+
+func TestHandlerKeepsAdminAndRuntimeKeysSeparate(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		Orchestrator: stubOrchestrator{},
+		APIKeys:      []string{"runtime-secret"},
+		AdminAPIKeys: []string{"admin-secret"},
+		StaticDir:    t.TempDir(),
+	})
+
+	adminWithRuntimeKey := httptest.NewRequest(http.MethodGet, "/admin/future", nil)
+	adminWithRuntimeKey.Header.Set("Authorization", "Bearer runtime-secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, adminWithRuntimeKey)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("runtime key on admin status = %d, want 401", response.Code)
+	}
+
+	chatWithAdminKey := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(validChatJSON()))
+	chatWithAdminKey.Header.Set("Authorization", "Bearer admin-secret")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, chatWithAdminKey)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("admin key on chat status = %d, want 401", response.Code)
+	}
+}
+
+func TestHandlerRejectsMalformedAuthorizationWithoutFallingBackToAPIKey(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:      observability.NewMemoryMetrics(),
+		AdminAPIKeys: []string{"admin-secret"},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/admin/future", nil)
+	request.Header.Set("Authorization", "Basic admin-secret")
+	request.Header.Set("X-API-Key", "admin-secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", response.Code)
+	}
+}
+
+func TestHandlerAllowsAnonymousAdminOnlyWhenConfigured(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:             observability.NewMemoryMetrics(),
+		AllowAnonymousAdmin: true,
+	})
+	request := httptest.NewRequest(http.MethodGet, "/admin/future", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("anonymous admin status = %d, want handler dispatch 404", response.Code)
+	}
+}
+
+func TestHandlerServesAdminAccessCapability(t *testing.T) {
+	handler := NewHandler(Config{
+		Metrics:             observability.NewMemoryMetrics(),
+		AllowAnonymousAdmin: true,
+	})
+	request := httptest.NewRequest(http.MethodGet, "/admin-access", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != `{"auth_required":false}
+` {
+		t.Fatalf("status/body = %d/%q, want 200 and capability response", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
+	}
+}
+
 func TestHandlerAllowsValidAPIKey(t *testing.T) {
 	handler := NewHandler(Config{
 		Metrics:      observability.NewMemoryMetrics(),
