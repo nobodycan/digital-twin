@@ -29,10 +29,14 @@ type QualityTrendRequest struct {
 }
 
 type QualityTrendFilter struct {
-	SpaceID   string    `json:"space_id,omitempty"`
-	AllSpaces bool      `json:"all_spaces"`
-	Start     time.Time `json:"start_at"`
-	End       time.Time `json:"end_exclusive_at"`
+	From       string    `json:"from"`
+	To         string    `json:"to"`
+	SpaceID    string    `json:"space_id,omitempty"`
+	AllSpaces  bool      `json:"all_spaces"`
+	Timezone   string    `json:"timezone"`
+	WindowDays int       `json:"window_days"`
+	Start      time.Time `json:"start_at"`
+	End        time.Time `json:"end_exclusive_at"`
 }
 
 type QualityTrendMetric struct {
@@ -111,6 +115,7 @@ type QualityTrendTrace struct {
 }
 
 type QualityTrendProjection struct {
+	ProjectedAt      time.Time                    `json:"projected_at"`
 	Filter           QualityTrendFilter           `json:"filter"`
 	Verification     QualityTrendVerification     `json:"verification"`
 	Recurrence       QualityTrendRecurrence       `json:"recurrence"`
@@ -166,7 +171,8 @@ func ParseQualityTrendFilter(from, to, spaceID string, now time.Time, location *
 	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
 	if from == "" && to == "" {
 		end := today.AddDate(0, 0, 1)
-		return QualityTrendFilter{SpaceID: normalizeDocumentSpaceID(spaceID), AllSpaces: strings.TrimSpace(spaceID) == "", Start: end.AddDate(0, 0, -qualityTrendDefaultDays), End: end}, nil
+		start := end.AddDate(0, 0, -qualityTrendDefaultDays)
+		return qualityTrendFilterWithContext(start, end, spaceID, location), nil
 	}
 	if from == "" || to == "" {
 		return QualityTrendFilter{}, errors.New("from and to must be provided together")
@@ -184,14 +190,28 @@ func ParseQualityTrendFilter(from, to, spaceID string, now time.Time, location *
 	if days < 1 || days > qualityTrendMaxDays {
 		return QualityTrendFilter{}, errors.New("quality trend date range must be between 1 and 90 days")
 	}
-	return QualityTrendFilter{SpaceID: normalizeDocumentSpaceID(spaceID), AllSpaces: strings.TrimSpace(spaceID) == "", Start: startDate, End: end}, nil
+	return qualityTrendFilterWithContext(startDate, end, spaceID, location), nil
+}
+
+func qualityTrendFilterWithContext(start, end time.Time, spaceID string, location *time.Location) QualityTrendFilter {
+	return QualityTrendFilter{
+		From:       start.In(location).Format("2006-01-02"),
+		To:         end.AddDate(0, 0, -1).In(location).Format("2006-01-02"),
+		SpaceID:    normalizeDocumentSpaceID(spaceID),
+		AllSpaces:  strings.TrimSpace(spaceID) == "",
+		Timezone:   location.String(),
+		WindowDays: qualityTrendCalendarDays(start, end, location),
+		Start:      start,
+		End:        end,
+	}
 }
 
 func (s QualityTrendService) Project(tenantID string, request QualityTrendRequest) (QualityTrendProjection, error) {
 	if s.gaps.store == nil || s.knowledge.store == nil || s.verification.store == nil || s.verification.knowledge.store == nil || s.recurrences == nil {
 		return QualityTrendProjection{}, errors.New("quality trend service unavailable")
 	}
-	filter, err := ParseQualityTrendFilter(request.From, request.To, request.SpaceID, s.now(), s.location)
+	projectedAt := s.now()
+	filter, err := ParseQualityTrendFilter(request.From, request.To, request.SpaceID, projectedAt, s.location)
 	if err != nil {
 		return QualityTrendProjection{}, err
 	}
@@ -210,7 +230,7 @@ func (s QualityTrendService) Project(tenantID string, request QualityTrendReques
 	if err != nil {
 		return QualityTrendProjection{}, err
 	}
-	projection := QualityTrendProjection{Filter: filter}
+	projection := QualityTrendProjection{ProjectedAt: projectedAt, Filter: filter}
 	passedByGap := make(map[string]RepairVerificationAttempt)
 	for _, attempt := range attempts {
 		if _, ok := gapByID[attempt.GapID]; !ok || !filter.AllSpaces && attempt.SpaceID != filter.SpaceID {

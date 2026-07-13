@@ -32,6 +32,20 @@ func TestParseQualityTrendFilterUsesBoundedLocalDates(t *testing.T) {
 	}
 }
 
+func TestParseQualityTrendFilterIncludesReviewContext(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	filter, err := ParseQualityTrendFilter("2026-03-08", "2026-03-10", "ops", time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC), location)
+	if err != nil {
+		t.Fatalf("parse filter returned error: %v", err)
+	}
+	if filter.From != "2026-03-08" || filter.To != "2026-03-10" || filter.Timezone != "America/New_York" || filter.WindowDays != 3 {
+		t.Fatalf("review context = %#v", filter)
+	}
+}
+
 func TestQualityTrendServiceProjectsVerificationAndRecurrenceByTenantAndSpace(t *testing.T) {
 	location := time.FixedZone("CST", 8*60*60)
 	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
@@ -95,6 +109,9 @@ func TestQualityTrendServiceProjectsVerificationAndRecurrenceByTenantAndSpace(t 
 	projection, err := service.Project("tenant-a", QualityTrendRequest{From: "2026-07-01", To: "2026-07-11", SpaceID: "ops"})
 	if err != nil {
 		t.Fatalf("project returned error: %v", err)
+	}
+	if !projection.ProjectedAt.Equal(now) {
+		t.Fatalf("projected at = %s, want %s", projection.ProjectedAt, now)
 	}
 	if projection.Verification.AttemptCount != 3 || projection.Verification.PassedGapCount != 3 {
 		t.Fatalf("verification = %#v", projection.Verification)
