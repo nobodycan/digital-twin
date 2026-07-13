@@ -377,10 +377,7 @@ func normalizeQualityReviewCheckpointRequest(request QualityReviewCheckpointRequ
 }
 
 func qualityReviewFilterFromTrend(filter QualityTrendFilter) QualityReviewFilter {
-	return QualityReviewFilter{
-		From: filter.From, To: filter.To, SpaceID: filter.SpaceID, AllSpaces: filter.AllSpaces,
-		Timezone: filter.Timezone, WindowDays: filter.WindowDays, Start: filter.Start, End: filter.End,
-	}
+	return QualityReviewFilter(filter)
 }
 
 type qualityReviewFingerprintInput struct {
