@@ -146,6 +146,11 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		Gaps: knowledgeGapAdmin, Knowledge: knowledgeAdmin, Verification: verificationAdmin,
 		Recurrences: recurrenceStore, Observations: evalObservationStore,
 	})
+	qualityReviewsAdmin := admin.NewQualityReviewCheckpointService(admin.QualityReviewCheckpointDependencies{
+		Trends: qualityTrendsAdmin,
+		Gaps:   knowledgeGapAdmin,
+		Store:  admin.NewFileQualityReviewCheckpointStore(adminDataDir),
+	})
 	toolPolicyAdmin := admin.NewToolPolicyService(admin.NewFileToolPolicyStore(adminDataDir))
 	auditAdmin := admin.NewAuditService(admin.NewFileAuditStore(adminDataDir))
 	return server.NewHandler(server.Config{
@@ -181,6 +186,7 @@ func buildHandler(cfg config.AppConfig) (http.Handler, error) {
 		PromotionAdmin:       &promotionAdmin,
 		PromotionStore:       promotionStore,
 		QualityTrendsAdmin:   &qualityTrendsAdmin,
+		QualityReviewsAdmin:  &qualityReviewsAdmin,
 		ToolPolicyAdmin:      &toolPolicyAdmin,
 		AuditAdmin:           &auditAdmin,
 		StaticDir:            defaultStaticDir(),

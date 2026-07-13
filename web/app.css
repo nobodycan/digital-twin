@@ -49,6 +49,37 @@ button:hover {
   filter: brightness(0.97);
 }
 
+.quality-review-context,
+.quality-review-comparison,
+.quality-review-history-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.quality-review-form,
+.quality-review-candidates {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.quality-review-candidates label {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-review-history-item {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  text-align: left;
+}
+
 button:disabled,
 input:disabled {
   cursor: not-allowed;

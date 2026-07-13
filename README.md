@@ -260,6 +260,35 @@ The retrieval pipeline is still local-first:
 
 ## Phase 21 highlights
 
+## Phase 28 highlights
+
+Phase 28 adds durable, operator-authored quality-review checkpoints to the local
+knowledge loop. In `/admin`, load a Quality Trends window, select the eligible
+gap evidence if needed, and save an `observe`, `repair_required`, or
+`risk_accepted` decision. The decision stores an allowlisted aggregate snapshot;
+it does not store question text, traces, snippets, or request bodies.
+
+The API is available to authenticated admin clients:
+
+```powershell
+# Create a checkpoint. Repeating this exact body with the same idempotency key returns the original record.
+curl.exe -X POST http://localhost:8080/admin/knowledge/quality-review-checkpoints `
+  -H "Authorization: Bearer $env:DIGITAL_TWIN_ADMIN_API_KEY" `
+  -H "Content-Type: application/json" `
+  -d '{"idempotency_key":"review-2026-07-13-ops-01","from":"2026-07-01","to":"2026-07-13","space_id":"ops","outcome":"observe"}'
+
+# Read the latest 20 checkpoints for one space (omit space_id for all-space reviews).
+curl.exe "http://localhost:8080/admin/knowledge/quality-review-checkpoints?space_id=ops&limit=20" `
+  -H "Authorization: Bearer $env:DIGITAL_TWIN_ADMIN_API_KEY"
+```
+
+Malformed requests return `invalid_quality_review_request`; changing a request
+while reusing its idempotency key returns `quality_review_idempotency_conflict`.
+The append-only ledger is `data/admin/quality_review_checkpoints.json` by default,
+or beneath `DIGITAL_TWIN_ADMIN_DATA`. It uses schema version 1. To roll back an
+application change, retain this file unchanged and use a build that understands
+schema 1; unsupported or corrupt envelopes fail closed on write.
+
 Phase 21 focuses on making answer trust inspectable over time:
 
 - `/admin` now exposes a bounded Answer Timeline powered by persisted audit records and `knowledge_evidence`

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -46,6 +47,7 @@ type Config struct {
 	PromotionAdmin       *admin.RepairEvalPromotionService
 	PromotionStore       admin.RepairEvalPromotionStore
 	QualityTrendsAdmin   *admin.QualityTrendService
+	QualityReviewsAdmin  *admin.QualityReviewCheckpointService
 	ToolPolicyAdmin      *admin.ToolPolicyService
 	AuditAdmin           *admin.AuditService
 	StaticDir            string
@@ -94,6 +96,7 @@ type Handler struct {
 	promotionAdmin       *admin.RepairEvalPromotionService
 	promotionStore       admin.RepairEvalPromotionStore
 	qualityTrendsAdmin   *admin.QualityTrendService
+	qualityReviewsAdmin  *admin.QualityReviewCheckpointService
 	toolPolicyAdmin      *admin.ToolPolicyService
 	auditAdmin           *admin.AuditService
 	staticDir            string
@@ -132,6 +135,7 @@ func NewHandler(config Config) http.Handler {
 		promotionAdmin:       config.PromotionAdmin,
 		promotionStore:       config.PromotionStore,
 		qualityTrendsAdmin:   config.QualityTrendsAdmin,
+		qualityReviewsAdmin:  config.QualityReviewsAdmin,
 		toolPolicyAdmin:      config.ToolPolicyAdmin,
 		auditAdmin:           config.AuditAdmin,
 		staticDir:            config.StaticDir,
@@ -195,6 +199,8 @@ func NewHandler(config Config) http.Handler {
 	handler.mux.HandleFunc("POST /admin/knowledge/repairs/promotions", handler.handleKnowledgeRepairPromotion)
 	handler.mux.HandleFunc("GET /admin/knowledge/repairs/promotions", handler.handleKnowledgeRepairPromotionList)
 	handler.mux.HandleFunc("GET /admin/knowledge/quality-trends", handler.handleKnowledgeQualityTrends)
+	handler.mux.HandleFunc("POST /admin/knowledge/quality-review-checkpoints", handler.handleQualityReviewCheckpointCreate)
+	handler.mux.HandleFunc("GET /admin/knowledge/quality-review-checkpoints", handler.handleQualityReviewCheckpointList)
 	handler.mux.HandleFunc("POST /admin/knowledge/reindex", handler.handleKnowledgeReindex)
 	handler.mux.HandleFunc("POST /admin/knowledge/citation-test", handler.handleKnowledgeCitationTest)
 	handler.mux.HandleFunc("POST /admin/knowledge/retrieval-diagnostics", handler.handleKnowledgeRetrievalDiagnostics)
@@ -1028,6 +1034,103 @@ func (h *Handler) handleKnowledgeQualityTrends(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tenant_id": h.adminTenantID(), "projection": projection})
+}
+
+type qualityReviewCheckpointResponse struct {
+	ID        string                        `json:"id"`
+	CreatedAt time.Time                     `json:"created_at"`
+	Filter    admin.QualityReviewFilter     `json:"filter"`
+	Outcome   admin.QualityReviewOutcome    `json:"outcome"`
+	Rationale string                        `json:"rationale,omitempty"`
+	GapIDs    []string                      `json:"gap_ids,omitempty"`
+	Snapshot  admin.QualityReviewSnapshotV1 `json:"snapshot"`
+}
+
+func (h *Handler) handleQualityReviewCheckpointCreate(w http.ResponseWriter, r *http.Request) {
+	if h.qualityReviewsAdmin == nil {
+		writeQualityReviewError(w, http.StatusServiceUnavailable, "quality_review_service_unavailable", "Quality review checkpoints are unavailable.", "Retry after the service is configured.")
+		return
+	}
+	var request admin.QualityReviewCheckpointRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeQualityReviewError(w, http.StatusRequestEntityTooLarge, "quality_review_request_too_large", "The review request is too large.", "Shorten the rationale or selected IDs and retry.")
+			return
+		}
+		writeQualityReviewError(w, http.StatusBadRequest, "invalid_quality_review_request", "The review request is malformed.", "Send one JSON object with only documented fields.")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeQualityReviewError(w, http.StatusBadRequest, "invalid_quality_review_request", "The review request must contain one JSON object.", "Remove trailing JSON and retry.")
+		return
+	}
+	result, err := h.qualityReviewsAdmin.Create(h.adminTenantID(), request)
+	if err != nil {
+		status, code, message, hint := qualityReviewErrorResponse(err)
+		writeQualityReviewError(w, status, code, message, hint)
+		return
+	}
+	status := http.StatusOK
+	if result.Created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, map[string]any{"checkpoint": qualityReviewCheckpointResponseFromRecord(result.Checkpoint), "created": result.Created})
+}
+
+func (h *Handler) handleQualityReviewCheckpointList(w http.ResponseWriter, r *http.Request) {
+	if h.qualityReviewsAdmin == nil {
+		writeQualityReviewError(w, http.StatusServiceUnavailable, "quality_review_service_unavailable", "Quality review checkpoints are unavailable.", "Retry after the service is configured.")
+		return
+	}
+	limit := 20
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			writeQualityReviewError(w, http.StatusBadRequest, "invalid_quality_review_request", "The history limit is invalid.", "Use a whole number from 1 through 20.")
+			return
+		}
+		limit = parsed
+	}
+	history, err := h.qualityReviewsAdmin.List(h.adminTenantID(), r.URL.Query().Get("space_id"), limit)
+	if err != nil {
+		status, code, message, hint := qualityReviewErrorResponse(err)
+		writeQualityReviewError(w, status, code, message, hint)
+		return
+	}
+	items := make([]qualityReviewCheckpointResponse, 0, len(history.Checkpoints))
+	for _, record := range history.Checkpoints {
+		items = append(items, qualityReviewCheckpointResponseFromRecord(record))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"checkpoints": items, "excluded_records": history.ExcludedRecords, "comparison": history.Comparison})
+}
+
+func qualityReviewCheckpointResponseFromRecord(record admin.QualityReviewCheckpoint) qualityReviewCheckpointResponse {
+	return qualityReviewCheckpointResponse{
+		ID: record.ID, CreatedAt: record.CreatedAt, Filter: record.Filter, Outcome: record.Outcome,
+		Rationale: record.Rationale, GapIDs: append([]string(nil), record.GapIDs...), Snapshot: record.Snapshot,
+	}
+}
+
+func writeQualityReviewError(w http.ResponseWriter, status int, code, message, hint string) {
+	writeJSON(w, status, map[string]string{"error": code, "message": message, "hint": hint})
+}
+
+func qualityReviewErrorResponse(err error) (int, string, string, string) {
+	switch {
+	case errors.Is(err, admin.ErrQualityReviewIdempotencyConflict):
+		return http.StatusConflict, "quality_review_idempotency_conflict", "The idempotency key was already used for a different review decision.", "Reuse a key only for the identical request, or generate a new key after changing the draft."
+	case errors.Is(err, admin.ErrQualityReviewGapNotEligible):
+		return http.StatusConflict, "quality_review_gap_not_eligible", "One or more selected gaps are no longer eligible for this evidence window.", "Refresh Quality Trends and select gaps from the refreshed candidate list."
+	case errors.Is(err, admin.ErrQualityReviewInvalid):
+		return http.StatusBadRequest, "invalid_quality_review_request", "The review request is invalid.", "Correct the date range, outcome, rationale, idempotency key, or selected IDs and retry."
+	case errors.Is(err, admin.ErrQualityReviewCapacity):
+		return http.StatusServiceUnavailable, "quality_review_storage_unavailable", "Checkpoint storage cannot accept another record safely.", "Preserve the draft and contact the local service operator with the request ID."
+	default:
+		return http.StatusServiceUnavailable, "quality_review_storage_unavailable", "The checkpoint could not be saved safely.", "Preserve the draft, retry, and use the request ID to inspect service health."
+	}
 }
 
 func promotionErrorResponse(err error) (int, string) {

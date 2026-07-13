@@ -168,6 +168,16 @@ const qualityTrendsSpace = document.querySelector("#quality-trends-space");
 const qualityTrendsRefresh = document.querySelector("#quality-trends-refresh");
 const qualityTrendsStatus = document.querySelector("#quality-trends-status");
 const qualityTrendsBody = document.querySelector("#quality-trends-body");
+const qualityReviewContext = document.querySelector("#quality-review-context");
+const qualityReviewForm = document.querySelector("#quality-review-form");
+const qualityReviewOutcome = document.querySelector("#quality-review-outcome");
+const qualityReviewRationale = document.querySelector("#quality-review-rationale");
+const qualityReviewCandidates = document.querySelector("#quality-review-candidates");
+const qualityReviewSave = document.querySelector("#quality-review-save");
+const qualityReviewStatus = document.querySelector("#quality-review-status");
+const qualityReviewComparison = document.querySelector("#quality-review-comparison");
+const qualityReviewHistoryStatus = document.querySelector("#quality-review-history-status");
+const qualityReviewHistory = document.querySelector("#quality-review-history");
 const knowledgeGapQueue = document.querySelector("#knowledge-gap-queue");
 const knowledgeImportJobs = document.querySelector("#knowledge-import-jobs");
 const knowledgeReviewQueue = document.querySelector("#knowledge-review-queue");
@@ -201,6 +211,7 @@ const knowledgeRepairVerifyPath = "/admin/knowledge/repairs/verify";
 const knowledgeRepairVerificationsPath = "/admin/knowledge/repairs/verifications";
 const knowledgeRepairPromotionPath = "/admin/knowledge/repairs/promotions";
 const qualityTrendsPath = "/admin/knowledge/quality-trends";
+const qualityReviewCheckpointsPath = "/admin/knowledge/quality-review-checkpoints";
 const knowledgeImportPath = "/admin/knowledge/import";
 const knowledgeImportListPath = "/admin/knowledge/imports";
 const knowledgeReviewPath = "/admin/knowledge/review";
@@ -213,6 +224,8 @@ let currentDraftId = "";
 let activeVersionId = "";
 let selectedKnowledgeSpaceId = "default";
 let selectedKnowledgeDocumentId = "";
+let qualityReviewIdempotencyKey = "";
+let qualityReviewProjection = null;
 let selectedKnowledgeDocument = null;
 let selectedKnowledgeGapId = "";
 let knowledgeEditDraft = null;
@@ -1327,6 +1340,123 @@ function renderKnowledgeQualityTrends(projection) {
   qualityTrendsStatus.textContent = "Quality trends loaded from observed records";
 }
 
+function qualityReviewSelectedGapIDs() {
+  return Array.from(qualityReviewCandidates?.querySelectorAll("input[type=checkbox]:checked") || []).map((input) => input.value);
+}
+
+function renderQualityReviewCandidates(projection) {
+  clearElement(qualityReviewCandidates);
+  const candidates = [];
+  for (const item of projection.repeated_failures?.questions || []) candidates.push([item.gap_id, `Repeated question: ${item.occurrence_count} occurrences`]);
+  for (const item of projection.repeated_failures?.promoted_cases || []) candidates.push([item.gap_id, `Promoted evaluation failure: ${item.failed_count} failures`]);
+  const unique = new Map(candidates.filter(([id]) => id));
+  if (unique.size === 0) {
+    qualityReviewCandidates.textContent = "No eligible gap candidates were observed in this window.";
+    return;
+  }
+  for (const [gapID, description] of unique.entries()) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = gapID;
+    label.append(input, document.createTextNode(` ${gapID}: ${description}`));
+    qualityReviewCandidates.append(label);
+  }
+}
+
+function renderQualityReviewHistory(checkpoints) {
+  clearElement(qualityReviewHistory);
+  if (!Array.isArray(checkpoints) || checkpoints.length === 0) {
+    qualityReviewHistory.textContent = "No saved checkpoints for this scope.";
+    return;
+  }
+  for (const checkpoint of checkpoints) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "quality-review-history-item";
+    item.textContent = `${new Date(checkpoint.created_at).toLocaleString()}: ${checkpoint.outcome}`;
+    item.addEventListener("click", () => {
+      qualityReviewComparison.textContent = `Checkpoint ${checkpoint.id}: ${checkpoint.filter.from} to ${checkpoint.filter.to}; decision ${checkpoint.outcome}.`;
+    });
+    qualityReviewHistory.append(item);
+  }
+}
+
+function renderQualityReviewComparison(comparison) {
+  clearElement(qualityReviewComparison);
+  if (!comparison) {
+    qualityReviewComparison.textContent = "No prior compatible checkpoint is available for this review window.";
+    return;
+  }
+  const heading = document.createElement("div");
+  heading.textContent = `Review-to-review difference: ${comparison.current.from} to ${comparison.current.to} compared with ${comparison.previous.from} to ${comparison.previous.to}.`;
+  qualityReviewComparison.append(heading);
+  for (const item of comparison.differences || []) {
+    const row = document.createElement("div");
+    if (item.status !== "observed") {
+      row.textContent = `${item.metric}: not comparable because one review withheld the metric.`;
+    } else if (item.unit === "percentage_points") {
+      row.textContent = `${item.metric}: ${item.current} vs ${item.previous}; signed difference ${item.delta} percentage points.`;
+    } else {
+      row.textContent = `${item.metric}: ${item.current} vs ${item.previous}; signed difference ${item.delta}.`;
+    }
+    qualityReviewComparison.append(row);
+  }
+}
+
+async function loadQualityReviewHistory() {
+  if (!qualityReviewHistory) return;
+  const query = new URLSearchParams({ limit: "20" });
+  if (qualityTrendsSpace?.value) query.set("space_id", qualityTrendsSpace.value);
+  qualityReviewHistoryStatus.textContent = "Loading review history";
+  const response = await adminFetch(`${qualityReviewCheckpointsPath}?${query}`);
+  if (!response.ok) {
+    const requestID = response.headers.get("X-Request-ID");
+    throw new Error(`review history failed (${response.status})${requestID ? `; request ID ${requestID}` : ""}`);
+  }
+  const result = await response.json();
+  renderQualityReviewHistory(result.checkpoints);
+  renderQualityReviewComparison(result.comparison);
+  qualityReviewHistoryStatus.textContent = result.excluded_records ? `${result.excluded_records} invalid stored record(s) excluded.` : "Review history loaded";
+}
+
+async function saveQualityReviewCheckpoint() {
+  if (!qualityReviewProjection) throw new Error("load quality trends before saving a review");
+  if (!qualityReviewIdempotencyKey) qualityReviewIdempotencyKey = crypto.randomUUID();
+  const payload = {
+    idempotency_key: qualityReviewIdempotencyKey,
+    from: qualityTrendsFrom.value,
+    to: qualityTrendsTo.value,
+    space_id: qualityTrendsSpace?.value || "",
+    outcome: qualityReviewOutcome.value,
+    rationale: qualityReviewRationale.value,
+    gap_ids: qualityReviewSelectedGapIDs(),
+  };
+  const response = await adminFetch(qualityReviewCheckpointsPath, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const result = await response.json();
+  if (!response.ok) {
+    const requestID = response.headers.get("X-Request-ID");
+    throw new Error(`${result.message || `review checkpoint failed (${response.status})`}${requestID ? ` Request ID: ${requestID}` : ""}`);
+  }
+  qualityReviewStatus.textContent = result.created ? "Review checkpoint saved." : "Existing review checkpoint replayed.";
+  qualityReviewIdempotencyKey = "";
+  qualityReviewRationale.value = "";
+  await loadQualityReviewHistory();
+  qualityReviewSave.focus();
+}
+
+function invalidateQualityReviewContext(message) {
+	qualityReviewIdempotencyKey = "";
+	qualityReviewProjection = null;
+  if (qualityReviewSave) qualityReviewSave.disabled = true;
+  if (qualityReviewComparison) qualityReviewComparison.textContent = "Trend filters changed. Reload trends before comparing or saving a review.";
+	if (qualityReviewStatus) qualityReviewStatus.textContent = message;
+}
+
+function rotateQualityReviewIdempotencyKey() {
+	qualityReviewIdempotencyKey = "";
+}
+
 async function loadKnowledgeQualityTrends() {
   if (!qualityTrendsBody || !qualityTrendsFrom || !qualityTrendsTo) return;
   if (!qualityTrendsFrom.value) qualityTrendsFrom.value = qualityTrendDate(29);
@@ -1340,7 +1470,12 @@ async function loadKnowledgeQualityTrends() {
     throw new Error(`quality trends failed (${response.status})`);
   }
   const result = await response.json();
-  renderKnowledgeQualityTrends(result.projection || result);
+  qualityReviewProjection = result.projection || result;
+  renderKnowledgeQualityTrends(qualityReviewProjection);
+  renderQualityReviewCandidates(qualityReviewProjection);
+  qualityReviewSave.disabled = false;
+  qualityReviewContext.textContent = `Reviewing ${qualityTrendsFrom.value} through ${qualityTrendsTo.value} for ${qualityTrendsSpace?.value || "all spaces"}.`;
+  await loadQualityReviewHistory();
 }
 
 async function loadKnowledgeGaps() {
@@ -1934,6 +2069,25 @@ qualityTrendsRefresh?.addEventListener("click", async () => {
     qualityTrendsStatus.textContent = `Quality trends error: ${error.message}`;
   }
 });
+
+qualityReviewForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    qualityReviewStatus.textContent = "Saving review checkpoint";
+    await saveQualityReviewCheckpoint();
+  } catch (error) {
+    qualityReviewStatus.textContent = `Review checkpoint error: ${error.message}`;
+  }
+});
+
+for (const control of [qualityTrendsFrom, qualityTrendsTo, qualityTrendsSpace]) {
+	control?.addEventListener("input", () => invalidateQualityReviewContext("Trend filters changed. Reload trends before saving a review."));
+	control?.addEventListener("change", () => invalidateQualityReviewContext("Trend filters changed. Reload trends before saving a review."));
+}
+for (const control of [qualityReviewOutcome, qualityReviewRationale, qualityReviewCandidates]) {
+	control?.addEventListener("input", rotateQualityReviewIdempotencyKey);
+	control?.addEventListener("change", rotateQualityReviewIdempotencyKey);
+}
 
 knowledgeEditToggle?.addEventListener("click", () => {
   startKnowledgeEdit();

@@ -181,6 +181,28 @@
           </div>
           <div id="quality-trends-status" role="status" aria-live="polite">No quality trend observations</div>
           <div id="quality-trends-body">No matching observations in this window</div>
+          <div id="quality-review-context" class="quality-review-context">Load trends to review the observed quality evidence for this window.</div>
+          <form id="quality-review-form" class="quality-review-form">
+            <label>Decision
+              <select id="quality-review-outcome" required>
+                <option value="observe">Observe</option>
+                <option value="repair_required">Repair required</option>
+                <option value="risk_accepted">Risk accepted</option>
+              </select>
+            </label>
+            <label>Rationale
+              <textarea id="quality-review-rationale" rows="3" maxlength="500" placeholder="Record the decision rationale (up to 500 characters)"></textarea>
+            </label>
+            <div id="quality-review-candidates" class="quality-review-candidates">Load trends to select eligible gaps.</div>
+            <button id="quality-review-save" type="submit" disabled>Save review checkpoint</button>
+          </form>
+          <div id="quality-review-status" role="status" aria-live="polite"></div>
+          <section id="quality-review-comparison" class="quality-review-comparison" aria-label="Review comparison">No prior compatible checkpoint is selected.</section>
+          <details class="quality-review-history-panel">
+            <summary>Review history</summary>
+            <div id="quality-review-history-status" role="status" aria-live="polite"></div>
+            <div id="quality-review-history">No saved checkpoints for this scope.</div>
+          </details>
         </section>
         <section id="knowledge-gap-queue" aria-label="Knowledge gaps">Knowledge gaps</section>
         <section id="knowledge-note" aria-label="Knowledge note">

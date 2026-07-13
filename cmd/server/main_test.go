@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nobodycan/digital-twin/internal/config"
 	"github.com/nobodycan/digital-twin/pkg/types"
@@ -22,6 +23,22 @@ func TestDefaultConfigPathUsesEnvironment(t *testing.T) {
 
 	if got := defaultConfigPath(); got != "custom.yaml" {
 		t.Fatalf("defaultConfigPath() = %q, want custom.yaml", got)
+	}
+}
+
+func TestBuildHandlerWiresQualityReviewCheckpointStore(t *testing.T) {
+	t.Setenv("DIGITAL_TWIN_ADMIN_DATA", t.TempDir())
+	handler, err := buildHandler(config.AppConfig{Environment: "local"})
+	if err != nil {
+		t.Fatalf("buildHandler() error = %v", err)
+	}
+	to := time.Now().UTC().Format("2006-01-02")
+	from := time.Now().UTC().AddDate(0, 0, -2).Format("2006-01-02")
+	body := fmt.Sprintf(`{"idempotency_key":"checkpoint-request-456","from":"%s","to":"%s","outcome":"observe"}`, from, to)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/admin/knowledge/quality-review-checkpoints", strings.NewReader(body)))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("quality review status = %d, body=%s", response.Code, response.Body.String())
 	}
 }
 

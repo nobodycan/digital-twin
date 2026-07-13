@@ -1,5 +1,21 @@
 # Release Notes
 
+## Unreleased - Phase 28 Knowledge Quality Review Checkpoints
+
+### Added
+
+- Added tenant-scoped, append-only quality-review checkpoints with stable evidence
+  snapshots, eligible-gap validation, and exact idempotency replay.
+- Added authenticated create and bounded history endpoints at
+  `/admin/knowledge/quality-review-checkpoints` plus Operations Console controls
+  for recording decisions and reviewing saved checkpoints.
+
+### Changed
+
+- Quality-review records use a versioned JSON ledger with atomic same-directory
+  replacement, a 10,000-record limit, and fail-closed handling for corrupt or
+  oversized history.
+
 ## v0.10.0.0 Phase 27 Admin Access Boundary - 2026-07-12
 
 ### Added
